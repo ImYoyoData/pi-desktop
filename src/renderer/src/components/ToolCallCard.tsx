@@ -16,6 +16,7 @@ import {
   FolderOutline,
   ListOutline,
   SquareTerminalOutline,
+  SyncOutline,
   type IoniconProps,
 } from "@renderer/components/icons/ionicons";
 import type { ToolCard } from "@renderer/utils/tool-diff";
@@ -351,9 +352,18 @@ export function ToolCallCard({
   /** 目录列举工具（ls 等）：动词用「读取」，目标用文件夹 chip。 */
   const isDirList = card.kind === "generic" && isDirectoryListTool(toolName);
 
-  /** 工具图标：目录列举用文件夹，失败用叉（不带圆环）。 */
+  /** 工具图标：运行中转圈，失败用叉（不带圆环），目录列举用文件夹。 */
+  const spinning = Boolean(streaming) && statusType !== "error";
   const ToolIcon =
-    statusType === "error" ? CloseOutline : isDirList ? FolderOutline : KindIcon;
+    statusType === "error"
+      ? CloseOutline
+      : spinning
+        ? SyncOutline
+        : isDirList
+          ? FolderOutline
+          : KindIcon;
+  const iconClass = `${styles.kindIcon} ${iconTone}${spinning ? ` ${styles.spinIcon}` : ""}`;
+  const stepIconClass = `${styles.stepIcon} ${iconTone}${spinning ? ` ${styles.spinIcon}` : ""}`;
 
   const stepVerb = shortToolName(toolName);
 
@@ -449,7 +459,7 @@ export function ToolCallCard({
     <ToolNestedCalls calls={nestedCalls} onOpen={onOpen} />
   ) : null;
 
-  /** 阻塞中的命令可以甩到后台：挂在展开体下方，不挤占标题行。 */
+  /** 阻塞中的命令可以甩到后台：贴标题行行尾，不另占一行高度。 */
   const backgroundBtn = canBackground ? (
     <Button
       size="small"
@@ -483,7 +493,7 @@ export function ToolCallCard({
             if (expandable) toggleOpen();
           }}
         >
-          <span className={`${styles.stepIcon} ${iconTone}`} aria-hidden="true">
+          <span className={stepIconClass} aria-hidden="true">
             <ToolIcon size={13} />
           </span>
           <span className={styles.stepVerb}>{stepVerb}</span>
@@ -496,6 +506,7 @@ export function ToolCallCard({
               className={`${styles.hoverChev}${open ? ` ${styles.expanded}` : ""}`}
             />
           ) : null}
+          {backgroundBtn}
         </div>
       ) : (
         <div
@@ -505,7 +516,7 @@ export function ToolCallCard({
             if (expandable) toggleOpen();
           }}
         >
-          <span className={`${styles.kindIcon} ${iconTone}`} aria-hidden="true">
+          <span className={iconClass} aria-hidden="true">
             <ToolIcon size={13} />
           </span>
           <div className={styles.headText}>
@@ -536,6 +547,7 @@ export function ToolCallCard({
               className={`${styles.hoverChev}${open ? ` ${styles.expanded}` : ""}`}
             />
           ) : null}
+          {backgroundBtn}
         </div>
       )}
       {open ? (
@@ -557,7 +569,6 @@ export function ToolCallCard({
           ) : null}
         </div>
       ) : null}
-      {backgroundBtn ? <div className={styles.bgRow}>{backgroundBtn}</div> : null}
     </div>
   );
 }

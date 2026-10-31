@@ -7,7 +7,7 @@ import { Button, Empty } from "antd";
 import type { AgentRunSnapshot } from "../../../shared/agent-runs";
 import { useAgentRunsStore } from "@renderer/stores/agent-runs";
 import { useAppearanceStore } from "@renderer/stores/appearance";
-import { fontSizePx } from "../../../shared/appearance";
+import { fontSizePx, resolveMonoFontStack } from "../../../shared/appearance";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useDialog, useMessage } from "@renderer/services/feedback";
 import { useI18n } from "@renderer/i18n/use-i18n";
@@ -187,7 +187,7 @@ export function RunningTab({ visible }: Props): ReactNode {
       cursorBlink: false,
       cursorInactiveStyle: "none",
       fontSize: fontSizePx(13, useAppearanceStore.getState().fontSize),
-      fontFamily: "Cascadia Code, Consolas, Menlo, monospace",
+      fontFamily: resolveMonoFontStack(useAppearanceStore.getState().fonts),
       rightClickSelectsWord: false,
       scrollback: 5000,
       allowTransparency: true,
@@ -245,8 +245,9 @@ export function RunningTab({ visible }: Props): ReactNode {
     const term = termRef.current;
     if (!term) return;
     term.options.fontSize = fontSizePx(13, appearance.fontSize);
+    term.options.fontFamily = resolveMonoFontStack(useAppearanceStore.getState().fonts);
     scheduleFit();
-  }, [appearance.fontSize]);
+  }, [appearance.fontSize, appearance.fonts]);
 
   useEffect(() => {
     const term = termRef.current;

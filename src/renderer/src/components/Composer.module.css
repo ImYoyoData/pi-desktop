@@ -193,6 +193,29 @@
   flex-shrink: 0;
 }
 
+.primaryBtn {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.primaryBtn:not(:disabled):hover {
+  background: rgba(127, 127, 127, 0.1);
+}
+
+.primaryBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .modelBtn {
   flex-shrink: 0;
   padding: 0 4px !important;

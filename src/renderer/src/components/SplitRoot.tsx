@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect } from "react";
 import { SplitPane, SplitPanes } from "@renderer/components/SplitPanes";
-import NavRail from "@renderer/components/NavRail";
 import ViewPresence from "@renderer/components/ViewPresence";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
@@ -9,7 +8,6 @@ const SessionSidebar = lazy(() => import("@renderer/components/SessionSidebar"))
 const ChatPanel = lazy(() => import("@renderer/components/ChatPanel"));
 const RightPane = lazy(() => import("@renderer/components/RightPane"));
 const PullRequestsView = lazy(() => import("@renderer/components/PullRequestsView"));
-const CustomizeView = lazy(() => import("@renderer/components/CustomizeView"));
 const BottomPanel = lazy(() => import("@renderer/components/BottomPanel"));
 
 /** Nested splits: outer left↔main, inner chat↔right, chat area chat↔bottom panel. */
@@ -48,11 +46,9 @@ export function SplitRoot(): React.ReactNode {
   /** 聊天列（消息区）是否可见：最大化时整列让给编辑器区域。 */
   const chatVisible = !layout.editorMaximized;
 
-  /** 最大化时聊天列默认隐藏；底栏展开时仅用该列承载面板。 */
+  /** 最大化时整列让给编辑器区域，左侧会话列表保持原样。 */
   const chatPaneSize = layout.editorMaximized
-    ? layout.bottomCollapsed
-      ? 0
-      : innerPair.chat
+    ? 0
     : layout.rightCollapsed
       ? 100
       : innerPair.chat;
@@ -102,15 +98,12 @@ export function SplitRoot(): React.ReactNode {
     layout.setBottomSize(bottomOfColumn);
   }
 
-  /** 拉取请求页与设置页都是主区全屏视图，会话栏随视图一起收起。 */
+  /** 拉取请求页是主区全屏视图，会盖住聊天列与右侧面板。 */
   const prOpen = layout.centerView === "pull-requests";
-  const customizeOpen = layout.centerView === "customize" && Boolean(workspaceRoot);
-  const fullPageView = prOpen || customizeOpen;
-  const leftHidden = layout.leftCollapsed || fullPageView;
+  const leftHidden = layout.leftCollapsed;
 
   return (
     <div className="split-root">
-      <NavRail />
       <SplitPanes className="panes outer" onResized={onOuterResized}>
         <SplitPane
           size={leftHidden ? 0 : outerLeftSize}
@@ -118,11 +111,9 @@ export function SplitRoot(): React.ReactNode {
           maxSize={leftHidden ? 0 : PANE_MAX}
           className={leftHidden ? "pane-collapsed" : undefined}
         >
-          <Capsule>
-            <Suspense fallback={null}>
-              <SessionSidebar />
-            </Suspense>
-          </Capsule>
+          <Suspense fallback={null}>
+            <SessionSidebar />
+          </Suspense>
         </SplitPane>
 
         <SplitPane
@@ -130,7 +121,7 @@ export function SplitRoot(): React.ReactNode {
           minSize={leftHidden ? 100 : 100 - PANE_MAX}
         >
           <SplitPanes
-            className={`panes inner${fullPageView ? " pane-collapsed" : ""}`}
+            className={`panes inner${prOpen ? " pane-collapsed" : ""}`}
             onResized={onInnerResized}
           >
             <SplitPane
@@ -156,11 +147,9 @@ export function SplitRoot(): React.ReactNode {
                   }
                   className={layout.editorMaximized ? "pane-collapsed" : undefined}
                 >
-                  <Capsule>
-                    <Suspense fallback={null}>
-                      <ChatPanel visible={chatVisible} />
-                    </Suspense>
-                  </Capsule>
+                  <Suspense fallback={null}>
+                    <ChatPanel visible={chatVisible} />
+                  </Suspense>
                 </SplitPane>
                 <SplitPane
                   size={bottomPanelSize}
@@ -198,10 +187,10 @@ export function SplitRoot(): React.ReactNode {
             </SplitPane>
           </SplitPanes>
           <ViewPresence
-            viewId={prOpen ? "pull-requests" : customizeOpen ? "customize" : null}
-            render={(id) => (
+            viewId={prOpen ? "pull-requests" : null}
+            render={() => (
               <Suspense fallback={null}>
-                {id === "pull-requests" ? <PullRequestsView /> : <CustomizeView />}
+                <PullRequestsView />
               </Suspense>
             )}
           />

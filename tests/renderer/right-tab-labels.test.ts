@@ -7,14 +7,11 @@ describe("localizedTabLabel", () => {
     expect(
       localizedTabLabel({ id: "1", kind: "running", label: "运行" }),
     ).toBe(t.runningTab);
-    expect(
-      localizedTabLabel({ id: "3", kind: "files", label: "文件" }),
-    ).toBe(t.filesTab);
   });
 
-  it("keeps the file name on diff tabs", () => {
+  it("keeps the file name on preview tabs", () => {
     expect(
-      localizedTabLabel({ id: "2", kind: "changes", label: "index.ts" }),
+      localizedTabLabel({ id: "2", kind: "preview", label: "index.ts" }),
     ).toBe("index.ts");
   });
 

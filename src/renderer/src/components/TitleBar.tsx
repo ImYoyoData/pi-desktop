@@ -1,13 +1,21 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { Button, Space } from "antd";
-import { DownloadOutline, LogoGithub } from "@renderer/components/icons/ionicons";
-import PanelLeftIcon from "@renderer/components/icons/PanelLeftIcon";
-import PanelRightIcon from "@renderer/components/icons/PanelRightIcon";
-import PanelBottomIcon from "@renderer/components/icons/PanelBottomIcon";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { DownloadOutline } from "@renderer/components/icons/ionicons";
+import {
+  BrowserViewIcon,
+  ChangesViewIcon,
+  FolderIcon,
+  MenuLinesIcon,
+  TerminalViewIcon,
+} from "@renderer/components/icons/TitleBarIcons";
 import PiLogoIcon from "@renderer/components/icons/PiLogoIcon";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useAppUpdateStore } from "@renderer/stores/app-update";
+import { useAppearanceStore } from "@renderer/stores/appearance";
+import { useSessionsStore } from "@renderer/stores/sessions";
+import { useRightDockStore } from "@renderer/stores/right-dock";
+import { useRightTabsStore } from "@renderer/stores/right-tabs";
+import { useSessionTitle } from "@renderer/utils/use-session-title";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./TitleBar.module.css";
 
@@ -15,9 +23,66 @@ export function TitleBar(): ReactNode {
   const t = useI18n();
   const workspace = useWorkspaceStore();
   const layout = useLayoutStore();
+  const showSessionTitle = useAppearanceStore((s) => s.showSessionTitle);
+  const sessionTitle = useSessionTitle();
+  const activeId = useSessionsStore((s) => s.activeId);
+
+  const [renaming, setRenaming] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const renameSettled = useRef(false);
+
+  /** 展开时对齐主区左端；侧栏收起后回落到品牌之后，避免重叠。 */
+  const titleStyle = layout.leftCollapsed
+    ? undefined
+    : { left: `calc(${layout.leftSize}% + 16px)` };
+  const titleFlow = layout.leftCollapsed ? styles.titleInFlow : "";
+
+  function beginRename(): void {
+    if (!activeId || !sessionTitle) return;
+    renameSettled.current = false;
+    setTitleDraft(sessionTitle);
+    setRenaming(true);
+  }
+
+  /** Enter 与失焦都会走到这里，用 ref 保证只提交一次。 */
+  function commitRename(): void {
+    if (renameSettled.current) return;
+    renameSettled.current = true;
+    setRenaming(false);
+    const name = titleDraft.trim();
+    const row = useSessionsStore
+      .getState()
+      .sessions.find((s) => s.id === activeId);
+    if (!activeId || !row || !name || name === sessionTitle) return;
+    void useSessionsStore.getState().renameSession(activeId, row.cwd, name);
+  }
+
+  function cancelRename(): void {
+    renameSettled.current = true;
+    setRenaming(false);
+  }
 
   const [platform, setPlatform] = useState<NodeJS.Platform>("win32");
   const [isMaximized, setIsMaximized] = useState(false);
+
+  const dockView = useRightDockStore((s) => s.view);
+
+  /** 按钮：切到对应页面；已经是当前页时再点收起右栏。 */
+  function toggleDockView(view: "files" | "changes" | "browser"): void {
+    const dock = useRightDockStore.getState();
+    const layoutState = useLayoutStore.getState();
+    if (dock.view === view && !layoutState.rightCollapsed) {
+      layoutState.toggleRightCollapsed();
+      return;
+    }
+    dock.show(view);
+    if (layoutState.rightCollapsed) layoutState.toggleRightCollapsed();
+    if (view !== "browser") return;
+    const tabs = useRightTabsStore.getState();
+    const existing = tabs.dockTabs.find((tab) => tab.kind === "browser");
+    if (existing) tabs.selectTab(existing.id);
+    else tabs.addTab("browser");
+  }
 
   const updateStatus = useAppUpdateStore((s) => s.state.status);
   const updatePercent = useAppUpdateStore((s) => s.state.progress?.percent ?? 0);
@@ -80,10 +145,6 @@ export function TitleBar(): ReactNode {
     await window.api.window.close();
   }
 
-  async function openGithub(): Promise<void> {
-    await window.api.update.openGithub();
-  }
-
   /** 新版本未下载时直接开始下载；已在下载或待安装时重新展开桌面右下角的悬浮卡片。 */
   async function onUpdateClick(): Promise<void> {
     if (updateStatus === "available") {
@@ -93,68 +154,129 @@ export function TitleBar(): ReactNode {
     window.api.update.showToast();
   }
 
+  /** 左侧栏上方的标题栏同色并补上分界线，与侧栏拼成一整列；侧栏收起时不画。 */
+  const edge = `${layout.leftSize}%`;
+  const sideBand = layout.leftCollapsed
+    ? undefined
+    : {
+        background: [
+          `linear-gradient(to right, transparent 0 calc(${edge} - 1px), var(--sidebar-line) calc(${edge} - 1px) ${edge}, transparent ${edge})`,
+          `linear-gradient(to right, var(--bg-sidebar) 0 ${edge}, transparent ${edge})`,
+        ].join(", "),
+      };
+
   return (
-    <header className={`title-bar ${platform === "darwin" ? styles.mac : ""}`}>
+    <header
+      className={`title-bar ${platform === "darwin" ? styles.mac : ""}`}
+      style={sideBand}
+    >
       <div className={`${styles.drag} ${styles.trafficSpace}`} aria-hidden="true" />
       <div className={styles.brand}>
-        <PiLogoIcon size={16} />
-        <span className={styles.name}>{t.appName}</span>
+        <button
+          type="button"
+          className={`${styles.layoutBtn} ${styles.noDrag}`}
+          title={layout.leftCollapsed ? t.expandLeft : t.collapseLeft}
+          aria-label={layout.leftCollapsed ? t.expandLeft : t.collapseLeft}
+          aria-pressed={!layout.leftCollapsed}
+          onClick={() => useLayoutStore.getState().toggleLeftCollapsed()}
+        >
+          <MenuLinesIcon size={16} />
+        </button>
+        {layout.leftCollapsed ? null : (
+          <>
+            <PiLogoIcon size={16} />
+            <span className={styles.name}>{t.appName}</span>
+          </>
+        )}
       </div>
+      {showSessionTitle && sessionTitle ? (
+        renaming ? (
+          <input
+            className={`${styles.sessionTitleInput} ${titleFlow}`}
+            style={titleStyle}
+            value={titleDraft}
+            autoFocus
+            onFocus={(e) => e.currentTarget.select()}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                commitRename();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                cancelRename();
+              }
+            }}
+          />
+        ) : (
+          <span
+            className={`${styles.sessionTitle} ${titleFlow}`}
+            style={titleStyle}
+            title={sessionTitle}
+            onDoubleClick={beginRename}
+          >
+            {sessionTitle}
+          </span>
+        )
+      ) : null}
       <div className={`${styles.center} ${styles.drag}`} />
       <div className={`${styles.actions} ${styles.noDrag}`}>
-        <Space size={4}>
-          {updateBadge ? (
-            <button
-              type="button"
-              className={styles.updateBtn}
-              title={updateTip}
-              aria-label={updateTip}
-              onClick={() => void onUpdateClick()}
-            >
-              <DownloadOutline size={13} />
-              <span>{updateBadge}</span>
-            </button>
-          ) : null}
-          <Button
-            type="text"
-            shape="circle"
-            size="small"
-            onClick={() => void openGithub()}
-            icon={<LogoGithub />}
-          />
-        </Space>
+        {updateBadge ? (
+          <button
+            type="button"
+            className={styles.updateBtn}
+            title={updateTip}
+            aria-label={updateTip}
+            onClick={() => void onUpdateClick()}
+          >
+            <DownloadOutline size={13} />
+            <span>{updateBadge}</span>
+          </button>
+        ) : null}
         {workspace.root ? (
           <div className={styles.layoutControls}>
             <button
               type="button"
-              className={`${styles.layoutBtn} ${layout.leftCollapsed ? "" : styles.checked}`}
-              title={layout.leftCollapsed ? t.expandLeft : t.collapseLeft}
-              aria-label={layout.leftCollapsed ? t.expandLeft : t.collapseLeft}
-              aria-pressed={!layout.leftCollapsed}
-              onClick={() => useLayoutStore.getState().toggleLeftCollapsed()}
-            >
-              <PanelLeftIcon size={16} off={layout.leftCollapsed} />
-            </button>
-            <button
-              type="button"
               className={`${styles.layoutBtn} ${layout.bottomCollapsed ? "" : styles.checked}`}
               title={layout.bottomCollapsed ? t.expandBottom : t.collapseBottom}
-              aria-label={layout.bottomCollapsed ? t.expandBottom : t.collapseBottom}
+              aria-label={t.terminal}
               aria-pressed={!layout.bottomCollapsed}
               onClick={() => useLayoutStore.getState().toggleBottomCollapsed()}
             >
-              <PanelBottomIcon size={16} off={layout.bottomCollapsed} />
+              <TerminalViewIcon size={16} />
             </button>
             <button
               type="button"
-              className={`${styles.layoutBtn} ${layout.rightCollapsed ? "" : styles.checked}`}
-              title={layout.rightCollapsed ? t.expandRight : t.collapseRight}
-              aria-label={layout.rightCollapsed ? t.expandRight : t.collapseRight}
-              aria-pressed={!layout.rightCollapsed}
-              onClick={() => useLayoutStore.getState().toggleRightCollapsed()}
+              className={`${styles.layoutBtn} ${dockView === "changes" && !layout.rightCollapsed ? styles.checked : ""}`}
+              title={t.changesTab}
+              aria-label={t.changesTab}
+              aria-pressed={dockView === "changes" && !layout.rightCollapsed}
+              onClick={() => toggleDockView("changes")}
             >
-              <PanelRightIcon size={16} off={layout.rightCollapsed} />
+              <ChangesViewIcon size={16} />
             </button>
+            <button
+              type="button"
+              className={`${styles.layoutBtn} ${dockView === "browser" && !layout.rightCollapsed ? styles.checked : ""}`}
+              title={t.browser}
+              aria-label={t.browser}
+              aria-pressed={dockView === "browser" && !layout.rightCollapsed}
+              onClick={() => toggleDockView("browser")}
+            >
+              <BrowserViewIcon size={16} />
+            </button>
+            <button
+              type="button"
+              className={`${styles.layoutBtn} ${dockView === "files" && !layout.rightCollapsed ? styles.checked : ""}`}
+              title={t.filesTab}
+              aria-label={t.filesTab}
+              aria-pressed={dockView === "files" && !layout.rightCollapsed}
+              onClick={() => toggleDockView("files")}
+            >
+              <FolderIcon size={16} />
+            </button>
+            <span className={styles.controlsSep} aria-hidden="true" />
           </div>
         ) : null}
       </div>

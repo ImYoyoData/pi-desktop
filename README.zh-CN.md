@@ -52,32 +52,16 @@
 
 ---
 
-## 截图
+<h2 align="center">截图</h2>
 
-**对话工作台** — 下达任务，实时观看 Agent 思考、调用工具与流式产出：
+<p align="center">
+  <img src="docs/screenshots/chat-git-panel.png" alt="Pi Desktop" width="760" />
+</p>
 
-<img src="docs/screenshots/chat-git-panel.png" alt="Pi Desktop 对话工作台" width="760" />
+### 为什么选择Pi Desktop？
 
-**内置浏览器打开项目仓库** — 浏览任意网页并拾取元素作为 Agent 上下文：
-
-<img src="docs/screenshots/github-repo-browser.png" alt="Pi Desktop 内置浏览器打开 GitHub 仓库" width="760" />
-
----
-
-## 为什么是 Pi Desktop
-
-Pi 本身很强。Pi Desktop 把它装进**产品级工作台**：多会话并行、工具调用可审阅、变更可回看、浏览器可点选元素、终端常开 —— 不离开一个窗口。
-
-### 优点
-
-- **多会话 Agent 工作区** — 每个项目可并行多个 Pi 会话，各自独立模型、推理强度与历史，并与 Pi CLI 共享会话文件。
-- **透明的 Agent 执行过程** — 每个工具调用与思考步骤实时流入对话；最终回答后自动折叠为一个“过程”摘要，答案保持干净。
-- **内置 Git 工作台** — 更改面板支持暂存/取消暂存、单文件 Diff、提交与推送、分支管理、提交历史（含单提交文件清单）、重置（软/硬）、单文件恢复。
-- **内置浏览器 + 元素拾取** — 打开网页、选择元素/截图，作为引用与图片喂给 Agent。
-- **终端 / 预览 / 运行** — node-pty 终端、Monaco Diff 预览、后台进程运行面板。
-- **图片进入上下文** — 粘贴图片或图片 URL，按会话缓存后以 base64 发送给视觉模型，同时把文件路径写入上下文供文本模型定位。
-- **信任与安全** — 按工作区的信任门；工具与应用进程一样，以自身的操作系统权限执行。
-- **低配机器也能流畅启动** — UI 懒加载、PCM 编码离主线程、主进程启动不加载 Pi SDK。
+- 使用Pi-SDK非其他同种产品使用RPC连接CLI工作
+- 开发者积极维护
 
 | 分层 | 提供什么 |
 | --- | --- |
@@ -88,16 +72,6 @@ Pi 本身很强。Pi Desktop 把它装进**产品级工作台**：多会话并�
 
 ---
 
-## 技术栈
-
-- **运行时**：Electron 44 · Node 24
-- **UI**：React 19 · TypeScript · antd 6 · Vite (electron-vite)
-- **编辑器**：Monaco Editor · highlight.js · marked · KaTeX · Mermaid · @viz-js/viz
-- **Agent**：[@earendil-works/pi-coding-agent](https://pi.dev) 运行时，运行在 utilityProcess worker 中
-- **终端**：node-pty · xterm.js
-- **打包**：electron-builder（Windows NSIS · macOS DMG · Linux）
-
----
 
 ## 开始使用
 
@@ -108,25 +82,11 @@ Pi 本身很强。Pi Desktop 把它装进**产品级工作台**：多会话并�
 ### 源码构建
 
 ```bash
-npm install
-npm run dev        # 开发
-npm run build      # 打包到 out/
-npm run dist:win   # 或 dist:mac —— 生成安装包
+npm install        # 环境配置
+npm run dev        # 运行
+npm run build      # 构建
+npm run dist       # 构建安装包
 ```
-
-### 首次使用
-
-1. 打开项目文件夹并信任。
-2. 选择模型（如需在 **设置 → 模型** 配置 API Key）。
-3. 新建会话并描述任务 —— Agent 会自动调研与实现，你可在右侧 Git 面板审阅并提交。
-
----
-
-## 项目信息
-
-- 仓库：[github.com/ImYoyoData/pi-desktop](https://github.com/ImYoyoData/pi-desktop)
-- 发布：[Releases](https://github.com/ImYoyoData/pi-desktop/releases)
-- 问题与建议：[Issues](https://github.com/ImYoyoData/pi-desktop/issues)
 
 ## 许可证
 

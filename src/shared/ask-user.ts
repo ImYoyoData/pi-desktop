@@ -3,11 +3,15 @@ export type AskUserQuestionType = "single" | "multi" | "buttons";
 export type AskUserOption = {
   id: string;
   label: string;
+  /** 选项副标题：一句话说明这个选择意味着什么。 */
+  description?: string;
   allowCustom?: boolean;
 };
 
 export type AskUserQuestion = {
   id: string;
+  /** 顶部 tab 的短标签；缺省显示“问题 N”。 */
+  title?: string;
   prompt: string;
   type: AskUserQuestionType;
   options: AskUserOption[];
@@ -23,6 +27,13 @@ export type AskUserPrompt = {
   /** Present when the strip is driven by a blocking worker RPC. */
   sessionId?: string;
   requestId?: string;
+};
+
+/** 回答时随附的截图：作为 image content 交给模型。 */
+export type AskUserAttachment = {
+  id: string;
+  name: string;
+  dataUrl: string;
 };
 
 /** Per-question UI draft keyed by question id. */
@@ -63,6 +74,8 @@ export type AskUserAskReply = {
   requestId: string;
   /** Formatted `[ask_user answers]` text returned to the tool. */
   answersText: string;
+  /** 随回答提交的图片（data URL），作为 image content 一并给模型。 */
+  images?: string[];
 };
 
 export function isAskUserAskCancelled(
@@ -81,17 +94,19 @@ function parseOption(raw: unknown): AskUserOption | null {
   const id = typeof o.id === "string" ? o.id.trim() : "";
   const label = typeof o.label === "string" ? o.label.trim() : "";
   if (!id || !label) return null;
+  const description =
+    typeof o.description === "string" ? o.description.trim() : "";
   return {
     id,
     label,
+    ...(description ? { description } : {}),
     ...(o.allowCustom === true ? { allowCustom: true } : {}),
   };
 }
 
-/** Ensure single/multi always have one allowCustom option. */
+/** 每题都补一条“自定义输入”选项：选项清单里总有自定义入口。 */
 export function withEnsuredCustomOption(q: AskUserQuestion): AskUserQuestion {
-  if (q.type !== "single" && q.type !== "multi") return q;
-  if (q.options.some((o) => o.allowCustom)) return q;
+  if (q.options.some((o) => o.id === ASK_USER_CUSTOM_OPTION_ID)) return q;
   return {
     ...q,
     options: [
@@ -124,8 +139,10 @@ function parseQuestion(raw: unknown): AskUserQuestion | null {
     options.push(opt);
   }
   if (options.length === 0) return null;
+  const title = typeof q.title === "string" ? q.title.trim() : "";
   return withEnsuredCustomOption({
     id,
+    ...(title ? { title } : {}),
     prompt,
     type,
     options,
@@ -172,6 +189,16 @@ export function validateAskUserAnswers(
       if (questionSkippable(q)) continue;
       return "cannot-skip";
     }
+    const selected = q.options.filter((o) => ans.optionIds.includes(o.id));
+    if (selected.length !== ans.optionIds.length) {
+      return "invalid-option";
+    }
+    // 常驻的自定义回答框只要写了字就算作答，无需再勾选项。
+    const custom = ans.customText.trim();
+    if (custom) continue;
+    if (selected.some((o) => o.id === ASK_USER_CUSTOM_OPTION_ID)) {
+      return "custom-required";
+    }
     if (ans.optionIds.length === 0) {
       return "missing-answer";
     }
@@ -179,16 +206,6 @@ export function validateAskUserAnswers(
       if (ans.optionIds.length !== 1) {
         return "select-one";
       }
-    }
-    const selected = q.options.filter((o) => ans.optionIds.includes(o.id));
-    if (selected.length !== ans.optionIds.length) {
-      return "invalid-option";
-    }
-    // 只有自动追加的“自定义输入”项必须填写文本；模型自带 allowCustom 的选项
-    // 只是可选补充说明，避免用户被看不见的必填规则卡住。
-    const needsCustom = selected.some((o) => o.id === ASK_USER_CUSTOM_OPTION_ID);
-    if (needsCustom && !ans.customText.trim()) {
-      return "custom-required";
     }
   }
   return null;
@@ -215,16 +232,31 @@ export function formatAskUserAnswers(
       lines.push(`${i + 1}. (id=${q.id}) ${q.prompt} → [skipped]`);
       return;
     }
-    const selected = q.options.filter((o) => ans.optionIds.includes(o.id));
+    const selected = q.options.filter(
+      (o) => ans.optionIds.includes(o.id) && o.id !== ASK_USER_CUSTOM_OPTION_ID,
+    );
     const labels = selected.map((o) => o.label).join(", ");
-    const needsCustom = selected.some((o) => o.allowCustom);
-    const custom =
-      needsCustom && ans.customText.trim()
-        ? `; custom: ${ans.customText.trim()}`
-        : "";
-    lines.push(`${i + 1}. (id=${q.id}) ${q.prompt} → ${labels}${custom}`);
+    const custom = ans.customText.trim();
+    const answer = [labels, custom ? `custom: ${custom}` : ""].filter(Boolean).join("; ");
+    lines.push(`${i + 1}. (id=${q.id}) ${q.prompt} → ${answer || "[no answer]"}`);
   });
   return lines.join("\n");
 }
 
 export const ASK_USER_TOOL_NAME = "ask_user";
+
+/** 单张图片 data URL 上限：约 6MB 原图 base64 后的长度，超过直接拒绝。 */
+const IMAGE_DATA_URL_MAX_LENGTH = 8 * 1024 * 1024;
+const IMAGE_DATA_URL = /^data:(image\/[\w.+-]+);base64,([\s\S]+)$/;
+
+/** data URL → 传给模型的 base64 图片内容；格式不对返回 null。 */
+export function imageDataFromDataUrl(
+  dataUrl: string,
+): { data: string; mimeType: string } | null {
+  if (dataUrl.length > IMAGE_DATA_URL_MAX_LENGTH) return null;
+  const match = IMAGE_DATA_URL.exec(dataUrl.trim());
+  if (!match?.[1] || !match[2]) return null;
+  const data = match[2].trim();
+  if (!data) return null;
+  return { data, mimeType: match[1].trim() };
+}

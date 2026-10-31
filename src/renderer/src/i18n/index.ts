@@ -96,7 +96,5 @@ export { zh, zhTW, ja, en, resolveUiLocale };
 export {
   detectSystemLanguage,
   isUiLocale,
-  resolveMonacoNls,
-  type MonacoNlsId,
   type UiLocale,
 } from "./locale";

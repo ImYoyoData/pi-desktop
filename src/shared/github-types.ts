@@ -188,6 +188,8 @@ export type PullRequestDetail = {
 	linkedIssues: PullRequestLinkedIssue[];
 	timeline: PullRequestTimelineEvent[];
 	enrichmentFailed: boolean;
+	/** 来自持久化缓存的旧数据，展示后应立即重新拉取 */
+	stale?: boolean;
 };
 
 export type PullRequestPatchResult = {
@@ -242,6 +244,8 @@ export type PullRequestPage = {
 	totalCount: number;
 	repository: string;
 	counts?: PullRequestCounts;
+	/** 来自持久化缓存的旧数据，展示后应立即重新拉取 */
+	stale?: boolean;
 };
 
 export type PullRequestListRequest = {

@@ -4,20 +4,21 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ComponentProps,
   type Key,
   type ReactNode,
 } from "react";
-import { MermaidBlockNode, setCustomComponents } from "markstream-react";
-import { DiffLines } from "@renderer/components/DiffLines";
-import { useI18n } from "@renderer/i18n/use-i18n";
-import { highlightCode } from "@renderer/utils/markdown";
+import {
+  CodeBlockNode as MarkstreamCodeBlockNode,
+  MermaidBlockNode,
+  setCustomComponents,
+} from "markstream-react";
 import {
   resolveMarkdownImageSrc,
   type MarkdownAssetBase,
 } from "@renderer/utils/markdown-assets";
+import { useAppearanceStore } from "@renderer/stores/appearance";
 import { DotDiagramNode } from "./DotDiagramNode";
 
 export const MARKDOWN_CUSTOM_ID = "pi-markdown";
@@ -85,27 +86,25 @@ function fenceLanguage(node: FenceNode): string {
   return (node.language ?? "").trim().split(/\s+/)[0] ?? "";
 }
 
-/** 代码块：hljs 同步高亮（带 LRU）+ 行号 + 复制；diff 块走同步的 DiffLines。 */
+/**
+ * 代码块正文由 @pierre/diffs 渲染在 shadow root 里，:host 用 --diffs-bg 画底色，
+ * 外部选择器选不到内部元素，只能通过它渲染时注入的 unsafeCSS 改。
+ * 壁纸模式下与消息区一致：不留下底色，透出壁纸。
+ */
+const GLASS_CODE_CSS =
+  ":host{--diffs-light-bg:transparent;--diffs-dark-bg:transparent}" +
+  "pre,code,[data-gutter],[data-content]{background-color:transparent!important}";
+
+/** 代码块与 ```diff 都交给 markstream 的代码块（stream-diffs 高亮），只有图表自己渲染。 */
 function CodeBlockNode({ node, isDark }: CodeBlockProps): ReactNode {
-  const t = useI18n();
   const code = node.code ?? "";
   const language = fenceLanguage(node);
   const langKey = language.toLowerCase();
-  const [copied, setCopied] = useState(false);
-  const timer = useRef(0);
-
-  useEffect(() => () => window.clearTimeout(timer.current), []);
-
-  const highlighted = useMemo(() => highlightCode(code, language), [code, language]);
-  const lineCount = useMemo(
-    () => (code ? code.replace(/\n$/, "").split("\n").length : 0),
-    [code],
+  const glassSurface = useAppearanceStore((state) => state.glassSurface);
+  const codeBlockOptions = useMemo(
+    () => (glassSurface && !node.diff ? { unsafeCSS: GLASS_CODE_CSS } : undefined),
+    [glassSurface, node.diff],
   );
-
-  if (node.diff) {
-    // 原始补丁在 raw 里（code 只剩新文件内容），交给同步 diff 渲染。
-    return <DiffLines text={String(node.raw ?? "")} fallback={<pre>{code}</pre>} />;
-  }
 
   if (MERMAID_LANGS.has(langKey) || (!langKey && looksLikeMermaidSource(code))) {
     return (
@@ -124,36 +123,22 @@ function CodeBlockNode({ node, isDark }: CodeBlockProps): ReactNode {
     );
   }
 
-  function copy(): void {
-    void navigator.clipboard.writeText(code).then(() => {
-      setCopied(true);
-      window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(() => setCopied(false), 1200);
-    });
-  }
-
   return (
-    <div className="code-block" data-code-block="">
-      <div className="code-head">
-        <span className="lang">{language || "code"}</span>
-        <button type="button" className="copy-btn" onClick={copy}>
-          {copied ? t.copied : t.copy}
-        </button>
-      </div>
-      <div className="code-body" data-inner-scroll="">
-        <div className="line-nos" aria-hidden="true">
-          {Array.from({ length: lineCount }, (_, i) => (
-            <span key={i}>{i + 1}</span>
-          ))}
-        </div>
-        <pre>
-          <code
-            className={`hljs language-${language || "text"}`}
-            dangerouslySetInnerHTML={{ __html: highlighted }}
-          />
-        </pre>
-      </div>
-    </div>
+    <MarkstreamCodeBlockNode
+      node={
+        { ...node, type: "code_block", code, language } as ComponentProps<
+          typeof MarkstreamCodeBlockNode
+        >["node"]
+      }
+      isDark={isDark}
+      loading={Boolean(node.loading)}
+      codeBlockOptions={codeBlockOptions}
+      showLineNumbers
+      showExpandButton={false}
+      enableFontSizeControl={false}
+      showCollapseButton={false}
+      showFontSizeButtons={false}
+    />
   );
 }
 
@@ -245,6 +230,46 @@ function MarkdownImageNode({ node }: ImageNodeProps): ReactNode {
   );
 }
 
+type HtmlImageNodeProps = {
+  node: { attrs?: Array<[string, string | null]> };
+};
+
+/**
+ * html_block/html_inline 里的 <img>：markstream 的 HTML 清洗只放行 http(s)，
+ * 本地图片会被连 src 一起丢掉，所以这里从原始属性重建。
+ */
+function HtmlImageNode({ node }: HtmlImageNodeProps): ReactNode {
+  const assets = useContext(AssetsContext);
+  const attrs = new Map(
+    (node.attrs ?? []).map(([key, value]) => [key.toLowerCase(), value ?? ""]),
+  );
+  const raw = (attrs.get("src") ?? "").trim();
+  const src = safeImageSrc(raw, resolveMarkdownImageSrc(raw, assets));
+  const centered = (attrs.get("align") ?? "").toLowerCase() === "center";
+  return (
+    <img
+      src={src}
+      alt={attrs.get("alt") ?? ""}
+      title={attrs.get("title") || undefined}
+      width={attrs.get("width") || undefined}
+      height={attrs.get("height") || undefined}
+      className={attrs.get("class") || undefined}
+      style={centered ? { display: "block", margin: "0 auto" } : undefined}
+      loading="lazy"
+    />
+  );
+}
+
+/**
+ * HTML 标签的 node 级映射：属性不经 markstream 清洗，直接交给组件。
+ *
+ * 只能给文件预览用：这些 key 会被 markstream 合并进 customHtmlTags，流式解析会把
+ * 行内代码里的 <img> 也当成标签（消息区会直接渲染出一张巨大的图），所以聊天消息
+ * 继续用 MARKDOWN_CUSTOM_ID 的原始行为。
+ */
+export const MARKDOWN_HTML_ID = "pi-markdown-html";
+export const MARKDOWN_HTML_COMPONENTS = { img: HtmlImageNode };
+
 type LinkNodeProps = {
   node: {
     href?: string;
@@ -290,3 +315,5 @@ setCustomComponents({
   tex: MathFenceNode,
   katex: MathFenceNode,
 });
+
+setCustomComponents(MARKDOWN_HTML_ID, MARKDOWN_HTML_COMPONENTS);

@@ -1,5 +1,7 @@
 import {
   forwardRef,
+  memo,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useMemo,
@@ -7,44 +9,31 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { createPortal } from "react-dom";
 import { Alert, Button, Empty, Spin, Typography } from "antd";
-import { fontSizePx, fontSizeRem } from "../../../shared/appearance";
-import {
-  ChatbubbleEllipsesOutline,
-  FolderOpenOutline,
-  SaveOutline,
-} from "@renderer/components/icons/ionicons";
-import type * as Monaco from "monaco-editor";
+import { fontSizeRem } from "../../../shared/appearance";
+import { FolderOpenOutline, SaveOutline } from "@renderer/components/icons/ionicons";
 import type { PreviewResult } from "../../../shared/preview-types";
 import MarkdownView from "@renderer/components/MarkdownView";
+import { ShikiEditor } from "@renderer/components/ShikiEditor";
 import { breadcrumbs, languageFromPath } from "@renderer/utils/editor-lang";
 import {
   absoluteWorkspacePath,
   isAbsoluteFsPath,
   isInsideWorkspace,
   normalizeFsPath,
-  type FsChangedPayload,
+  subscribeFsChanges,
 } from "@renderer/utils/fs-changed-bus";
-import { loadMonaco } from "@renderer/utils/monaco-loader";
 import { parentDir } from "@renderer/utils/fs-path";
 import type { MarkdownAssetBase } from "@renderer/utils/markdown-assets";
-import {
-  applyMonacoColorTheme,
-  injectEditorStyleOverrides,
-  monacoThemeName,
-} from "@renderer/utils/monaco-theme";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
-import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useMediaStore } from "@renderer/stores/media";
-import { useComposerStore } from "@renderer/stores/composer";
 import { useMessage } from "@renderer/services/feedback";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./PreviewTab.module.css";
 
-type MdViewMode = "edit" | "preview" | "split";
+export type MdViewMode = "edit" | "preview" | "split";
 
 type Props = {
   filePath?: string | null;
@@ -52,10 +41,15 @@ type Props = {
   active?: boolean;
   /** 智能体设置页内嵌：隐藏「打开文件」等非编辑器控件，markdown 直接以编辑器打开。 */
   embedded?: boolean;
+  /** 只隐藏顶部工具栏，不动 markdown 默认视图。 */
+  hideToolbar?: boolean;
   /** 未落盘的草稿内容（与 filePath 互斥）。 */
   draftContent?: string | null;
   /** 自定义保存：提供后保存按钮与 Ctrl+S 都交给外部处理（内容由外部落盘）。 */
   saveHandler?: (content: string) => Promise<boolean> | boolean;
+  /** 受控的视图模式（文件页标题栏里的编辑/分栏/预览切换）。 */
+  viewMode?: MdViewMode;
+  onViewModeChange?: (mode: MdViewMode) => void;
 };
 
 export type PreviewTabHandle = {
@@ -65,35 +59,40 @@ export type PreviewTabHandle = {
   setContent: (content: string) => void;
 };
 
+/** 等一帧让 DOM 落地；窗口隐藏时 rAF 不来，超时兑底，绝不能挂死加载。 */
 function nextFrame(): Promise<void> {
   return new Promise<void>((resolve) => {
-    requestAnimationFrame(() => resolve());
+    let settled = false;
+    let timer = 0;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      resolve();
+    };
+    timer = window.setTimeout(finish, 80);
+    requestAnimationFrame(finish);
   });
 }
 
-export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTab(
+export const PreviewTab = memo(forwardRef<PreviewTabHandle, Props>(function PreviewTab(
   {
     filePath,
     tabId,
     active,
     embedded = false,
+    hideToolbar = false,
     draftContent,
     saveHandler,
+    viewMode,
+    onViewModeChange,
   }: Props,
   ref,
 ): ReactNode {
   const t = useI18n();
   const message = useMessage();
-  const appearance = useAppearanceStore();
-  const layout = useLayoutStore();
+  const rightCollapsed = useLayoutStore((s) => s.rightCollapsed);
 
-  const [selectionFloater, setSelectionFloater] = useState({
-    show: false,
-    x: 0,
-    y: 0,
-    startLine: 0,
-    endLine: 0,
-  });
   const [currentPath, setCurrentPath] = useState<string | null>(filePath ?? null);
   const [result, setResult] = useState<PreviewResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -101,31 +100,36 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
   const [saving, setSaving] = useState(false);
   const [missing, setMissing] = useState(false);
   const [liveContent, setLiveContent] = useState("");
-  const [mdViewMode, setMdViewMode] = useState<MdViewMode>("preview");
+  const [internalViewMode, setInternalViewMode] = useState<MdViewMode>("preview");
+  /** 从隐藏变为可见时重建内容区：在 0 尺寸容器里挂载的编辑器不会自己重绘。 */
+  const [contentEpoch, setContentEpoch] = useState(0);
+  const mdViewMode = viewMode ?? internalViewMode;
+  const setMdViewMode = useCallback(
+    (mode: MdViewMode): void => {
+      if (onViewModeChange) onViewModeChange(mode);
+      else setInternalViewMode(mode);
+    },
+    [onViewModeChange],
+  );
 
-  const editorHostRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const monacoApiRef = useRef<typeof Monaco | null>(null);
-  const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const loadGenRef = useRef(0);
   const diskContentRef = useRef<string | null>(null);
-  const applyingExternalRef = useRef(false);
   const fsGenRef = useRef(0);
   const watchedExternalPathRef = useRef<string | null>(null);
   const stopPreviewWatchRef = useRef<(() => void) | null>(null);
   const unregisterVideoRef = useRef<(() => void) | undefined>(undefined);
   const unregisterAudioRef = useRef<(() => void) | undefined>(undefined);
-  const selectionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastPointerClientRef = useRef({ x: 0, y: 0, at: 0 });
-  const detachEditorPointerRef = useRef<(() => void) | null>(null);
   const saveShortcutHeldRef = useRef(false);
+  const wasActiveRef = useRef(active);
   const activeRef = useRef(active);
   const embeddedRef = useRef(embedded);
   const currentPathRef = useRef(currentPath);
   const resultRef = useRef(result);
   const liveContentRef = useRef(liveContent);
   const missingRef = useRef(missing);
+  const dirtyRef = useRef(dirty);
   const savingRef = useRef(saving);
   const saveHandlerRef = useRef(saveHandler);
   activeRef.current = active;
@@ -134,6 +138,7 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
   resultRef.current = result;
   liveContentRef.current = liveContent;
   missingRef.current = missing;
+  dirtyRef.current = dirty;
   savingRef.current = saving;
   saveHandlerRef.current = saveHandler;
 
@@ -143,7 +148,7 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
     (result?.kind === "text" || result?.kind === "markdown") &&
     (!isMarkdown || mdViewMode !== "preview");
   const showMdPreview = isMarkdown && mdViewMode !== "edit";
-  const mediaVisible = Boolean(active) && !layout.rightCollapsed;
+  const mediaVisible = Boolean(active) && !rightCollapsed;
   const mediaIdPrefix = `preview:${tabId ?? "anon"}:`;
   const crumbs = currentPath ? breadcrumbs(currentPath) : [];
   const errorText =
@@ -182,20 +187,6 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
     useRightTabsStore.getState().patchTab(tabId, patch);
   }
 
-  function disposeEditor(): void {
-    detachEditorPointerRef.current?.();
-    editorRef.current?.dispose();
-    editorRef.current = null;
-  }
-
-  function hideSelectionFloater(): void {
-    if (selectionDebounceRef.current) {
-      clearTimeout(selectionDebounceRef.current);
-      selectionDebounceRef.current = null;
-    }
-    setSelectionFloater((current) => (current.show ? { ...current, show: false } : current));
-  }
-
   function workspaceRelativePath(absPath: string): string {
     const raw = absPath.replace(/\\/g, "/");
     const root = (useWorkspaceStore.getState().root || "")
@@ -209,231 +200,25 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
     return raw;
   }
 
-  function clientPointFromSelectionEnd(
-    endLine: number,
-    endColumn: number,
-  ): { x: number; y: number } | null {
-    const editor = editorRef.current;
-    if (!editor) return null;
-    try {
-      const pos = editor.getScrolledVisiblePosition({ lineNumber: endLine, column: endColumn });
-      const dom = editor.getDomNode();
-      if (!pos || !dom) return null;
-      const rect = dom.getBoundingClientRect();
-      return {
-        x: rect.left + pos.left,
-        y: rect.top + pos.top + pos.height,
-      };
-    } catch {
-      return null;
-    }
-  }
-
-  function clampFloaterPoint(x: number, y: number): { x: number; y: number } {
-    const pad = 8;
-    const approxW = 148;
-    const approxH = 32;
-    return {
-      x: Math.min(Math.max(pad, x), Math.max(pad, window.innerWidth - approxW - pad)),
-      y: Math.min(Math.max(pad, y), Math.max(pad, window.innerHeight - approxH - pad)),
-    };
-  }
-
-  function showFloaterNearPointer(
-    _startLine: number,
-    endLine: number,
-    endColumn: number,
-  ): void {
-    const editor = editorRef.current;
-    if (!editor) return;
-    const selection = editor.getSelection();
-    if (!selection || selection.isEmpty()) {
-      hideSelectionFloater();
-      return;
-    }
-    const pointer = lastPointerClientRef.current;
-    const pointerFresh = Date.now() - pointer.at < 1000;
-    const fromCaret = clientPointFromSelectionEnd(endLine, endColumn);
-    const rawX = pointerFresh ? pointer.x + 12 : (fromCaret?.x ?? pointer.x) + 8;
-    const rawY = pointerFresh ? pointer.y + 12 : (fromCaret?.y ?? pointer.y) + 8;
-    const { x, y } = clampFloaterPoint(rawX, rawY);
-    setSelectionFloater({
-      show: true,
-      x,
-      y,
-      startLine: selection.startLineNumber,
-      endLine: selection.endLineNumber,
-    });
-  }
-
-  function onEditorSelectionChange(): void {
-    const editor = editorRef.current;
-    if (!editor || !monacoApiRef.current) return;
-    const selection = editor.getSelection();
-    if (!selection || selection.isEmpty()) {
-      hideSelectionFloater();
-      return;
-    }
-    if (selectionDebounceRef.current) clearTimeout(selectionDebounceRef.current);
-    selectionDebounceRef.current = setTimeout(() => {
-      selectionDebounceRef.current = null;
-      if (Date.now() - lastPointerClientRef.current.at > 400) {
-        showFloaterNearPointer(
-          selection.startLineNumber,
-          selection.endLineNumber,
-          selection.endColumn,
-        );
-      }
-    }, 120);
-  }
-
-  function tryShowFloaterAfterPointerUp(): void {
-    const editor = editorRef.current;
-    if (!editor) return;
-    requestAnimationFrame(() => {
-      const current = editorRef.current;
-      const selection = current?.getSelection();
-      if (!selection || selection.isEmpty()) {
-        hideSelectionFloater();
-        return;
-      }
-      showFloaterNearPointer(
-        selection.startLineNumber,
-        selection.endLineNumber,
-        selection.endColumn,
-      );
-    });
-  }
-
-  function bindEditorPointerTracking(dom: HTMLElement): void {
-    detachEditorPointerRef.current?.();
-    const onMove = (event: PointerEvent): void => {
-      lastPointerClientRef.current = {
-        x: event.clientX,
-        y: event.clientY,
-        at: Date.now(),
-      };
-    };
-    const onUp = (event: PointerEvent): void => {
-      lastPointerClientRef.current = {
-        x: event.clientX,
-        y: event.clientY,
-        at: Date.now(),
-      };
-      tryShowFloaterAfterPointerUp();
-    };
-    dom.addEventListener("pointermove", onMove, true);
-    dom.addEventListener("pointerup", onUp, true);
-    detachEditorPointerRef.current = () => {
-      dom.removeEventListener("pointermove", onMove, true);
-      dom.removeEventListener("pointerup", onUp, true);
-      detachEditorPointerRef.current = null;
-    };
-  }
-
-  function addToChatFromSelection(): void {
-    const path = currentPathRef.current;
-    if (!path) return;
-    const { startLine, endLine } = selectionFloater;
-    const relPath = workspaceRelativePath(path);
-    useComposerStore.getState().addFileTag(relPath, startLine, endLine);
-    hideSelectionFloater();
-    message.success(t.filesCited);
-    const monaco = monacoApiRef.current;
-    editorRef.current?.setSelection(new monaco!.Range(1, 1, 1, 1));
-  }
-
-  function editorHostIsLive(): boolean {
-    const editor = editorRef.current;
-    const host = editorHostRef.current;
-    if (!editor || !host) return false;
-    const dom = editor.getDomNode();
-    return Boolean(dom && host.contains(dom));
-  }
-
-  async function ensureEditor(content: string, language: string): Promise<void> {
+  async function ensureEditor(content: string, _language: string): Promise<void> {
     await nextFrame();
-    const host = editorHostRef.current;
-    if (!host) {
-      setLiveContent(content);
-      diskContentRef.current = content;
-      setDirty(false);
-      setMissing(false);
-      syncTabMeta({ dirty: false, missing: false });
-      return;
-    }
-    if (editorRef.current && !editorHostIsLive()) {
-      disposeEditor();
-    }
-    if (!monacoApiRef.current) monacoApiRef.current = await loadMonaco();
-    const monaco = monacoApiRef.current;
-    applyingExternalRef.current = true;
-    if (!editorRef.current) {
-      const dark = useAppearanceStore.getState().resolvedTheme === "dark";
-      applyMonacoColorTheme(monaco, dark);
-      const fontPx = fontSizePx(12.5, useAppearanceStore.getState().fontSize);
-      const editor = monaco.editor.create(host, {
-        value: content,
-        language,
-        theme: monacoThemeName(dark),
-        useShadowDOM: false,
-        automaticLayout: true,
-        fontSize: fontPx,
-        fontFamily: 'var(--font-mono), "Cascadia Code", Consolas, monospace',
-        lineHeight: Math.round(fontPx * 1.6),
-        minimap: { enabled: false },
-        scrollBeyondLastLine: false,
-        renderLineHighlight: "line",
-        padding: { top: 8 },
-        tabSize: 2,
-        wordWrap: "on",
-        smoothScrolling: true,
-        quickSuggestions: false,
-        parameterHints: { enabled: false },
-        suggestOnTriggerCharacters: false,
-        hover: { enabled: "on" },
-      });
-      editorRef.current = editor;
-      injectEditorStyleOverrides(editor.getDomNode());
-      editor.onDidChangeModelContent(() => {
-        setLiveContent(editorRef.current?.getValue() ?? "");
-        if (applyingExternalRef.current) return;
-        setDirty(true);
-        syncTabMeta({ dirty: true });
-      });
-      editor.onDidChangeCursorSelection(onEditorSelectionChange);
-      const dom = editor.getDomNode();
-      if (dom) {
-        bindEditorPointerTracking(dom);
-        dom.addEventListener("wheel", () => hideSelectionFloater(), { passive: true });
-      }
-      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-        void save();
-      });
-    } else {
-      const model = editorRef.current.getModel();
-      if (model) {
-        monaco.editor.setModelLanguage(model, language);
-        if (model.getValue() !== content) {
-          editorRef.current.pushUndoStop();
-          model.setValue(content);
-          editorRef.current.pushUndoStop();
-        }
-      }
-    }
     setLiveContent(content);
     diskContentRef.current = content;
     setDirty(false);
     setMissing(false);
     syncTabMeta({ dirty: false, missing: false });
-    applyingExternalRef.current = false;
-    await nextFrame();
-    editorRef.current?.layout();
+  }
+
+  function onEditorChange(next: string): void {
+    setLiveContent(next);
+    setDirty(true);
+    syncTabMeta({ dirty: true });
   }
 
   async function refreshGitForFile(path: string): Promise<void> {
     try {
-      const status = await window.api.git.status();
+      const status = await window.api.git.status({ stats: false });
+      if (currentPathRef.current !== path) return;
       const rel = normalizeFsPath(workspaceRelativePath(path));
       const hit = status.files.find((f) => normalizeFsPath(f.relativePath) === rel);
       syncTabMeta({ gitCode: hit?.code });
@@ -458,14 +243,20 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
   async function loadPath(path: string | null): Promise<void> {
     const gen = ++loadGenRef.current;
     fsGenRef.current += 1;
+    const switched = currentPathRef.current !== path;
     setCurrentPath(path);
     setDirty(false);
     setMissing(false);
+    syncTabMeta({ gitCode: "" });
     diskContentRef.current = null;
+    // 换文件时先清空：否则编辑器会拿新语言把上一个文件的内容整篇重新高亮一遍。
+    if (switched) {
+      setResult(null);
+      setLiveContent("");
+    }
     if (!path) {
       setResult(null);
       setLiveContent("");
-      disposeEditor();
       syncTabMeta({ dirty: false, missing: false });
       return;
     }
@@ -478,25 +269,17 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
         const current = resultRef.current;
         const hadCachedDoc =
           (current?.kind === "text" || current?.kind === "markdown") &&
-          Boolean(liveContentRef.current || editorRef.current);
+          Boolean(liveContentRef.current);
         if (hadCachedDoc) {
           setMissing(true);
           syncTabMeta({ missing: true });
           return;
         }
         setResult(next);
-        disposeEditor();
         setLiveContent("");
         setMissing(true);
         syncTabMeta({ missing: true, dirty: false });
         return;
-      }
-
-      const prevKind = resultRef.current?.kind;
-      const nextIsEditor = next.kind === "text" || next.kind === "markdown";
-      const prevIsEditor = prevKind === "text" || prevKind === "markdown";
-      if (editorRef.current && (!nextIsEditor || !prevIsEditor)) {
-        disposeEditor();
       }
 
       setResult(next);
@@ -512,63 +295,49 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
         await ensureEditor(next.content, languageFromPath(path));
       } else {
         stopMedia();
-        disposeEditor();
         setLiveContent("");
         syncTabMeta({ dirty: false });
       }
-      await refreshGitForFile(path);
+      void refreshGitForFile(path);
+    } catch (err) {
+      if (gen !== loadGenRef.current) return;
+      setResult({
+        kind: "error",
+        path,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      setLiveContent("");
     } finally {
-      if (gen === loadGenRef.current) setLoading(false);
-    }
-  }
-
-  function clampPosition(
-    model: Monaco.editor.ITextModel,
-    pos: Monaco.IPosition,
-  ): Monaco.IPosition {
-    const lineNumber = Math.min(Math.max(1, pos.lineNumber), model.getLineCount());
-    return { lineNumber, column: Math.min(pos.column, model.getLineMaxColumn(lineNumber)) };
-  }
-
-  function applyExternalContent(content: string): void {
-    const editor = editorRef.current;
-    const monaco = monacoApiRef.current;
-    if (!editor || !monaco) return;
-    const model = editor.getModel();
-    if (!model || model.getValue() === content) return;
-    const selection = editor.getSelection();
-    editor.pushUndoStop();
-    editor.executeEdits("external", [{ range: model.getFullModelRange(), text: content }]);
-    editor.pushUndoStop();
-    if (selection) {
-      const start = clampPosition(model, selection.getStartPosition());
-      const end = clampPosition(model, selection.getEndPosition());
-      editor.setSelection(
-        new monaco.Selection(start.lineNumber, start.column, end.lineNumber, end.column),
-      );
+      setLoading(false);
     }
   }
 
   async function applyDiskContentSilently(path: string, content: string): Promise<void> {
-    applyingExternalRef.current = true;
-    try {
-      if (editorRef.current && editorHostIsLive()) {
-        applyExternalContent(content);
-      }
-      setLiveContent(content);
-      diskContentRef.current = content;
-      setDirty(false);
-      setMissing(false);
-      setResult((current) =>
-        current && (current.kind === "text" || current.kind === "markdown")
-          ? { ...current, content }
-          : current,
-      );
-      syncTabMeta({ dirty: false, missing: false });
-    } finally {
-      applyingExternalRef.current = false;
-    }
+    setLiveContent(content);
+    diskContentRef.current = content;
+    setDirty(false);
+    setMissing(false);
+    setResult((current) =>
+      current && (current.kind === "text" || current.kind === "markdown")
+        ? { ...current, content }
+        : current,
+    );
+    syncTabMeta({ dirty: false, missing: false });
     await refreshGitForFile(path);
+  }
+
+  /** 内容未落地（窗口隐藏、根目录未就绪、加载被打断）时重新读一次盘。 */
+  function reloadIfEmpty(): void {
+    const path = currentPathRef.current;
+    if (!path || dirtyRef.current) return;
+    if (liveContentRef.current) return;
+    const current = resultRef.current;
+    if (current?.kind === "text" || current?.kind === "markdown") {
+      if (!current.content) return;
+    } else if (current && current.kind !== "error") {
+      return;
+    }
+    void loadPath(path);
   }
 
   function refreshFromDisk(path: string): void {
@@ -587,7 +356,7 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
       }
       if (res.kind !== "text" && res.kind !== "markdown") return;
       if (diskContentRef.current !== null && diskContentRef.current === res.content) return;
-      const editorValue = editorRef.current?.getValue() ?? liveContentRef.current;
+      const editorValue = liveContentRef.current;
       if (editorValue === res.content) {
         diskContentRef.current = res.content;
         setDirty(false);
@@ -598,13 +367,12 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
     })();
   }
 
-  function onFsChanged(event: Event): void {
-    const detail = (event as CustomEvent<FsChangedPayload>).detail;
+  function onFsChanged(events: { path: string; kind: string }[], root: string): void {
     const path = currentPathRef.current;
-    if (!detail || !path) return;
-    const target = normalizeFsPath(absoluteWorkspacePath(detail.root, path));
-    const hit = detail.events.find(
-      (e) => normalizeFsPath(absoluteWorkspacePath(detail.root, e.path)) === target,
+    if (!path) return;
+    const target = normalizeFsPath(absoluteWorkspacePath(root, path));
+    const hit = events.some(
+      (event) => normalizeFsPath(absoluteWorkspacePath(root, event.path)) === target,
     );
     if (hit) refreshFromDisk(path);
   }
@@ -640,9 +408,8 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
     if (handler) {
       const current = resultRef.current;
       const content =
-        editorRef.current?.getValue() ??
-        (liveContentRef.current ||
-          (current?.kind === "text" || current?.kind === "markdown" ? current.content : ""));
+        liveContentRef.current ||
+        (current?.kind === "text" || current?.kind === "markdown" ? current.content : "");
       setSaving(true);
       try {
         const ok = await handler(content);
@@ -662,15 +429,14 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
     const wasMissing = missingRef.current;
     const current = resultRef.current;
     const content =
-      editorRef.current?.getValue() ??
-      (liveContentRef.current ||
-        (current?.kind === "text" || current?.kind === "markdown" ? current.content : ""));
-    if (!editorRef.current && content === "" && !wasMissing) return false;
+      liveContentRef.current ||
+      (current?.kind === "text" || current?.kind === "markdown" ? current.content : "");
+    if (content === "" && !wasMissing) return false;
 
     setSaving(true);
     try {
       await window.api.preview.write(path, content);
-      if (wasMissing || !editorRef.current) {
+      if (wasMissing) {
         await loadPath(path);
       } else {
         diskContentRef.current = content;
@@ -690,17 +456,10 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
   }
 
   function getContent(): string {
-    return editorRef.current?.getValue() ?? liveContent ?? "";
+    return liveContent ?? "";
   }
 
   function setContent(content: string): void {
-    const editor = editorRef.current;
-    const model = editor?.getModel();
-    if (model && model.getValue() !== content) {
-      editor?.pushUndoStop();
-      model.setValue(content);
-      editor?.pushUndoStop();
-    }
     setLiveContent(content);
   }
 
@@ -748,33 +507,38 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
   }, [filePath, draftContent]);
 
   useEffect(() => {
-    const monaco = monacoApiRef.current;
-    const editor = editorRef.current;
-    if (!monaco || !editor) return;
-    applyMonacoColorTheme(monaco, appearance.resolvedTheme === "dark");
-  }, [appearance.resolvedTheme]);
-
-  useEffect(() => {
-    const fontPx = fontSizePx(12.5, appearance.fontSize);
-    editorRef.current?.updateOptions({
-      fontSize: fontPx,
-      lineHeight: Math.round(fontPx * 1.6),
-    });
-  }, [appearance.fontSize]);
+    const wasActive = wasActiveRef.current;
+    wasActiveRef.current = active;
+    if (active && !wasActive) setContentEpoch((current) => current + 1);
+  }, [active]);
 
   useEffect(() => {
     if (active && currentPathRef.current) {
+      reloadIfEmpty();
       void refreshGitForFile(currentPathRef.current);
-      void nextFrame().then(() => editorRef.current?.layout());
     } else {
-      hideSelectionFloater();
       stopMedia();
     }
   }, [active]);
 
+  /** 窗口重新可见后补一次：启动/隐藏期间 rAF 与 IPC 可能没把内容送进编辑器。 */
+  useEffect(() => {
+    const onVisible = (): void => {
+      if (document.visibilityState === "visible") reloadIfEmpty();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
+
+  /** 工作区（主进程侧 root 同步）就绪后才读盘时会先失败，就绪后补读。 */
+  useEffect(() => {
+    if (!workspaceRoot) return;
+    reloadIfEmpty();
+  }, [workspaceRoot]);
+
   useEffect(() => {
     if (useLayoutStore.getState().rightCollapsed) stopMedia();
-  }, [layout.rightCollapsed]);
+  }, [rightCollapsed]);
 
   useEffect(() => {
     if (!mediaVisible) stopMedia();
@@ -785,32 +549,20 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
   }, [result?.kind, tabId]);
 
   useEffect(() => {
-    if (loading || !isMarkdown || !currentPath) return;
-    void (async () => {
-      await nextFrame();
-      if (!editorRef.current && showEditor) {
-        await ensureEditor(liveContent, languageFromPath(currentPath));
-      } else {
-        editorRef.current?.layout();
-      }
-    })();
-  }, [mdViewMode]);
-
-  useEffect(() => {
     syncExternalFileWatch();
   }, [currentPath]);
 
   useEffect(() => {
     if (!tabId) return;
     useRightTabsStore.getState().registerSaveHandler(tabId, save);
-    window.addEventListener("pi-fs-changed", onFsChanged);
+    const stopFs = subscribeFsChanges(onFsChanged);
     stopPreviewWatchRef.current = window.api.preview.onChanged(onExternalWatchChanged);
     window.addEventListener("keydown", onPreviewKeydown, true);
     window.addEventListener("keyup", onPreviewKeyup, true);
     window.addEventListener("blur", onWindowBlur);
     return () => {
       if (tabId) useRightTabsStore.getState().unregisterSaveHandler(tabId);
-      window.removeEventListener("pi-fs-changed", onFsChanged);
+      stopFs();
       stopPreviewWatchRef.current?.();
       stopPreviewWatchRef.current = null;
       if (watchedExternalPathRef.current) {
@@ -820,21 +572,17 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
       window.removeEventListener("keydown", onPreviewKeydown, true);
       window.removeEventListener("keyup", onPreviewKeyup, true);
       window.removeEventListener("blur", onWindowBlur);
-      if (selectionDebounceRef.current) clearTimeout(selectionDebounceRef.current);
       stopMedia();
       unregisterVideoRef.current?.();
       unregisterAudioRef.current?.();
       unregisterVideoRef.current = undefined;
       unregisterAudioRef.current = undefined;
-      disposeEditor();
     };
   }, [tabId]);
 
-  const floater = selectionFloater.show && active !== false;
-
   return (
     <div className={styles.previewTab}>
-      {embedded ? null : (
+      {hideToolbar || embedded ? null : (
         <div className={styles.toolbar}>
           <div className={styles.crumbs} title={currentPath ?? undefined}>
             {crumbs.length ? (
@@ -929,24 +677,6 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
         </div>
       )}
       <div className={styles.viewport}>
-        {createPortal(
-          floater ? (
-            <button
-              type="button"
-              className={styles.selectionFloater}
-              style={{ left: `${selectionFloater.x}px`, top: `${selectionFloater.y}px` }}
-              title={t.selectionAddToChat}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                addToChatFromSelection();
-              }}
-            >
-              <ChatbubbleEllipsesOutline size={14} />
-              <span>{t.selectionAddToChat}</span>
-            </button>
-          ) : null,
-          document.body,
-        )}
         {!currentPath && !isDraft ? (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t.previewHint} />
         ) : (
@@ -980,6 +710,7 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
                       />
                     ) : null}
                     <div
+                      key={contentEpoch}
                       className={
                         isMarkdown && mdViewMode === "split"
                           ? `${styles.docBody} ${styles.mdSplit}`
@@ -988,14 +719,25 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
                             : styles.docBody
                       }
                     >
-                      <div
-                        ref={editorHostRef}
-                        className={styles.editor}
-                        style={{ display: showEditor ? undefined : "none" }}
-                      />
+                      {showEditor ? (
+                        <ShikiEditor
+                          className={styles.editor}
+                          name={currentPath ?? "untitled"}
+                          value={liveContent}
+                          language={
+                            currentPath ? languageFromPath(currentPath) : "markdown"
+                          }
+                          onChange={onEditorChange}
+                        />
+                      ) : null}
                       {showMdPreview ? (
                         <div className={styles.mdPreview}>
-                          <MarkdownView content={liveContent} assets={mdAssets} />
+                          <MarkdownView
+                            content={liveContent}
+                            assets={mdAssets}
+                            maxChars={2_000_000}
+                            htmlImages
+                          />
                         </div>
                       ) : null}
                     </div>
@@ -1032,6 +774,6 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
       </div>
     </div>
   );
-});
+}));
 
 export default PreviewTab;

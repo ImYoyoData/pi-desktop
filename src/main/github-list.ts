@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type {
 	PullRequestChoices,
+	PullRequestCounts,
 	PullRequestFilters,
 	PullRequestLabel,
 	PullRequestListAuthor,
@@ -270,27 +271,112 @@ function stateCountQueries(search: SearchScope): { open: string; closed: string;
 
 const FIVE_MINUTES_MS = 5 * 60 * 1000;
 
-export type TtlCache<T> = {
-	get: (key: string) => T | undefined;
-	remember: (key: string, value: T) => void;
-	forget: (key: string) => void;
+export type TtlCacheEntry<T> = { value: T; at: number };
+
+export type TtlCacheOptions<T> = {
+	/** 超过新鲜窗口仍可用的时长，用首屏旧数据；命中后由调用方标记 stale 重新拉取 */
+	staleMs?: number;
+	/** 条目上限，超出时淘汰最旧的 */
+	limit?: number;
+	load?: () => Record<string, TtlCacheEntry<T>>;
+	/** 条目变化时回写当前全部可用条目，由调用方合并落盘 */
+	save?: (entries: Record<string, TtlCacheEntry<T>>) => void;
 };
 
-export function createTtlCache<T>(ttlMs = FIVE_MINUTES_MS): TtlCache<T> {
-	const entries = new Map<string, { value: T; at: number }>();
+export type TtlCache<T> = {
+	get: (key: string) => T | undefined;
+	/** 新鲜或过期但仍在 staleMs 内的条目 */
+	entry: (key: string) => TtlCacheEntry<T> | undefined;
+	remember: (key: string, value: T) => void;
+	forget: (key: string) => void;
+	forgetPrefix: (prefix: string) => void;
+	clear: () => void;
+	/** 命中直接返回，同一 key 的在途请求共享，失败不缓存。 */
+	run: (key: string, load: () => Promise<T>) => Promise<T>;
+};
+
+export function createTtlCache<T>(ttlMs = FIVE_MINUTES_MS, options: TtlCacheOptions<T> = {}): TtlCache<T> {
+	const staleMs = Math.max(ttlMs, options.staleMs ?? ttlMs);
+	const entries = new Map<string, TtlCacheEntry<T>>();
+	const inflight = new Map<string, Promise<T>>();
+
+	for (const [key, entry] of Object.entries(options.load?.() ?? {})) {
+		if (entry && Date.now() - entry.at <= staleMs) entries.set(key, entry);
+	}
+
+	const persist = (): void => {
+		options.save?.(Object.fromEntries(entries));
+	};
+
+	const trim = (): void => {
+		if (!options.limit) return;
+		for (const key of entries.keys()) {
+			if (entries.size <= options.limit) return;
+			entries.delete(key);
+		}
+	};
+
+	const get = (key: string): T | undefined => {
+		const found = entries.get(key);
+		if (!found) return undefined;
+		const age = Date.now() - found.at;
+		if (age <= ttlMs) return found.value;
+		if (age > staleMs) entries.delete(key);
+		return undefined;
+	};
+
+	const entry = (key: string): TtlCacheEntry<T> | undefined => {
+		const found = entries.get(key);
+		if (!found) return undefined;
+		if (Date.now() - found.at <= staleMs) return found;
+		entries.delete(key);
+		return undefined;
+	};
+
+	const remember = (key: string, value: T): void => {
+		entries.delete(key);
+		entries.set(key, { value, at: Date.now() });
+		trim();
+		persist();
+	};
+
+	const forget = (key: string): void => {
+		if (!entries.delete(key)) return;
+		persist();
+	};
+
 	return {
-		get: (key) => {
-			const entry = entries.get(key);
-			if (!entry) return undefined;
-			if (Date.now() - entry.at <= ttlMs) return entry.value;
-			entries.delete(key);
-			return undefined;
+		get,
+		entry,
+		remember,
+		forget,
+		forgetPrefix: (prefix) => {
+			let dropped = false;
+			for (const key of entries.keys()) {
+				if (!key.startsWith(prefix)) continue;
+				entries.delete(key);
+				dropped = true;
+			}
+			if (dropped) persist();
 		},
-		remember: (key, value) => {
-			entries.set(key, { value, at: Date.now() });
+		clear: () => {
+			if (entries.size === 0) return;
+			entries.clear();
+			persist();
 		},
-		forget: (key) => {
-			entries.delete(key);
+		run: (key, load) => {
+			const cached = get(key);
+			if (cached !== undefined) return Promise.resolve(cached);
+			const pending = inflight.get(key);
+			if (pending) return pending;
+			const task = load()
+				.then((value) => {
+					remember(key, value);
+					return value;
+				})
+				.finally(() => inflight.delete(key));
+			inflight.set(key, task);
+			return task;
 		},
 	};
 }
@@ -331,8 +417,11 @@ const PageSchema = z.object({
 	}),
 });
 
-const PAGE_QUERY = `query($search: String!, $after: String) {
-	search(query: $search, type: ISSUE, first: 50, after: $after) {
+const FIRST_PAGE_SIZE = 25;
+const NEXT_PAGE_SIZE = 50;
+
+const PAGE_QUERY = `query($search: String!, $after: String, $first: Int!) {
+	search(query: $search, type: ISSUE, first: $first, after: $after) {
 		issueCount
 		pageInfo { hasNextPage endCursor }
 		nodes { ... on PullRequest {
@@ -412,14 +501,18 @@ async function stateCounts(
 	}
 }
 
+/** 本地解析仓库身份（无 gh 进程），失败返回 null 时回退 gh repo view。 */
+export type LocalIdentity = (cwd: string) => Promise<RepositoryIdentity | null>;
+
 export async function cachedRepositoryIdentity(
 	cwd: string,
 	run: GraphQLRun,
 	repositories?: TtlCache<RepositoryIdentity>,
+	local?: LocalIdentity,
 ): Promise<RepositoryIdentity> {
 	const cached = repositories?.get(cwd);
 	if (cached) return cached;
-	const identity = await repositoryIdentity(cwd, run);
+	const identity = (await local?.(cwd).catch(() => null)) ?? (await repositoryIdentity(cwd, run));
 	repositories?.remember(cwd, identity);
 	return identity;
 }
@@ -464,18 +557,73 @@ export type PullRequestPageRequestV2 = {
 	filters?: PullRequestFilters;
 	run: GraphQLRun;
 	repositories?: TtlCache<RepositoryIdentity>;
+	pages?: TtlCache<PullRequestPage>;
+	/** 用户主动刷新：跳过页缓存并覆盖它 */
+	fresh?: boolean;
+	local?: LocalIdentity;
 };
+
+function stableJson(value: unknown): string {
+	if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+	if (value && typeof value === "object") {
+		const entries = Object.entries(value as Record<string, unknown>)
+			.filter(([, entry]) => entry !== undefined)
+			.sort(([left], [right]) => left.localeCompare(right))
+			.map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`);
+		return `{${entries.join(",")}}`;
+	}
+	return JSON.stringify(value) ?? "null";
+}
+
+export function pageKeyPrefix(identity: RepositoryIdentity): string {
+	return `${identity.hostname.toLowerCase()}#${identity.repository.toLowerCase()}#`;
+}
+
+export function countsKeyPrefix(identity: RepositoryIdentity): string {
+	return `${identity.hostname.toLowerCase()}/${identity.repository.toLowerCase()}#`;
+}
+
+function pageCacheKey(
+	identity: RepositoryIdentity,
+	request: PullRequestPageRequestV2,
+	filters: PullRequestFilters,
+): string {
+	return [
+		identity.hostname.toLowerCase(),
+		identity.repository.toLowerCase(),
+		request.state,
+		request.author,
+		request.cursor ?? "",
+		stableJson(filters),
+	].join("#");
+}
 
 export async function fetchPullRequestPage(request: PullRequestPageRequestV2): Promise<PullRequestPage> {
 	const filters = filtersOf(request);
-	const identity = await cachedRepositoryIdentity(request.cwd, request.run, request.repositories);
+	const identity = await cachedRepositoryIdentity(request.cwd, request.run, request.repositories, request.local);
 	const forget = (error: unknown) => {
 		if (!isCancelled(error)) request.repositories?.forget(request.cwd);
 	};
+	const read = async (): Promise<PullRequestPage> => {
+		try {
+			return await readPage(request, identity, filters, forget);
+		} catch (error) {
+			forget(error);
+			throw error;
+		}
+	};
+	const pages = request.pages;
+	if (!pages) return read();
+	const key = pageCacheKey(identity, request, filters);
+	if (request.fresh) pages.forget(key);
+	const fresh = request.fresh ? undefined : pages.get(key);
+	if (fresh) return fresh;
+	const stale = request.fresh ? undefined : pages.entry(key);
+	if (stale) return { ...stale.value, stale: true };
 	try {
-		return await readPage(request, identity, filters, forget);
+		return await pages.run(key, read);
 	} catch (error) {
-		forget(error);
+		pages.forget(key);
 		throw error;
 	}
 }
@@ -484,26 +632,23 @@ async function readPage(
 	request: PullRequestPageRequestV2,
 	identity: RepositoryIdentity,
 	filters: PullRequestFilters,
-	forget: (error: unknown) => void,
+	_forget: (error: unknown) => void,
 ): Promise<PullRequestPage> {
 	const { cwd, cursor, run, state, author } = request;
 	const { hostname, repository } = identity;
 	const search: SearchScope = { repository, state, author, filters };
-	const [output, counts] = await Promise.all([
-		run(cwd, [
-			"api",
-			"graphql",
-			"--hostname",
-			hostname,
-			"-f",
-			`query=${PAGE_QUERY}`,
-			"-f",
-			`search=${pullRequestSearchQuery(search)}`,
-			...(cursor ? ["-f", `after=${cursor}`] : []),
-		]),
-		cursor
-			? Promise.resolve(undefined)
-			: stateCounts(cwd, hostname, stateCountQueries(search), run, forget),
+	const output = await run(cwd, [
+		"api",
+		"graphql",
+		"--hostname",
+		hostname,
+		"-f",
+		`query=${PAGE_QUERY}`,
+		"-f",
+		`search=${pullRequestSearchQuery(search)}`,
+		"-F",
+		`first=${cursor ? NEXT_PAGE_SIZE : FIRST_PAGE_SIZE}`,
+		...(cursor ? ["-f", `after=${cursor}`] : []),
 	]);
 	const parsed = PageSchema.safeParse(jsonOf(output));
 	if (!parsed.success) throw invalidPage();
@@ -517,8 +662,38 @@ async function readPage(
 		nextCursor,
 		totalCount: page.issueCount,
 		repository,
-		...(counts ? { counts } : {}),
 	};
+}
+
+function countsKeyOf(identity: RepositoryIdentity, author: PullRequestListAuthor, filters: PullRequestFilters): string {
+	return `${identity.hostname.toLowerCase()}/${identity.repository.toLowerCase()}#${author}#${stableJson(filters)}`;
+}
+
+export type PullRequestCountsRequest = {
+	cwd: string;
+	state: PullRequestListState;
+	author: PullRequestListAuthor;
+	filters?: PullRequestFilters;
+	run: GraphQLRun;
+	repositories?: TtlCache<RepositoryIdentity>;
+	counts?: TtlCache<PullRequestCounts>;
+	fresh?: boolean;
+	local?: LocalIdentity;
+};
+
+/** 状态计数与列表页分开拉，不阻塞首屏。 */
+export async function fetchPullRequestCounts(
+	request: PullRequestCountsRequest,
+): Promise<PullRequestCounts | undefined> {
+	const filters = filtersOf(request as PullRequestPageRequestV2);
+	const identity = await cachedRepositoryIdentity(request.cwd, request.run, request.repositories, request.local);
+	const key = countsKeyOf(identity, request.author, filters);
+	const cached = request.fresh ? undefined : request.counts?.get(key);
+	if (cached) return cached;
+	const search: SearchScope = { repository: identity.repository, state: request.state, author: request.author, filters };
+	const value = await stateCounts(request.cwd, identity.hostname, stateCountQueries(search), request.run, () => {});
+	if (value) request.counts?.remember(key, value);
+	return value;
 }
 
 const BRANCH_PAGE = 100;
@@ -673,9 +848,13 @@ export async function fetchRepositoryChoices(
 	cwd: string,
 	kind: string,
 	run: GraphQLRun,
-	caches: { repositories?: TtlCache<RepositoryIdentity>; choices?: TtlCache<PullRequestChoices> } = {},
+	caches: {
+		repositories?: TtlCache<RepositoryIdentity>;
+		choices?: TtlCache<PullRequestChoices>;
+		local?: LocalIdentity;
+	} = {},
 ): Promise<PullRequestChoices> {
-	const repository = await cachedRepositoryIdentity(cwd, run, caches.repositories);
+	const repository = await cachedRepositoryIdentity(cwd, run, caches.repositories, caches.local);
 	try {
 		return await cachedChoices(cwd, repository, kind, run, caches.choices);
 	} catch (error) {

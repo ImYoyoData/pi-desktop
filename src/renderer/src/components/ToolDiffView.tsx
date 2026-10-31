@@ -1,6 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import { DiffModeEnum, DiffView } from "@git-diff-view/react";
-import "@git-diff-view/react/styles/diff-view-pure.css";
+import { PatchDiff } from "@pierre/diffs/react";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { normalizeDiffHunks } from "@renderer/utils/diff-view-hunks";
 import styles from "./ToolDiffView.module.css";
@@ -13,34 +12,32 @@ type Props = {
   fallback: ReactNode;
 };
 
-/** 与 PR 详情页用同一个渲染器，保证两处的 diff 视觉一致。 */
+/** diffs 自带深色底，工具卡片背景由消息区决定，这里统一成透明。
+ *  color-scheme 必须钉成应用主题：diffs 的 :host 默认 light dark，会跟随系统偏好。 */
+function surfaceCss(theme: "light" | "dark"): string {
+  return `:host{color-scheme:${theme}}:host,[data-diff],[data-file],pre,code{--diffs-bg:transparent!important}`;
+}
+
+/** 与 markstream 代码块同源的 diff 渲染器（@pierre/diffs + shiki）。 */
 export function ToolDiffView({ text, path, fallback }: Props): ReactNode {
   const theme = useAppearanceStore((state) => state.resolvedTheme);
-  const hunks = useMemo(() => normalizeDiffHunks(text, path), [text, path]);
-  /** 库按 data 引用重建整份 diff，引用不稳会让卡片每次重渲染都重算一遍。 */
-  const data = useMemo(
-    () =>
-      hunks
-        ? {
-            oldFile: { fileName: path ?? "" },
-            newFile: { fileName: path ?? "" },
-            hunks: [hunks],
-          }
-        : null,
-    [hunks, path],
+  const patch = useMemo(() => normalizeDiffHunks(text, path), [text, path]);
+  const options = useMemo(
+    () => ({
+      diffStyle: "unified" as const,
+      diffIndicators: "bars" as const,
+      overflow: "wrap" as const,
+      disableFileHeader: true,
+      themeType: theme === "dark" ? ("dark" as const) : ("light" as const),
+      unsafeCSS: surfaceCss(theme === "dark" ? "dark" : "light"),
+    }),
+    [theme],
   );
 
-  if (!data) return <>{fallback}</>;
+  if (!patch) return <>{fallback}</>;
   return (
     <div className={styles.root}>
-      <DiffView
-        data={data}
-        diffViewMode={DiffModeEnum.Unified}
-        diffViewTheme={theme}
-        diffViewHighlight={false}
-        diffViewWrap={false}
-        diffViewFontSize={12}
-      />
+      <PatchDiff patch={patch} options={options} />
     </div>
   );
 }

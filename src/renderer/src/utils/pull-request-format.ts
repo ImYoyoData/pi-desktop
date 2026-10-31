@@ -7,18 +7,31 @@ import type {
 	PullRequestSummary,
 	PullRequestTimelineEvent,
 } from "../../../shared/github-types";
-import { t } from "@renderer/i18n";
+import { getLocale, t } from "@renderer/i18n";
 
-const SHORT_DATE = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
-const LONG_DATE = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
+const DATE_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
+
+function dateFormatter(kind: "short" | "long"): Intl.DateTimeFormat {
+	const key = `${getLocale()}:${kind}`;
+	const cached = DATE_FORMATTERS.get(key);
+	if (cached) return cached;
+	const formatter = new Intl.DateTimeFormat(
+		getLocale(),
+		kind === "long"
+			? { year: "numeric", month: "short", day: "numeric" }
+			: { month: "short", day: "numeric" },
+	);
+	DATE_FORMATTERS.set(key, formatter);
+	return formatter;
+}
 
 export function formatPullRequestDate(iso: string | undefined, now = Date.now()): string {
 	if (!iso) return "";
 	const at = Date.parse(iso);
 	if (!Number.isFinite(at)) return "";
 	return new Date(at).getFullYear() === new Date(now).getFullYear()
-		? SHORT_DATE.format(at)
-		: LONG_DATE.format(at);
+		? dateFormatter("short").format(at)
+		: dateFormatter("long").format(at);
 }
 
 export function formatPullRequestRelative(iso: string | undefined): string {
@@ -26,13 +39,13 @@ export function formatPullRequestRelative(iso: string | undefined): string {
 	const at = Date.parse(iso);
 	if (Number.isNaN(at)) return "";
 	const seconds = Math.max(0, Math.floor((Date.now() - at) / 1000));
-	if (seconds < 60) return `${seconds}s`;
+	if (seconds < 60) return t.prRelativeSeconds(seconds);
 	const minutes = Math.floor(seconds / 60);
-	if (minutes < 60) return `${minutes}m`;
+	if (minutes < 60) return t.prRelativeMinutes(minutes);
 	const hours = Math.floor(minutes / 60);
-	if (hours < 48) return `${hours}h`;
+	if (hours < 48) return t.prRelativeHours(hours);
 	const days = Math.floor(hours / 24);
-	if (days < 30) return `${days}d`;
+	if (days < 30) return t.prRelativeDays(days);
 	return formatPullRequestDate(iso);
 }
 

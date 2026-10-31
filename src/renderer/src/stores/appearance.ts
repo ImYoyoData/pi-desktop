@@ -14,11 +14,16 @@ import {
   FONT_SIZE_DEFAULT,
   VEIL_BLUR_MAX_PX,
   createDefaultCustomAppearance,
+  localMediaSrc,
   normalizeCustomAppearance,
   normalizeFontSize,
   normalizeMessageWidth,
+  resolveMonoFontStack,
+  resolveUiFontStack,
   wallpaperKindForPath,
   type CustomAppearanceSettings,
+  type FontSettings,
+  type LocalFont,
   type SurfaceAlphaSettings,
   type WallpaperSettings,
 } from "../../../shared/appearance";
@@ -39,6 +44,8 @@ const SESSION_TITLE_KEY = "pi-desktop:session-title";
  * is streaming. Off → every card starts folded and the user opens what they want.
  */
 const EXPAND_TOOL_CALLS_KEY = "pi-desktop:expand-tool-calls";
+/** 流式期间是否自动展开思考 / 工作步骤小节，关闭后一律保持折叠。 */
+const AUTO_EXPAND_SUMMARY_KEY = "pi-desktop:auto-expand-summary";
 
 /** 外观相关的偏好键：任意一个被改，界面就要重新读取并应用。 */
 export const APPEARANCE_KEYS = new Set([
@@ -49,6 +56,7 @@ export const APPEARANCE_KEYS = new Set([
 	SESSION_DETAILS_KEY,
 	SESSION_TITLE_KEY,
 	EXPAND_TOOL_CALLS_KEY,
+	AUTO_EXPAND_SUMMARY_KEY,
 	CUSTOM_APPEARANCE_KEY,
 	CUSTOM_APPEARANCE_LEGACY_KEY,
 ]);
@@ -83,6 +91,15 @@ function readExpandToolCalls(): boolean {
     return prefs.getItem(EXPAND_TOOL_CALLS_KEY) === "1";
   } catch {
     return false;
+  }
+}
+
+/** Default ON: 思考与工作步骤在流式时自动展开，与历史行为一致。 */
+function readAutoExpandSummary(): boolean {
+  try {
+    return prefs.getItem(AUTO_EXPAND_SUMMARY_KEY) !== "0";
+  } catch {
+    return true;
   }
 }
 
@@ -129,6 +146,37 @@ function applyCustomAppearance(settings: CustomAppearanceSettings, broken: boole
     "--pi-veil-blur",
     `${Math.round(wallpaper.veilBlur * VEIL_BLUR_MAX_PX)}px`,
   );
+}
+
+const LOCAL_FONT_STYLE_ID = "pi-local-fonts";
+
+/** 本地字体用内部族名注入 @font-face，避免与系统字体重名。 */
+function applyLocalFontFaces(local: LocalFont[]): void {
+  let style = document.getElementById(LOCAL_FONT_STYLE_ID) as HTMLStyleElement | null;
+  if (!style) {
+    style = document.createElement("style");
+    style.id = LOCAL_FONT_STYLE_ID;
+    document.head.appendChild(style);
+  }
+  style.textContent = local
+    .map(
+      (font) =>
+        `@font-face{font-family:"${font.family}";src:url("${localMediaSrc(font.path)}");font-display:swap;}`,
+    )
+    .join("");
+}
+
+/** 字体栈写进根变量，CSS 与 antd 统一从这里取。 */
+function applyFonts(fonts: FontSettings): void {
+  const root = document.documentElement.style;
+  root.setProperty("--pi-font-ui", resolveUiFontStack(fonts));
+  root.setProperty("--pi-font-mono", resolveMonoFontStack(fonts));
+  applyLocalFontFaces(fonts.local);
+}
+
+function localFontName(filePath: string): string {
+  const base = filePath.split(/[\\/]/).pop() ?? "";
+  return base.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim();
 }
 
 function percent(value: number): number {
@@ -230,6 +278,7 @@ type AppearanceBase = {
   showSessionDetails: boolean;
   showSessionTitle: boolean;
   expandToolCalls: boolean;
+  autoExpandSummary: boolean;
   customAppearance: CustomAppearanceSettings;
   wallpaperBroken: boolean;
 };
@@ -237,6 +286,7 @@ type AppearanceBase = {
 type AppearanceDerived = {
   wallpaper: WallpaperSettings;
   surfaces: SurfaceAlphaSettings;
+  fonts: FontSettings;
   messageWidth: number;
   /** 输入框实际生效宽度（未单独设置时与消息区一致）。 */
   inputWidth: number;
@@ -256,6 +306,7 @@ export type AppearanceState = AppearanceBase &
     setShowSessionDetails: (next: boolean) => void;
     setShowSessionTitle: (next: boolean) => void;
     setExpandToolCalls: (next: boolean) => void;
+    setAutoExpandSummary: (next: boolean) => void;
     setWallpaperFile: (path: string) => void;
     clearWallpaper: () => void;
     setVeilOpacity: (value: number) => void;
@@ -263,6 +314,11 @@ export type AppearanceState = AppearanceBase &
     setSurfaceAlpha: (key: SurfaceAlphaKey, value: number) => void;
     setMessageWidth: (value: number) => void;
     setInputWidth: (value: number | null) => void;
+    setUiFont: (id: string) => void;
+    setMonoFont: (id: string) => void;
+    /** 添加本地字体文件，返回新条目；文件名不可用时返回 null。 */
+    addLocalFont: (path: string) => LocalFont | null;
+    removeLocalFont: (id: string) => void;
     setWallpaperBroken: (broken: boolean) => void;
     init: () => () => void;
     /** 重新读取偏好并应用（另一窗口改了外观时调用）。 */
@@ -288,6 +344,7 @@ function derive(base: AppearanceBase): AppearanceDerived {
   return {
     wallpaper,
     surfaces,
+    fonts: base.customAppearance.fonts,
     messageWidth,
     inputWidth,
     glassSurface,
@@ -306,6 +363,7 @@ function initialBase(): AppearanceBase {
     showSessionDetails: readSessionDetails(),
     showSessionTitle: readSessionTitle(),
     expandToolCalls: readExpandToolCalls(),
+    autoExpandSummary: readAutoExpandSummary(),
     customAppearance: readCustomAppearance(),
     wallpaperBroken: false,
   };
@@ -328,6 +386,7 @@ export const useAppearanceStore = create<AppearanceState>()((set, get) => {
   function syncGlassShell(): void {
     const state = get();
     applyCustomAppearance(state.customAppearance, state.wallpaperBroken);
+    applyFonts(state.customAppearance.fonts);
     applyDomTheme(state.resolvedTheme);
     scheduleChromeSync(state.themePreference, state.resolvedTheme);
   }
@@ -368,8 +427,9 @@ export const useAppearanceStore = create<AppearanceState>()((set, get) => {
   }
 
   const base = initialBase();
-  // 首帧前就写入根字号，避免启动时先按默认字号绘制再跳变。
+  // 首帧前就写入根字号与字体栈，避免启动时先按默认值绘制再跳变。
   applyFontSize(base.fontSize);
+  applyFonts(base.customAppearance.fonts);
 
   return {
     ...base,
@@ -447,6 +507,14 @@ export const useAppearanceStore = create<AppearanceState>()((set, get) => {
         // ignore
       }
     },
+    setAutoExpandSummary: (next) => {
+      set({ autoExpandSummary: next });
+      try {
+        prefs.setItem(AUTO_EXPAND_SUMMARY_KEY, next ? "1" : "0");
+      } catch {
+        // ignore
+      }
+    },
     setWallpaperFile: (path) => {
       const kind = wallpaperKindForPath(path);
       if (!kind) return;
@@ -483,6 +551,51 @@ export const useAppearanceStore = create<AppearanceState>()((set, get) => {
       persistCustom({
         ...state.customAppearance,
         inputWidth: width === messageWidth ? undefined : width,
+      });
+    },
+    setUiFont: (id) => {
+      const state = get();
+      persistCustom({
+        ...state.customAppearance,
+        fonts: { ...state.customAppearance.fonts, ui: id },
+      });
+    },
+    setMonoFont: (id) => {
+      const state = get();
+      persistCustom({
+        ...state.customAppearance,
+        fonts: { ...state.customAppearance.fonts, mono: id },
+      });
+    },
+    addLocalFont: (path) => {
+      const name = localFontName(path);
+      if (!name) return null;
+      const entry: LocalFont = {
+        id: `local:${crypto.randomUUID()}`,
+        name,
+        path,
+        family: `pi-local-${crypto.randomUUID()}`,
+      };
+      const state = get();
+      const fonts = state.customAppearance.fonts;
+      persistCustom({
+        ...state.customAppearance,
+        fonts: { ...fonts, local: [...fonts.local, entry] },
+      });
+      return entry;
+    },
+    removeLocalFont: (id) => {
+      const state = get();
+      const fonts = state.customAppearance.fonts;
+      const local = fonts.local.filter((font) => font.id !== id);
+      persistCustom({
+        ...state.customAppearance,
+        fonts: {
+          ...fonts,
+          local,
+          ui: fonts.ui === id ? "" : fonts.ui,
+          mono: fonts.mono === id ? "" : fonts.mono,
+        },
       });
     },
     setWallpaperBroken: (broken) => {

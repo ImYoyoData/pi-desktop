@@ -1462,6 +1462,28 @@ export function RefreshOutline({
   );
 }
 
+export function ReturnArrowOutline({
+  size,
+  color,
+  className,
+  style,
+}: IoniconProps): ReactNode {
+  return (
+    <svg
+      xmlns={"http://www.w3.org/2000/svg"}
+      viewBox={"0 0 512 512"}
+      width={size ?? "1em"}
+      height={size ?? "1em"}
+      className={className}
+      style={color ? { color, ...style } : style}
+      aria-hidden="true"
+    >
+      <path d={"M233 131H404V313H85"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={40} />
+      <path d={"M199 199L85 313L199 427"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={40} />
+    </svg>
+  );
+}
+
 export function SaveOutline({
   size,
   color,
@@ -1628,7 +1650,8 @@ export function StopOutline({
       style={color ? { color, ...style } : style}
       aria-hidden="true"
     >
-      <rect x={96} y={96} width={320} height={320} rx={24} ry={24} fill={"none"} stroke={"currentColor"} strokeLinejoin={"round"} strokeWidth={32} />
+      <circle cx={244.5} cy={279} r={148} fill={"none"} stroke={"currentColor"} strokeWidth={40} />
+      <rect x={188.5} y={223} width={112} height={112} fill={"currentColor"} />
     </svg>
   );
 }

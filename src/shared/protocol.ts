@@ -78,6 +78,8 @@ export const IpcChannels = {
 	appearance: {
 		/** Renderer → main: 选择壁纸文件（图片/动图/视频）。 */
 		pickWallpaper: "appearance:pickWallpaper",
+		/** Renderer → main: 选择本地字体文件（ttf/otf/woff/woff2）。 */
+		pickFontFile: "appearance:pickFontFile",
 	},
 	prefs: {
 		/** Renderer → main（同步）: 整份读取桌面端偏好，启动时首帧就要用。 */
@@ -210,6 +212,7 @@ export const IpcChannels = {
 		pullRequestView: "github:pullRequestView",
 		pullRequestList: "github:pullRequestList",
 		pullRequestListCancel: "github:pullRequestListCancel",
+		pullRequestCounts: "github:pullRequestCounts",
 		pullRequestDetail: "github:pullRequestDetail",
 		pullRequestPatch: "github:pullRequestPatch",
 		pullRequestAction: "github:pullRequestAction",
@@ -309,7 +312,6 @@ export const IpcChannels = {
 	},
 	update: {
 		getAppInfo: "update:getAppInfo",
-		openGithub: "update:openGithub",
 		openReleases: "update:openReleases",
 		openAuthorEmail: "update:openAuthorEmail",
 		/** Renderer → main: 读取当前更新状态。 */

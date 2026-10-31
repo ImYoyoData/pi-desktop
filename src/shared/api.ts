@@ -21,6 +21,7 @@ import type {
 	PullRequestAction,
 	PullRequestChoices,
 	PullRequestChoiceKind,
+	PullRequestCounts,
 	PullRequestDetail,
 	PullRequestFilters,
 	PullRequestListAuthor,
@@ -581,8 +582,8 @@ export function createApi(
 		},
 	},
 	git: {
-		status: () =>
-			ipcRenderer.invoke(IpcChannels.git.status) as Promise<{
+		status: (opts?: { stats?: boolean }) =>
+			ipcRenderer.invoke(IpcChannels.git.status, opts) as Promise<{
 				isGitRepository: boolean;
 				branch: string | null;
 				files: {
@@ -607,8 +608,6 @@ export function createApi(
 				supported: boolean;
 				status?: string;
 				patch?: string;
-				oldContent?: string | null;
-				newContent?: string | null;
 			}>,
 		branches: () =>
 			ipcRenderer.invoke(IpcChannels.git.branches) as Promise<{
@@ -784,34 +783,47 @@ export function createApi(
 				GitHubResponse<{ pullRequest: PullRequestSummary }>
 			>,
 		pullRequestList: (payload: {
+			cwd?: string;
 			state: PullRequestListState;
 			author: PullRequestListAuthor;
 			cursor?: string;
 			filters?: PullRequestFilters;
 			requestId?: string;
+			fresh?: boolean;
 		}) =>
 			ipcRenderer.invoke(IpcChannels.github.pullRequestList, plainArgs(payload)) as Promise<
 				GitHubResponse<PullRequestPage>
 			>,
 		pullRequestListCancel: (requestId: string) =>
 			ipcRenderer.invoke(IpcChannels.github.pullRequestListCancel, requestId) as Promise<void>,
-		pullRequestDetail: (payload: { url: string }) =>
+		pullRequestCounts: (payload: {
+			cwd?: string;
+			state: PullRequestListState;
+			author: PullRequestListAuthor;
+			filters?: PullRequestFilters;
+			requestId?: string;
+			fresh?: boolean;
+		}) =>
+			ipcRenderer.invoke(IpcChannels.github.pullRequestCounts, plainArgs(payload)) as Promise<
+				GitHubResponse<{ counts?: PullRequestCounts }>
+			>,
+		pullRequestDetail: (payload: { cwd?: string; url: string; fresh?: boolean }) =>
 			ipcRenderer.invoke(IpcChannels.github.pullRequestDetail, plainArgs(payload)) as Promise<
 				GitHubResponse<{ detail: PullRequestDetail }>
 			>,
-		pullRequestPatch: (payload: { url: string; headSha?: string }) =>
+		pullRequestPatch: (payload: { cwd?: string; url: string; headSha?: string }) =>
 			ipcRenderer.invoke(IpcChannels.github.pullRequestPatch, plainArgs(payload)) as Promise<
 				GitHubResponse<PullRequestPatchResult>
 			>,
-		pullRequestAction: (payload: { url: string; action: PullRequestAction }) =>
+		pullRequestAction: (payload: { cwd?: string; url: string; action: PullRequestAction }) =>
 			ipcRenderer.invoke(IpcChannels.github.pullRequestAction, plainArgs(payload)) as Promise<
 				GitHubResponse<object>
 			>,
-		pullRequestChoices: (payload: { url: string; kind: PullRequestChoiceKind }) =>
+		pullRequestChoices: (payload: { cwd?: string; url: string; kind: PullRequestChoiceKind }) =>
 			ipcRenderer.invoke(IpcChannels.github.pullRequestChoices, plainArgs(payload)) as Promise<
 				GitHubResponse<PullRequestChoices>
 			>,
-		repositoryChoices: (payload: { kind: PullRequestChoiceKind }) =>
+		repositoryChoices: (payload: { cwd?: string; kind: PullRequestChoiceKind }) =>
 			ipcRenderer.invoke(IpcChannels.github.repositoryChoices, plainArgs(payload)) as Promise<
 				GitHubResponse<PullRequestChoices>
 			>,
@@ -1305,8 +1317,6 @@ export function createApi(
 	update: {
 		getAppInfo: () =>
 			ipcRenderer.invoke(IpcChannels.update.getAppInfo) as Promise<AppInfo>,
-		openGithub: () =>
-			ipcRenderer.invoke(IpcChannels.update.openGithub) as Promise<void>,
 		openReleases: () =>
 			ipcRenderer.invoke(IpcChannels.update.openReleases) as Promise<void>,
 		openAuthorEmail: () =>
@@ -1538,6 +1548,10 @@ export function createApi(
 	appearance: {
 		pickWallpaper: () =>
 			ipcRenderer.invoke(IpcChannels.appearance.pickWallpaper) as Promise<
+				string | null
+			>,
+		pickFontFile: () =>
+			ipcRenderer.invoke(IpcChannels.appearance.pickFontFile) as Promise<
 				string | null
 			>,
 	},

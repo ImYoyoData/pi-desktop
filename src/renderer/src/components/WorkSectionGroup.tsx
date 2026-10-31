@@ -23,6 +23,8 @@ type Props = {
   items: ChatMessage[];
   /** True once the next output appeared after this section: fold + summary title. */
   autoCollapse?: boolean;
+  /** 流式时是否自动展开；false 时小节默认折叠。 */
+  autoExpand?: boolean;
   onOpen: (path: string) => void;
 };
 
@@ -30,7 +32,12 @@ function isToolMessage(msg: ChatMessage): msg is ToolMessage {
   return msg.role === "tool";
 }
 
-export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactNode {
+export function WorkSectionGroup({
+  items,
+  autoCollapse,
+  autoExpand = true,
+  onOpen,
+}: Props): ReactNode {
   const t = useI18n();
   const [manuallyOpen, setManuallyOpen] = useState<boolean | null>(null);
   /** Animate folds only after first paint — matches Copilot (transition after mount). */
@@ -74,8 +81,8 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
     if (manuallyOpen !== null) return manuallyOpen;
     // Live: stay expanded so each step streams in line by line (Copilot
     // CollapsedPreview keeps the section open while streaming).
-    return true;
-  }, [autoCollapse, manuallyOpen]);
+    return autoExpand;
+  }, [autoCollapse, manuallyOpen, autoExpand]);
 
   // Copilot folds the block as soon as the next output shows up (the answer
   // text or the next work section), not when the whole turn finishes. We delay
@@ -356,6 +363,7 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
                         thinking={msg.thinking}
                         streaming={Boolean(msg.streaming)}
                         autoCollapse={Boolean(autoCollapse)}
+                        autoExpand={autoExpand}
                         durationMs={msg.thinkingDurationMs}
                         startedAt={msg.thinkingStartedAt}
                         leadingIcon={<BrainOutline size={13} aria-hidden="true" />}

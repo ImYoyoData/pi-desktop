@@ -1,18 +1,53 @@
 @import "./base.css";
 
 /*
+ * 内置字体（OFL 1.1）：Codex 的 Geist 与 GitHub 的 Mona Sans / Monaspace。
+ * 只在用户选中时下载，中文仍由字体栈里的系统字体回退。
+ */
+@font-face {
+  font-family: "Geist";
+  src: url("./fonts/GeistVar.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("./fonts/GeistMonoVar.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Mona Sans";
+  src: url("./fonts/MonaSansVar.woff2") format("woff2");
+  font-weight: 200 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Monaspace Neon";
+  src: url("./fonts/MonaspaceNeonVar.woff2") format("woff2");
+  font-weight: 200 800;
+  font-display: swap;
+}
+
+/*
  * Design tokens — aligned with the VS Code "2026 Light" theme
  * (extensions/theme-defaults/themes/2026-light.json).
  */
 :root {
-  /* 编辑器当前行高亮的背景（跨 shadow DOM 传递给 Monaco） */
-  --pi-editor-line-highlight: rgba(0, 0, 0, 0.05);
   --bg: #ffffff;
   --bg-title: #fafafd;
   --bg-sidebar: #fafafd;
+  /* 侧栏分界线：标题栏与侧栏共用，低不透明度避免在深色底上跳出来 */
+  --sidebar-line: color-mix(in srgb, var(--border) 55%, transparent);
   --bg-panel: #fafafd;
   --bg-elevated: #fafafd;
   --bg-input: #f7f7fa;
+  /* 右侧栏等独立面板的固定底色，内部组件统一引用 */
+  --pi-dock-bg: #fafafd;
+  --pi-dock-input: #f7f7fa;
   --bg-hover: #00000014;
   --bg-active: #dadada99;
   --bg-selected: #00000025;
@@ -55,13 +90,9 @@
   --ctx-summarized: #d18616;
   --ctx-conversation: #ad0707;
   --ctx-tool-results: #1a5cff;
-  --font-ui:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial,
-    sans-serif;
-  --font-mono:
-    "SF Mono", "JetBrains Mono", "Fira Code", Consolas, "Liberation Mono",
-    Menlo, Courier, "PingFang SC", "Microsoft YaHei";
+  /* 字体栈由 appearance store 在首帧前写入 --pi-font-ui / --pi-font-mono。 */
+  --font-ui: var(--pi-font-ui);
+  --font-mono: var(--pi-font-mono);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
@@ -106,13 +137,15 @@
  * (extensions/theme-defaults/themes/2026-dark.json).
  */
 html[data-theme="dark"] {
-  --pi-editor-line-highlight: rgba(255, 255, 255, 0.08);
-  --bg: #191a1b;
-  --bg-title: #191a1b;
-  --bg-sidebar: #191a1b;
-  --bg-panel: #191a1b;
+  --bg: #151515;
+  --bg-title: #151515;
+  --bg-sidebar: #111111;
+  --bg-panel: #1a1a19;
   --bg-elevated: #202122;
-  --bg-input: #202122;
+  --bg-input: #1a1a19;
+  /* 右侧栏等独立面板的固定底色，内部组件统一引用 */
+  --pi-dock-bg: #1a1a19;
+  --pi-dock-input: #262625;
   --bg-hover: #ffffff14;
   --bg-active: #2c2d2e;
   --bg-selected: #ffffff22;
@@ -307,7 +340,7 @@ button {
   inset: -3px;
 }
 
-/* 分栏外壳：左侧导航栏 + 左侧栏 + 主区，主区内部再分聊天列与右侧面板 */
+/* 分栏外壳：左侧栏 + 主区，主区内部再分聊天列与右侧面板 */
 .split-root {
   position: relative;
   flex: 1;
@@ -375,33 +408,13 @@ button {
   }
 }
 
-/* 设置页内部已是独立胶囊卡片，外层 overlay 只提供主区底色，不再套一层边框 */
-.pane-capsule--overlay > .customize-page {
-  border: 0;
-  border-radius: 0;
-}
-
-/* 设置页同样作为主区独立页面铺满覆盖层，内部分区导航自己排布 */
-.customize-page {
-  display: flex;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.customize-page > * {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-}
-
 .split-root .panes,
 .split-root .splitpanes {
   height: 100%;
 }
 
 .split-root .splitpanes__pane {
+  position: relative;
   overflow: hidden;
   background: var(--bg);
   display: flex;
@@ -461,6 +474,11 @@ button {
   border-radius: 12px !important;
   padding: 4px !important;
   box-shadow: var(--shadow-md);
+}
+
+/* 下拉框只在设置页里出现，展开面板跟设置页、消息区同底色 */
+.ant-select-dropdown {
+  background-color: var(--bg) !important;
 }
 
 .ant-menu-item,
@@ -707,6 +725,20 @@ button {
 }
 
 /* Settings modals */
+/*
+ * 设置页与消息区同底色：外壳、卡片、输入与下拉控件统一取 --bg，
+ * 不再比聊天区高一档（原来用 --bg-elevated / --bg-input，深色下差别最明显）。
+ * 壁纸模式由 wallpaper.css 的玻璃表面规则接管，这里不参与。
+ */
+html[data-theme]:not([data-wallpaper="on"]) .pi-settings-modal,
+html[data-theme]:not([data-wallpaper="on"]) .modal-editor-panel {
+  --bg-elevated: var(--bg);
+  --bg-input: var(--bg);
+  --ant-color-bg-elevated: var(--bg);
+  --ant-color-bg-container: var(--bg);
+  --ant-modal-content-bg: var(--bg);
+}
+
 /* antd v6 的弹窗内容盒是 .ant-modal-container，v5 的 .ant-modal-content 已不存在 */
 .pi-settings-modal .ant-modal-container {
   border-radius: var(--radius-lg);
@@ -719,7 +751,7 @@ button {
  * 过于突兀（点击按钮后的 Esc 等键盘操作会触发 :focus-visible）。
  */
 .pi-settings-modal button:not(.ant-btn):focus-visible,
-.customize-page button:not(.ant-btn):focus-visible {
+.modal-editor-panel button:not(.ant-btn):focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }
@@ -774,10 +806,10 @@ button {
 .pi-settings-modal .ant-input-affix-wrapper,
 .pi-settings-modal .ant-input-number,
 .pi-settings-modal .ant-select,
-.customize-page .ant-input,
-.customize-page .ant-input-affix-wrapper,
-.customize-page .ant-input-number,
-.customize-page .ant-select {
+.modal-editor-panel .ant-input,
+.modal-editor-panel .ant-input-affix-wrapper,
+.modal-editor-panel .ant-input-number,
+.modal-editor-panel .ant-select {
   border-color: var(--border) !important;
 }
 
@@ -791,24 +823,24 @@ button {
 .pi-settings-modal .ant-input-number,
 .pi-settings-modal .ant-input-number-input,
 .pi-settings-modal .ant-select,
-.customize-page .ant-input,
-.customize-page .ant-input-affix-wrapper,
-.customize-page .ant-input-number,
-.customize-page .ant-input-number-input,
-.customize-page .ant-select {
+.modal-editor-panel .ant-input,
+.modal-editor-panel .ant-input-affix-wrapper,
+.modal-editor-panel .ant-input-number,
+.modal-editor-panel .ant-input-number-input,
+.modal-editor-panel .ant-select {
   background-color: var(--bg-input) !important;
 }
 
 /* 次级按钮跟随卡片表面，避免实色块与玻璃面板脱节 */
 .pi-settings-modal .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link),
-.customize-page .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link) {
+.modal-editor-panel .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link) {
   background-color: var(--bg-elevated) !important;
   border-color: var(--border) !important;
 }
 
 .pi-settings-modal
   .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link):hover:not(:disabled),
-.customize-page
+.modal-editor-panel
   .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link):hover:not(:disabled) {
   background-color: var(--bg-active) !important;
   border-color: var(--accent-border) !important;
@@ -830,12 +862,12 @@ button {
 }
 
 .pi-settings-modal .ant-checkbox-inner,
-.customize-page .ant-checkbox-inner {
+.modal-editor-panel .ant-checkbox-inner {
   border-color: var(--border) !important;
 }
 
 .pi-settings-modal .ant-divider,
-.customize-page .ant-divider {
+.modal-editor-panel .ant-divider {
   border-color: var(--border) !important;
 }
 
@@ -898,26 +930,4 @@ button {
 /* macOS: slightly denser titlebar hit targets feel closer to native */
 html.platform-darwin .title-bar .ant-btn {
   height: 28px;
-}
-
-/*
- * Monaco 给光标所在行画 2px 描边（currentLineHighlight.js 运行时注入
- * `.monaco-editor .view-overlays .current-line-exact { border: 2px solid … }`），
- * 在透明编辑区上很突兀，这里用同选择器 + !important 压掉。
- */
-.monaco-editor .view-overlays .current-line,
-.monaco-editor .view-overlays .current-line-exact,
-.monaco-editor .margin-view-overlays .current-line-margin,
-.monaco-editor .margin-view-overlays .current-line-exact-margin,
-.monaco-editor .view-overlays [class^="current-line"],
-.monaco-editor .margin-view-overlays [class^="current-line"] {
-  border: none !important;
-  outline: none !important;
-}
-
-.monaco-editor .inputarea,
-.monaco-editor textarea.inputarea,
-.monaco-editor .native-edit-context,
-.monaco-editor .ime-text-area {
-  outline: none !important;
 }
