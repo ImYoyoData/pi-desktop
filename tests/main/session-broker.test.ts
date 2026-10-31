@@ -537,6 +537,121 @@ describe("session-broker", () => {
     vi.useRealTimers();
   });
 
+  // 回归 #49：笔记本休眠唤醒后墙钟跳过数小时，心跳的第一个 tick 会把空闲会话
+  // 全判成卡死，界面随即重启 worker 并重发最近的消息。
+  it("does not mark idle workers stuck on the first heartbeat after a suspend", async () => {
+    vi.useFakeTimers();
+    const events: Array<{ type: string; sessionId?: string }> = [];
+    let messageCb: ((msg: WorkerOutbound) => void) | null = null;
+    const broker = createSessionBroker({
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => ({
+        id: idFromPath(filePath),
+        cwd,
+        filePath: filePath ?? "/tmp/session-a.jsonl",
+        worker: {
+          send: async (msg) => {
+            if (msg.kind === "ping") {
+              queueMicrotask(() => messageCb?.({ kind: "pong" }));
+            }
+            return null;
+          },
+          kill: () => {},
+          onMessage: (cb) => {
+            messageCb = cb;
+            return () => {
+              messageCb = null;
+            };
+          },
+        },
+      }),
+    });
+    broker.onEvent((event) => events.push(event));
+    const session = await broker.createSession("/tmp/a");
+    await broker.send(session.id, { type: "ping" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(events.some((e) => e.type === "worker_stuck")).toBe(false);
+
+    // 休眠：墙钟前进 2h，唤醒后只补跑一个心跳 tick。
+    vi.setSystemTime(Date.now() + 7_200_000);
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(events.some((e) => e.type === "worker_stuck")).toBe(false);
+    vi.useRealTimers();
+  });
+
+  // 同一回归的回合内分支：休眠唤醒也不能把正在跑的回合判成事件循环卡死。
+  it("does not emit worker_stall on the first heartbeat after a suspend", async () => {
+    vi.useFakeTimers();
+    const events: Array<{ type: string }> = [];
+    let messageCb: ((msg: WorkerOutbound) => void) | null = null;
+    const broker = createSessionBroker({
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => ({
+        id: idFromPath(filePath),
+        cwd,
+        filePath: filePath ?? "/tmp/session-a.jsonl",
+        worker: {
+          send: async (msg) => {
+            if (msg.kind === "ping") {
+              queueMicrotask(() => messageCb?.({ kind: "pong" }));
+              return null;
+            }
+            // 回合一直挂着，模拟进行中的 prompt。
+            return new Promise(() => {});
+          },
+          kill: () => {},
+          onMessage: (cb) => {
+            messageCb = cb;
+            return () => {
+              messageCb = null;
+            };
+          },
+        },
+      }),
+    });
+    broker.onEvent((event) => events.push(event));
+    const session = await broker.createSession("/tmp/a");
+    void broker.send(session.id, { type: "prompt", message: "hi" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(events.some((e) => e.type === "worker_stall")).toBe(false);
+
+    vi.setSystemTime(Date.now() + 7_200_000);
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(events.some((e) => e.type === "worker_stall")).toBe(false);
+    vi.useRealTimers();
+  });
+
+  // 宽限只跳过挂起造成的人工空洞：worker 真死时仍会在宽限后判出来。
+  it("still marks a dead idle worker as stuck once the suspend grace expires", async () => {
+    vi.useFakeTimers();
+    const events: Array<{ type: string }> = [];
+    const broker = createSessionBroker({
+      allocateSession: allocateFixed("session-a"),
+      // 心跳永远不回 pong，模拟真正卡死的 utilityProcess。
+      spawnWorker: async (cwd, filePath) => ({
+        id: idFromPath(filePath),
+        cwd,
+        filePath: filePath ?? "/tmp/session-a.jsonl",
+        worker: { send: async () => null, kill: () => {}, onMessage: () => () => {} },
+      }),
+    });
+    broker.onEvent((event) => events.push(event));
+    const session = await broker.createSession("/tmp/a");
+    await broker.send(session.id, { type: "ping" });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(events.some((e) => e.type === "worker_stuck")).toBe(false);
+
+    vi.setSystemTime(Date.now() + 7_200_000);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(events.some((e) => e.type === "worker_stuck")).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(events.filter((e) => e.type === "worker_stuck")).toHaveLength(1);
+    vi.useRealTimers();
+  });
+
   it("restarts live workers when models/auth change so auth.json is re-read", async () => {
     let spawnCount = 0;
     let killCount = 0;
