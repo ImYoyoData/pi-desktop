@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { subscribeFsChanges } from "@renderer/utils/fs-changed-bus";
 
 import { fileIcon, type FileIcon } from "@renderer/utils/file-icon";
 import { useI18n } from "@renderer/i18n/use-i18n";
@@ -54,13 +55,25 @@ function fileDir(p: string): string {
   return i > 0 ? p.slice(0, i) : "";
 }
 
+function sameGitRows(a: GitRow[], b: GitRow[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((row, index) => {
+    const next = b[index]!;
+    return (
+      row.relativePath === next.relativePath &&
+      row.code === next.code &&
+      (row.additions ?? null) === (next.additions ?? null) &&
+      (row.deletions ?? null) === (next.deletions ?? null)
+    );
+  });
+}
+
 export function RightDockChanges({ visible = true, selectedPath, onSelect }: Props): ReactNode {
   const t = useI18n();
-  const workspace = useWorkspaceStore();
+  const workspaceRoot = useWorkspaceStore((s) => s.root);
 
   const [gitLoading, setGitLoading] = useState(false);
   const [gitFiles, setGitFiles] = useState<GitRow[]>([]);
-  const fsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
 
@@ -75,7 +88,7 @@ export function RightDockChanges({ visible = true, selectedPath, onSelect }: Pro
       const files = status.isGitRepository
         ? (status.files as GitRow[]).filter((f) => !f.ignored)
         : [];
-      setGitFiles(files);
+      setGitFiles((current) => (sameGitRows(current, files) ? current : files));
     } catch {
       // Transient git hiccup (index.lock, …) — keep the last known list.
     } finally {
@@ -101,26 +114,16 @@ export function RightDockChanges({ visible = true, selectedPath, onSelect }: Pro
   }
 
   useEffect(() => {
-    void refreshGit();
-    const onFsChanged = (): void => {
+    const stop = subscribeFsChanges(() => {
       if (!useWorkspaceStore.getState().root || !visibleRef.current) return;
-      if (fsTimerRef.current) clearTimeout(fsTimerRef.current);
-      fsTimerRef.current = setTimeout(() => {
-        fsTimerRef.current = null;
-        void refreshGit();
-      }, 400);
-    };
-    window.addEventListener("pi-fs-changed", onFsChanged);
-    return () => {
-      window.removeEventListener("pi-fs-changed", onFsChanged);
-      if (fsTimerRef.current) clearTimeout(fsTimerRef.current);
-      fsTimerRef.current = null;
-    };
+      void refreshGit();
+    });
+    return stop;
   }, []);
 
   useEffect(() => {
     void refreshGit();
-  }, [workspace.root]);
+  }, [workspaceRoot]);
 
   useEffect(() => {
     if (visible) void refreshGit();

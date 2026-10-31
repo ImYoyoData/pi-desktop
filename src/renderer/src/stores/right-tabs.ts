@@ -156,14 +156,40 @@ type RightTabsDerived = {
 };
 
 function derive(base: RightTabsBase): RightTabsDerived {
-  const dockTabs = base.tabs.filter((tab) => !isPanelTab(tab));
-  const panelTabs = base.tabs.filter(isPanelTab);
+  const dockNext = base.tabs.filter((tab) => !isPanelTab(tab));
+  const panelNext = base.tabs.filter(isPanelTab);
+  // 内容不变时复用上一次的数组：终端状态上报不应通知文件页等订阅者。
+  if (!sameTabRefs(cachedDock, dockNext)) cachedDock = dockNext;
+  if (!sameTabRefs(cachedPanel, panelNext)) cachedPanel = panelNext;
+  const dockTabs = cachedDock;
+  const panelTabs = cachedPanel;
   return {
     dockTabs,
     panelTabs,
     activeTab: dockTabs.find((tab) => tab.id === base.activeId) ?? null,
     activePanelTab: panelTabs.find((tab) => tab.id === base.panelActiveId) ?? null,
   };
+}
+
+let cachedDock: RightTab[] = [];
+let cachedPanel: RightTab[] = [];
+
+function sameTabRefs(a: RightTab[], b: RightTab[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((tab, index) => tab === b[index]);
+}
+
+function sameProgramStatus(
+  a: ProgramStatusReport | undefined,
+  b: ProgramStatusReport | null,
+): boolean {
+  if (!a || !b) return !a && !b;
+  return (
+    a.state === b.state &&
+    a.app === b.app &&
+    a.kind === b.kind &&
+    a.message === b.message
+  );
 }
 
 export type RightTabsState = RightTabsBase &
@@ -278,6 +304,7 @@ export const useRightTabsStore = create<RightTabsState>()((set, get) => {
     const state = get();
     const tab = state.tabs.find((t) => t.id === id);
     if (!tab) return;
+    if (sameProgramStatus(tab.piStatus, status)) return;
     commit({
       tabs: state.tabs.map((t) => (t.id === id ? { ...t, piStatus: status ?? undefined } : t)),
     });
@@ -436,7 +463,7 @@ export const useRightTabsStore = create<RightTabsState>()((set, get) => {
 
   async function refreshPreviewGitMeta(): Promise<void> {
     try {
-      const status = await window.api.git.status();
+      const status = await window.api.git.status({ stats: false });
       const map = new Map(status.files.map((f) => [f.relativePath, f.code]));
       const state = get();
       let changed = false;

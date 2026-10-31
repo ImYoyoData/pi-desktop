@@ -213,6 +213,44 @@ function MarkdownImageNode({ node }: ImageNodeProps): ReactNode {
   );
 }
 
+type HtmlImageNodeProps = {
+  node: { attrs?: Array<[string, string | null]> };
+};
+
+/**
+ * html_block/html_inline 里的 <img>：markstream 的 HTML 清洗只放行 http(s)，
+ * 本地图片会被连 src 一起丢掉，所以这里从原始属性重建。
+ */
+function HtmlImageNode({ node }: HtmlImageNodeProps): ReactNode {
+  const assets = useContext(AssetsContext);
+  const attrs = new Map(
+    (node.attrs ?? []).map(([key, value]) => [key.toLowerCase(), value ?? ""]),
+  );
+  const raw = (attrs.get("src") ?? "").trim();
+  const src = safeImageSrc(raw, resolveMarkdownImageSrc(raw, assets));
+  return (
+    <img
+      src={src}
+      alt={attrs.get("alt") ?? ""}
+      title={attrs.get("title") || undefined}
+      width={attrs.get("width") || undefined}
+      height={attrs.get("height") || undefined}
+      className={attrs.get("class") || undefined}
+      loading="lazy"
+    />
+  );
+}
+
+/**
+ * HTML 标签的 node 级映射：属性不经 markstream 清洗，直接交给组件。
+ *
+ * 只能给文件预览用：这些 key 会被 markstream 合并进 customHtmlTags，流式解析会把
+ * 行内代码里的 <img> 也当成标签（消息区会直接渲染出一张巨大的图），所以聊天消息
+ * 继续用 MARKDOWN_CUSTOM_ID 的原始行为。
+ */
+export const MARKDOWN_HTML_ID = "pi-markdown-html";
+export const MARKDOWN_HTML_COMPONENTS = { img: HtmlImageNode };
+
 type LinkNodeProps = {
   node: {
     href?: string;
@@ -258,3 +296,5 @@ setCustomComponents({
   tex: MathFenceNode,
   katex: MathFenceNode,
 });
+
+setCustomComponents(MARKDOWN_HTML_ID, MARKDOWN_HTML_COMPONENTS);

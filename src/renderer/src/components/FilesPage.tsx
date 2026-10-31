@@ -1,8 +1,9 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import FilesTab from "@renderer/components/FilesTab";
 import PageHeader from "@renderer/components/PageHeader";
 import PageSplit from "@renderer/components/PageSplit";
 import PreviewTab, { type MdViewMode } from "@renderer/components/PreviewTab";
+import { HighlightWorkerPool } from "@renderer/components/ShikiEditor";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { gitCodeColor, languageFromPath } from "@renderer/utils/editor-lang";
@@ -26,17 +27,35 @@ export function FilesPage({
   sideMaxWidth,
   onSideWidthChange,
 }: Props): ReactNode {
-  const rightTabs = useRightTabsStore();
+  const dockTabs = useRightTabsStore((s) => s.dockTabs);
+  const storeActiveId = useRightTabsStore((s) => s.activeId);
   const workspaceRoot = useWorkspaceStore((s) => s.root);
   const t = useI18n();
   const [sideHidden, setSideHidden] = useState(false);
   const [viewModes, setViewModes] = useState<Record<string, MdViewMode>>({});
 
-  const previewTabs = rightTabs.dockTabs.filter((tab) => tab.kind === "preview");
+  const previewTabs = useMemo(
+    () => dockTabs.filter((tab) => tab.kind === "preview"),
+    [dockTabs],
+  );
   // 当前激活的是别的页面的标签时，文件页显示最后打开的那个预览。
-  const activeId = previewTabs.some((tab) => tab.id === rightTabs.activeId)
-    ? rightTabs.activeId
+  const activeId = previewTabs.some((tab) => tab.id === storeActiveId)
+    ? storeActiveId
     : (previewTabs[previewTabs.length - 1]?.id ?? "");
+
+  const setViewMode = useCallback((tabId: string, mode: MdViewMode): void => {
+    setViewModes((current) => ({ ...current, [tabId]: mode }));
+  }, []);
+
+  // handler 按标签缓存：dockTabs 变化不重刷回调，预览标签的 memo 才有效。
+  const handlerCache = useRef(new Map<string, (mode: MdViewMode) => void>());
+  function viewModeHandler(tabId: string): (mode: MdViewMode) => void {
+    const cached = handlerCache.current.get(tabId);
+    if (cached) return cached;
+    const handler = (mode: MdViewMode): void => setViewMode(tabId, mode);
+    handlerCache.current.set(tabId, handler);
+    return handler;
+  }
 
   useEffect(() => {
     void useRightTabsStore.getState().refreshPreviewGitMeta();
@@ -48,9 +67,6 @@ export function FilesPage({
     : false;
   const activeMode: MdViewMode = viewModes[activeId] ?? "preview";
 
-  function setViewMode(tabId: string, mode: MdViewMode): void {
-    setViewModes((current) => ({ ...current, [tabId]: mode }));
-  }
   const activeIcon = activeTab?.filePath ? fileIcon(activeTab.filePath) : null;
   const activeColor = activeTab?.missing
     ? gitCodeColor("D")
@@ -74,7 +90,7 @@ export function FilesPage({
         maxWidth={sideMaxWidth}
         sidePosition="end"
         sideHidden={sideHidden}
-        side={<FilesTab embedded />}
+        side={<FilesTab embedded visible={visible} />}
       >
       {activeTab ? (
         <div className={styles.fileHead} title={activeTab.filePath ?? undefined}>
@@ -114,22 +130,26 @@ export function FilesPage({
         </div>
       ) : null}
       <div className={styles.panels}>
-        {previewTabs.map((tab) => (
-          <div
-            key={tab.id}
-            className={styles.panel}
-            style={tab.id === activeId ? undefined : { display: "none" }}
-          >
-            <PreviewTab
-              tabId={tab.id}
-              filePath={tab.filePath ?? null}
-              active={visible && tab.id === activeId}
-              hideToolbar
-              viewMode={viewModes[tab.id] ?? "preview"}
-              onViewModeChange={(mode) => setViewMode(tab.id, mode)}
-            />
-          </div>
-        ))}
+        {previewTabs.map((tab) =>
+          tab.id === activeId || tab.dirty || tab.missing ? (
+            <div
+              key={tab.id}
+              className={styles.panel}
+              style={tab.id === activeId ? undefined : { display: "none" }}
+            >
+              <HighlightWorkerPool>
+                <PreviewTab
+                  tabId={tab.id}
+                  filePath={tab.filePath ?? null}
+                  active={visible && tab.id === activeId}
+                  hideToolbar
+                  viewMode={viewModes[tab.id] ?? "preview"}
+                  onViewModeChange={viewModeHandler(tab.id)}
+                />
+              </HighlightWorkerPool>
+            </div>
+          ) : null,
+        )}
       </div>
       </PageSplit>
     </div>

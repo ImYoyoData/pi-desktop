@@ -3,7 +3,7 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: #1a1a19;
+  background: var(--pi-dock-bg, #1a1a19);
 }
 
 .toolbar {
@@ -12,7 +12,7 @@
   gap: 6px;
   padding: 4px 6px;
   border-bottom: 1px solid var(--border);
-  background: #1a1a19;
+  background: var(--pi-dock-bg, #1a1a19);
   flex-shrink: 0;
   z-index: 2;
   min-width: 0;
@@ -58,12 +58,12 @@
   min-width: 0;
   min-height: 0;
   height: 100%;
-  background: #1a1a19;
+  background: var(--pi-dock-bg, #1a1a19);
   flex-shrink: 0;
 }
 
 .devtoolsPane {
-  background: #1a1a19;
+  background: var(--pi-dock-bg, #1a1a19);
 }
 
 .devtoolsPane.closed {
@@ -118,5 +118,5 @@
 }
 
 .placeholder {
-  background: #1a1a19;
+  background: var(--pi-dock-bg, #1a1a19);
 }

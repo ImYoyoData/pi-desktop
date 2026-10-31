@@ -42,17 +42,18 @@ function requireRoot(): string | null {
   return getWorkspace();
 }
 
-/** 切文件/切标签/改动页会同时要多份状态，一次扫描服务所有调用方。 */
+/** 切文件/切标签/改动页会同时要多份状态，一次扫描服务所有调用方；行数统计单独一档。 */
 const STATUS_TTL_MS = 800;
-let statusCache: { root: string; at: number; result: Promise<GitStatusResult> } | null = null;
+const statusCache = new Map<string, { at: number; result: Promise<GitStatusResult> }>();
 
-function workspaceStatus(root: string): Promise<GitStatusResult> {
+function workspaceStatus(root: string, stats: boolean): Promise<GitStatusResult> {
+  const key = `${root}\0${stats ? "stats" : "basic"}`;
   const now = Date.now();
-  if (statusCache && statusCache.root === root && now - statusCache.at < STATUS_TTL_MS) {
-    return statusCache.result;
-  }
-  const result = getWorkspaceGitStatus(root);
-  statusCache = { root, at: now, result };
+  const cached = statusCache.get(key);
+  if (cached && now - cached.at < STATUS_TTL_MS) return cached.result;
+  const result = getWorkspaceGitStatus(root, { stats });
+  if (statusCache.size > 8) statusCache.clear();
+  statusCache.set(key, { at: now, result });
   return result;
 }
 
@@ -61,10 +62,10 @@ function noWorkspace(): GitOpResult {
 }
 
 export function registerGitIpc(): void {
-  ipcMain.handle(IpcChannels.git.status, async () => {
+  ipcMain.handle(IpcChannels.git.status, async (_e, opts?: { stats?: boolean }) => {
     const root = requireRoot();
     if (!root) return { isGitRepository: false, branch: null, files: [] };
-    return workspaceStatus(root);
+    return workspaceStatus(root, opts?.stats !== false);
   });
 
   ipcMain.handle(IpcChannels.git.syncStatus, async () => {

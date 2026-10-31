@@ -1,4 +1,8 @@
-import { type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import {
+  useRef,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react";
 import styles from "./PageSplit.module.css";
 
 type Props = {
@@ -26,18 +30,27 @@ export function PageSplit({
   side,
   children,
 }: Props): ReactNode {
+  const sideRef = useRef<HTMLDivElement | null>(null);
+
+  /** 拖动期间直接改样式，松手才回写状态，避免整页每帧重渲染。 */
   function onDividerDown(event: ReactMouseEvent<HTMLDivElement>): void {
     event.preventDefault();
     const startX = event.clientX;
     const startWidth = width;
+    let next = startWidth;
     const onMove = (moveEvent: MouseEvent): void => {
       const delta = moveEvent.clientX - startX;
-      const next = startWidth + (sidePosition === "end" ? -delta : delta);
-      onWidthChange(Math.min(maxWidth, Math.max(minWidth, next)));
+      next = Math.min(
+        maxWidth,
+        Math.max(minWidth, startWidth + (sidePosition === "end" ? -delta : delta)),
+      );
+      if (sideRef.current) sideRef.current.style.width = `${next}px`;
     };
     const onUp = (): void => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      if (next !== startWidth) onWidthChange(next);
+      else if (sideRef.current) sideRef.current.style.width = `${startWidth}px`;
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -47,7 +60,7 @@ export function PageSplit({
     <div className={sidePosition === "end" ? `${styles.root} ${styles.rootEnd}` : styles.root}>
       {sideHidden ? null : (
         <>
-          <div className={styles.side} style={{ width: `${width}px` }}>
+          <div ref={sideRef} className={styles.side} style={{ width: `${width}px` }}>
             {side}
           </div>
           <div className={styles.divider} aria-hidden="true" onMouseDown={onDividerDown} />

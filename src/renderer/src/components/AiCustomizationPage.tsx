@@ -14,6 +14,7 @@ import BrowserIcon from "@renderer/components/icons/BrowserIcon";
 import type { IoniconProps } from "@renderer/components/icons/ionicons";
 import CodiconIcon, { type CodiconName } from "@renderer/components/icons/CodiconIcon";
 import PreviewTab, { type PreviewTabHandle } from "@renderer/components/PreviewTab";
+import { HighlightWorkerPool } from "@renderer/components/ShikiEditor";
 import AppearancePanel from "@renderer/components/AppearancePanel";
 import KeybindingsSettings from "@renderer/components/KeybindingsSettings";
 import AboutPanel from "@renderer/components/AboutPanel";
@@ -872,14 +873,16 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
               </div>
             </header>
             <div className={styles.embeddedEditor}>
-              <PreviewTab
-                ref={attachEditor}
-                filePath={editorFilePath}
-                draftContent={editorDraftContent}
-                saveHandler={handleSave}
-                active
-                embedded
-              />
+              <HighlightWorkerPool>
+                <PreviewTab
+                  ref={attachEditor}
+                  filePath={editorFilePath}
+                  draftContent={editorDraftContent}
+                  saveHandler={handleSave}
+                  active
+                  embedded
+                />
+              </HighlightWorkerPool>
             </div>
           </div>
         ) : (

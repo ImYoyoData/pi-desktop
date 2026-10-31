@@ -64,6 +64,20 @@ html[data-theme][data-wallpaper="on"] .app-shell {
   background: transparent;
 }
 
+/* 右侧栏是独立面板：与设置页同一套玻璃配方（面板色 + 24px 模糊），
+   内部实色底统一走 --pi-dock-bg / --pi-dock-input，这里清成透明，
+   玻璃层才能透出壁纸。 */
+html[data-theme][data-wallpaper="on"] .right-pane {
+  --pi-dock-bg: transparent;
+  --pi-dock-input: var(--w-input-surface);
+  background: color-mix(
+    in srgb,
+    var(--w-solid-bg) var(--pi-alpha-settings, 0%),
+    transparent
+  );
+  backdrop-filter: blur(24px) saturate(1.3);
+}
+
 /* 输入框上方的待办 / 更改文件列表与聊天区同底，不再叠加抬升表面 */
 html[data-theme][data-wallpaper="on"] .stack-above {
   background: transparent;
