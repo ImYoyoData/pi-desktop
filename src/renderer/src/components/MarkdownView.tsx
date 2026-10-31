@@ -14,7 +14,12 @@ import "markstream-react/index.css";
 import { markdownRootClassName } from "@renderer/utils/markdown";
 import type { MarkdownAssetBase } from "@renderer/utils/markdown-assets";
 import { handleAppLinkClick, type LinkConfirmDialog } from "@renderer/utils/open-link";
-import { MARKDOWN_CUSTOM_ID, MarkdownAssetsProvider } from "./markdown/custom-nodes";
+import {
+  MARKDOWN_CUSTOM_ID,
+  MARKDOWN_HTML_COMPONENTS,
+  MARKDOWN_HTML_ID,
+  MarkdownAssetsProvider,
+} from "./markdown/custom-nodes";
 import { MARKDOWN_PARSE_OPTIONS } from "./markdown/html-policy";
 import { applyMarkstreamMessages } from "./markdown/markstream-i18n";
 import { t as currentMessages } from "@renderer/i18n";
@@ -36,6 +41,8 @@ type Props = {
   assets?: MarkdownAssetBase | null;
   /** 单次解析的字符上限；文件预览传大值，避免长 JSON 退化成纯文本。 */
   maxChars?: number;
+  /** 解析 HTML 里的 <img>（文件预览需要，流式消息不传）。 */
+  htmlImages?: boolean;
 };
 
 /** 流式期间单次解析上限：超限按纯文本跟随，避免整段解析冻结界面。 */
@@ -59,6 +66,7 @@ function MarkdownViewView({
   className,
   assets: assetsProp,
   maxChars,
+  htmlImages,
 }: Props): ReactNode {
   const dialog = useDialog();
   const t = useI18n();
@@ -129,7 +137,8 @@ function MarkdownViewView({
       ) : (
         <MarkdownAssetsProvider assets={assets}>
           <MarkdownRender
-            customId={MARKDOWN_CUSTOM_ID}
+            customId={htmlImages ? MARKDOWN_HTML_ID : MARKDOWN_CUSTOM_ID}
+            streamingComponents={htmlImages ? MARKDOWN_HTML_COMPONENTS : undefined}
             content={content}
             final={!streaming}
             isDark={appearance.resolvedTheme === "dark"}

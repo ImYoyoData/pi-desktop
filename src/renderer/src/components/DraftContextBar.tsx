@@ -86,7 +86,7 @@ export function DraftContextBar(): ReactNode {
       return;
     }
     try {
-      const status = await window.api.git.status();
+      const status = await window.api.git.status({ stats: false });
       setIsRepo(status.isGitRepository);
       setCurrentBranch(status.branch);
       if (!status.isGitRepository) {

@@ -5,7 +5,7 @@
   flex-shrink: 0;
   height: 38px;
   padding: 0 8px 0 14px;
-  background: #1a1a19;
+  background: var(--pi-dock-bg, #1a1a19);
   border-bottom: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.18));
 }
 

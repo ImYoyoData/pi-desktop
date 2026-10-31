@@ -1,7 +1,7 @@
 .diffTab {
   height: 100%;
   min-height: 0;
-  background: #1a1a19;
+  background: var(--pi-dock-bg, #1a1a19);
 }
 
 .diffTab :global(.ant-spin-container) {

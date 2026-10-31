@@ -13,7 +13,7 @@
   flex-shrink: 0;
   min-width: 0;
   padding: 6px 10px 4px;
-  background: #1a1a19;
+  background: var(--pi-dock-bg, #1a1a19);
 }
 
 .fileGlyph {
@@ -68,7 +68,7 @@
   flex: 1;
   min-height: 0;
   position: relative;
-  background: #1a1a19;
+  background: var(--pi-dock-bg, #1a1a19);
 }
 
 .panel {
@@ -76,5 +76,5 @@
   inset: 0;
   min-height: 0;
   overflow: hidden;
-  background: #1a1a19;
+  background: var(--pi-dock-bg, #1a1a19);
 }

@@ -10,5 +10,5 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  background: #1a1a19;
+  background: var(--pi-dock-bg, #1a1a19);
 }

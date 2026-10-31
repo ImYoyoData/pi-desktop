@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  memo,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -20,7 +21,7 @@ import {
   isAbsoluteFsPath,
   isInsideWorkspace,
   normalizeFsPath,
-  type FsChangedPayload,
+  subscribeFsChanges,
 } from "@renderer/utils/fs-changed-bus";
 import { parentDir } from "@renderer/utils/fs-path";
 import type { MarkdownAssetBase } from "@renderer/utils/markdown-assets";
@@ -58,13 +59,23 @@ export type PreviewTabHandle = {
   setContent: (content: string) => void;
 };
 
+/** 等一帧让 DOM 落地；窗口隐藏时 rAF 不来，超时兑底，绝不能挂死加载。 */
 function nextFrame(): Promise<void> {
   return new Promise<void>((resolve) => {
-    requestAnimationFrame(() => resolve());
+    let settled = false;
+    let timer = 0;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      resolve();
+    };
+    timer = window.setTimeout(finish, 80);
+    requestAnimationFrame(finish);
   });
 }
 
-export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTab(
+export const PreviewTab = memo(forwardRef<PreviewTabHandle, Props>(function PreviewTab(
   {
     filePath,
     tabId,
@@ -80,7 +91,7 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
 ): ReactNode {
   const t = useI18n();
   const message = useMessage();
-  const layout = useLayoutStore();
+  const rightCollapsed = useLayoutStore((s) => s.rightCollapsed);
 
   const [currentPath, setCurrentPath] = useState<string | null>(filePath ?? null);
   const [result, setResult] = useState<PreviewResult | null>(null);
@@ -90,6 +101,8 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
   const [missing, setMissing] = useState(false);
   const [liveContent, setLiveContent] = useState("");
   const [internalViewMode, setInternalViewMode] = useState<MdViewMode>("preview");
+  /** 从隐藏变为可见时重建内容区：在 0 尺寸容器里挂载的编辑器不会自己重绘。 */
+  const [contentEpoch, setContentEpoch] = useState(0);
   const mdViewMode = viewMode ?? internalViewMode;
   const setMdViewMode = useCallback(
     (mode: MdViewMode): void => {
@@ -109,12 +122,14 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
   const unregisterVideoRef = useRef<(() => void) | undefined>(undefined);
   const unregisterAudioRef = useRef<(() => void) | undefined>(undefined);
   const saveShortcutHeldRef = useRef(false);
+  const wasActiveRef = useRef(active);
   const activeRef = useRef(active);
   const embeddedRef = useRef(embedded);
   const currentPathRef = useRef(currentPath);
   const resultRef = useRef(result);
   const liveContentRef = useRef(liveContent);
   const missingRef = useRef(missing);
+  const dirtyRef = useRef(dirty);
   const savingRef = useRef(saving);
   const saveHandlerRef = useRef(saveHandler);
   activeRef.current = active;
@@ -123,6 +138,7 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
   resultRef.current = result;
   liveContentRef.current = liveContent;
   missingRef.current = missing;
+  dirtyRef.current = dirty;
   savingRef.current = saving;
   saveHandlerRef.current = saveHandler;
 
@@ -132,7 +148,7 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
     (result?.kind === "text" || result?.kind === "markdown") &&
     (!isMarkdown || mdViewMode !== "preview");
   const showMdPreview = isMarkdown && mdViewMode !== "edit";
-  const mediaVisible = Boolean(active) && !layout.rightCollapsed;
+  const mediaVisible = Boolean(active) && !rightCollapsed;
   const mediaIdPrefix = `preview:${tabId ?? "anon"}:`;
   const crumbs = currentPath ? breadcrumbs(currentPath) : [];
   const errorText =
@@ -201,7 +217,7 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
 
   async function refreshGitForFile(path: string): Promise<void> {
     try {
-      const status = await window.api.git.status();
+      const status = await window.api.git.status({ stats: false });
       if (currentPathRef.current !== path) return;
       const rel = normalizeFsPath(workspaceRelativePath(path));
       const hit = status.files.find((f) => normalizeFsPath(f.relativePath) === rel);
@@ -227,11 +243,17 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
   async function loadPath(path: string | null): Promise<void> {
     const gen = ++loadGenRef.current;
     fsGenRef.current += 1;
+    const switched = currentPathRef.current !== path;
     setCurrentPath(path);
     setDirty(false);
     setMissing(false);
     syncTabMeta({ gitCode: "" });
     diskContentRef.current = null;
+    // 换文件时先清空：否则编辑器会拿新语言把上一个文件的内容整篇重新高亮一遍。
+    if (switched) {
+      setResult(null);
+      setLiveContent("");
+    }
     if (!path) {
       setResult(null);
       setLiveContent("");
@@ -277,8 +299,16 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
         syncTabMeta({ dirty: false });
       }
       void refreshGitForFile(path);
+    } catch (err) {
+      if (gen !== loadGenRef.current) return;
+      setResult({
+        kind: "error",
+        path,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      setLiveContent("");
     } finally {
-      if (gen === loadGenRef.current) setLoading(false);
+      setLoading(false);
     }
   }
 
@@ -294,6 +324,20 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
     );
     syncTabMeta({ dirty: false, missing: false });
     await refreshGitForFile(path);
+  }
+
+  /** 内容未落地（窗口隐藏、根目录未就绪、加载被打断）时重新读一次盘。 */
+  function reloadIfEmpty(): void {
+    const path = currentPathRef.current;
+    if (!path || dirtyRef.current) return;
+    if (liveContentRef.current) return;
+    const current = resultRef.current;
+    if (current?.kind === "text" || current?.kind === "markdown") {
+      if (!current.content) return;
+    } else if (current && current.kind !== "error") {
+      return;
+    }
+    void loadPath(path);
   }
 
   function refreshFromDisk(path: string): void {
@@ -323,13 +367,12 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
     })();
   }
 
-  function onFsChanged(event: Event): void {
-    const detail = (event as CustomEvent<FsChangedPayload>).detail;
+  function onFsChanged(events: { path: string; kind: string }[], root: string): void {
     const path = currentPathRef.current;
-    if (!detail || !path) return;
-    const target = normalizeFsPath(absoluteWorkspacePath(detail.root, path));
-    const hit = detail.events.find(
-      (e) => normalizeFsPath(absoluteWorkspacePath(detail.root, e.path)) === target,
+    if (!path) return;
+    const target = normalizeFsPath(absoluteWorkspacePath(root, path));
+    const hit = events.some(
+      (event) => normalizeFsPath(absoluteWorkspacePath(root, event.path)) === target,
     );
     if (hit) refreshFromDisk(path);
   }
@@ -464,16 +507,38 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
   }, [filePath, draftContent]);
 
   useEffect(() => {
+    const wasActive = wasActiveRef.current;
+    wasActiveRef.current = active;
+    if (active && !wasActive) setContentEpoch((current) => current + 1);
+  }, [active]);
+
+  useEffect(() => {
     if (active && currentPathRef.current) {
+      reloadIfEmpty();
       void refreshGitForFile(currentPathRef.current);
     } else {
       stopMedia();
     }
   }, [active]);
 
+  /** 窗口重新可见后补一次：启动/隐藏期间 rAF 与 IPC 可能没把内容送进编辑器。 */
+  useEffect(() => {
+    const onVisible = (): void => {
+      if (document.visibilityState === "visible") reloadIfEmpty();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
+
+  /** 工作区（主进程侧 root 同步）就绪后才读盘时会先失败，就绪后补读。 */
+  useEffect(() => {
+    if (!workspaceRoot) return;
+    reloadIfEmpty();
+  }, [workspaceRoot]);
+
   useEffect(() => {
     if (useLayoutStore.getState().rightCollapsed) stopMedia();
-  }, [layout.rightCollapsed]);
+  }, [rightCollapsed]);
 
   useEffect(() => {
     if (!mediaVisible) stopMedia();
@@ -490,14 +555,14 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
   useEffect(() => {
     if (!tabId) return;
     useRightTabsStore.getState().registerSaveHandler(tabId, save);
-    window.addEventListener("pi-fs-changed", onFsChanged);
+    const stopFs = subscribeFsChanges(onFsChanged);
     stopPreviewWatchRef.current = window.api.preview.onChanged(onExternalWatchChanged);
     window.addEventListener("keydown", onPreviewKeydown, true);
     window.addEventListener("keyup", onPreviewKeyup, true);
     window.addEventListener("blur", onWindowBlur);
     return () => {
       if (tabId) useRightTabsStore.getState().unregisterSaveHandler(tabId);
-      window.removeEventListener("pi-fs-changed", onFsChanged);
+      stopFs();
       stopPreviewWatchRef.current?.();
       stopPreviewWatchRef.current = null;
       if (watchedExternalPathRef.current) {
@@ -645,6 +710,7 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
                       />
                     ) : null}
                     <div
+                      key={contentEpoch}
                       className={
                         isMarkdown && mdViewMode === "split"
                           ? `${styles.docBody} ${styles.mdSplit}`
@@ -666,7 +732,12 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
                       ) : null}
                       {showMdPreview ? (
                         <div className={styles.mdPreview}>
-                          <MarkdownView content={liveContent} assets={mdAssets} maxChars={2_000_000} />
+                          <MarkdownView
+                            content={liveContent}
+                            assets={mdAssets}
+                            maxChars={2_000_000}
+                            htmlImages
+                          />
                         </div>
                       ) : null}
                     </div>
@@ -703,6 +774,6 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
       </div>
     </div>
   );
-});
+}));
 
 export default PreviewTab;

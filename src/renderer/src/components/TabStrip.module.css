@@ -6,7 +6,7 @@
   flex-shrink: 0;
   padding: 0 6px;
   border-bottom: 1px solid var(--border);
-  background: #1a1a19;
+  background: var(--pi-dock-bg, #1a1a19);
 }
 
 .scrollBtn {

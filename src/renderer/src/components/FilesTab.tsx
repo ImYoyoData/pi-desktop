@@ -21,11 +21,9 @@ import {
 } from "@renderer/components/icons/ionicons";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { usePreviewStore } from "@renderer/stores/preview";
-import { useRightTabsStore } from "@renderer/stores/right-tabs";
-import { useLayoutStore } from "@renderer/stores/layout";
 import { useComposerStore } from "@renderer/stores/composer";
 import { gitCodeColor } from "@renderer/utils/editor-lang";
-import type { FsChangedPayload } from "@renderer/utils/fs-changed-bus";
+import { subscribeFsChanges } from "@renderer/utils/fs-changed-bus";
 import { fileIcon } from "@renderer/utils/file-icon";
 import { matchesGitIgnorePatterns } from "../../../shared/git-ignore";
 import { ancestorChain } from "@renderer/utils/files-tree-expand";
@@ -49,7 +47,11 @@ type FileNode = DataNode & {
 type Props = {
   /** True inside the sidebar dock whose switcher already shows the title. */
   embedded?: boolean;
+  /** 右侧栏不可见时先累积事件，重新可见时一次处理，避免后台反复读盘。 */
+  visible?: boolean;
 };
+
+type FsEvent = { path: string; kind: "add" | "change" | "unlink" };
 
 type CtxKind = "file" | "dir" | "blank";
 
@@ -138,6 +140,51 @@ function filterTree(nodes: FileNode[], query: string): FileNode[] {
   return walk(nodes);
 }
 
+/** 一次遍历写回多个目录的新子项；未受影响的节点保持原引用。 */
+function replaceChildren(
+  nodes: FileNode[],
+  updates: Map<string, FileNode[]>,
+): FileNode[] {
+  return nodes.map((node) => {
+    const key = String(node.key);
+    const fresh = updates.get(key);
+    const children = node.children ? replaceChildren(node.children, updates) : node.children;
+    if (fresh === undefined && children === node.children) return node;
+    return { ...node, children: fresh ?? children };
+  });
+}
+
+/** 新列表里仍处于展开状态的目录沿用旧子项，避免整层塌陷。 */
+function mergeFreshChildren(
+  previous: FileNode[] | undefined,
+  fresh: FileNode[],
+  expanded: string[],
+): FileNode[] {
+  if (!expanded.length || !previous?.length) return fresh;
+  const prevByKey = new Map(
+    previous.map((child) => [String(child.key), child] as const),
+  );
+  return fresh.map((child) => {
+    if (child.isLeaf === false && expanded.includes(String(child.key))) {
+      const prev = prevByKey.get(String(child.key));
+      if (prev?.children) return { ...child, children: prev.children };
+    }
+    return child;
+  });
+}
+
+function sameGitCodes(a: Record<string, string>, b: Record<string, string>): boolean {
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) => a[key] === b[key]);
+}
+
+function samePathSet(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const key of a) if (!b.has(key)) return false;
+  return true;
+}
+
 /** 过滤结果需要把命中的目录都展开。 */
 function dirKeysWithChildren(nodes: FileNode[]): string[] {
   const keys: string[] = [];
@@ -150,11 +197,11 @@ function dirKeysWithChildren(nodes: FileNode[]): string[] {
   return keys;
 }
 
-export function FilesTab({ embedded = false }: Props): ReactNode {
+export function FilesTab({ embedded = false, visible = true }: Props): ReactNode {
   const t = useI18n();
-  const workspace = useWorkspaceStore();
-  const previewStore = usePreviewStore();
-  const composer = useComposerStore();
+  const workspaceRoot = useWorkspaceStore((s) => s.root);
+  const openPreview = usePreviewStore((s) => s.openPreview);
+  const insertPath = useComposerStore((s) => s.insertPathRef);
   const message = useMessage();
   const dialog = useDialog();
 
@@ -195,16 +242,15 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
   const cutPathRef = useRef<string | null>(null);
   const dragSrcPathRef = useRef<string | null>(null);
   const ctxMenuRef = useRef<HTMLDivElement | null>(null);
-  const fsRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingFsEventsRef = useRef<
-    { path: string; kind: "add" | "change" | "unlink" }[]
-  >([]);
+  const visibleRef = useRef(visible);
+  const pendingFsEventsRef = useRef(new Map<string, FsEvent["kind"]>());
   treeDataRef.current = treeData;
   expandedKeysRef.current = expandedKeys;
   loadedKeysRef.current = loadedKeys;
   ignoredPatternsRef.current = ignoredPatterns;
   cutPathRef.current = cutPath;
   dragSrcPathRef.current = dragSrcPath;
+  visibleRef.current = visible;
 
   function toAbsolutePath(relativePath: string): string {
     const root = (useWorkspaceStore.getState().root || "").replace(/[\\/]+$/, "");
@@ -318,32 +364,42 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
     setDropTargetPath(null);
   }
 
-  async function refreshIgnored(): Promise<void> {
+  async function readIgnored(): Promise<string[]> {
     try {
-      setIgnoredPatterns(await window.api.git.ignored());
+      return await window.api.git.ignored();
     } catch {
-      setIgnoredPatterns([]);
+      return [];
     }
   }
 
-  async function refreshGit(): Promise<void> {
+  async function readGit(): Promise<{
+    codes: Record<string, string>;
+    dirs: Set<string>;
+  }> {
     try {
-      const status = await window.api.git.status();
-      const map: Record<string, string> = {};
+      const status = await window.api.git.status({ stats: false });
+      const codes: Record<string, string> = {};
       const dirs = new Set<string>();
       for (const f of status.files) {
-        map[f.relativePath] = f.code;
+        codes[f.relativePath] = f.code;
         const parts = f.relativePath.split("/");
         for (let i = 1; i < parts.length; i++) {
           dirs.add(parts.slice(0, i).join("/"));
         }
       }
-      setGitCodes(map);
-      setGitDirtyDirs(dirs);
+      return { codes, dirs };
     } catch {
-      setGitCodes({});
-      setGitDirtyDirs(new Set());
+      return { codes: {}, dirs: new Set<string>() };
     }
+  }
+
+  function applyGit(next: { codes: Record<string, string>; dirs: Set<string> }): void {
+    setGitCodes((current) => (sameGitCodes(current, next.codes) ? current : next.codes));
+    setGitDirtyDirs((current) => (samePathSet(current, next.dirs) ? current : next.dirs));
+  }
+
+  async function refreshGit(): Promise<void> {
+    applyGit(await readGit());
   }
 
   async function loadChildren(relativePath: string): Promise<FileNode[]> {
@@ -351,51 +407,42 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
     return entries.map(toTreeOption);
   }
 
-  function mergeChildren(
-    current: FileNode[],
-    dirKey: string,
-    fresh: FileNode[],
-    expanded: string[],
-  ): FileNode[] {
-    const existing = findNode(current, dirKey);
-    const prevByKey = new Map(
-      (existing?.children ?? []).map((child) => [String(child.key), child] as const),
-    );
-    const merged = fresh.map((child) => {
-      if (child.isLeaf === false && expanded.includes(String(child.key))) {
-        const prev = prevByKey.get(String(child.key));
-        if (prev?.children) return { ...child, children: prev.children };
+  /** 并发读多个目录，供一次 setTreeData 批量写回。 */
+  async function loadChildrenBatch(dirs: string[]): Promise<Map<string, FileNode[]>> {
+    const unique = [...new Set(dirs)];
+    if (!unique.length) return new Map();
+    const lists = await Promise.all(unique.map((dir) => loadChildren(dir)));
+    return new Map(unique.map((dir, index) => [dir, lists[index] ?? []] as const));
+  }
+
+  function applyChildrenBatch(updates: Map<string, FileNode[]>): void {
+    if (!updates.size) return;
+    const expanded = expandedKeysRef.current;
+    setTreeData((current) => {
+      const rootFresh = updates.get("");
+      const next = rootFresh ? mergeFreshChildren(current, rootFresh, expanded) : current;
+      const dirUpdates = new Map<string, FileNode[]>();
+      for (const [dir, children] of updates) {
+        if (!dir) continue;
+        const prev = findNode(next, dir);
+        dirUpdates.set(dir, mergeFreshChildren(prev?.children, children, expanded));
       }
-      return child;
+      if (!dirUpdates.size) return next;
+      return replaceChildren(next, dirUpdates);
     });
-    return withNodeChildren(current, dirKey, merged);
   }
 
   async function reloadNodeChildren(relativeDir: string): Promise<void> {
     const node = findNode(treeDataRef.current, relativeDir);
     if (!node || node.isLeaf !== false) return;
     const children = await loadChildren(relativeDir);
-    const expanded = expandedKeysRef.current;
-    setTreeData((current) => mergeChildren(current, relativeDir, children, expanded));
+    applyChildrenBatch(new Map([[relativeDir, children]]));
   }
 
   async function refreshNode(relativeDir: string): Promise<void> {
     if (!relativeDir) {
       const fresh = await loadChildren("");
-      const expanded = expandedKeysRef.current;
-      setTreeData((current) => {
-        const prevByKey = new Map(
-          current.map((node) => [String(node.key), node] as const),
-        );
-        const merged = fresh.map((node) => {
-          if (node.isLeaf === false && expanded.includes(String(node.key))) {
-            const prev = prevByKey.get(String(node.key));
-            if (prev?.children) return { ...node, children: prev.children };
-          }
-          return node;
-        });
-        return merged;
-      });
+      applyChildrenBatch(new Map([["", fresh]]));
       return;
     }
     await reloadNodeChildren(relativeDir);
@@ -411,13 +458,17 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
     }
     setLoading(true);
     try {
-      await refreshIgnored();
-      await refreshGit();
-      const root = await loadChildren("");
-      setTreeData(root);
-      for (const key of [...expandedKeysRef.current]) {
-        await reloadNodeChildren(key);
-      }
+      const expanded = [...expandedKeysRef.current];
+      const [ignored, git, freshRoot, batch] = await Promise.all([
+        readIgnored(),
+        readGit(),
+        loadChildren(""),
+        loadChildrenBatch(expanded),
+      ]);
+      setIgnoredPatterns(ignored);
+      applyGit(git);
+      batch.set("", freshRoot);
+      applyChildrenBatch(batch);
     } finally {
       setLoading(false);
     }
@@ -428,9 +479,7 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
     return expandedKeysRef.current.includes(relativeDir);
   }
 
-  async function silentRefreshFromEvents(
-    events: { path: string; kind: "add" | "change" | "unlink" }[],
-  ): Promise<void> {
+  async function silentRefreshFromEvents(events: FsEvent[]): Promise<void> {
     if (!useWorkspaceStore.getState().root) return;
     void refreshGit();
     const parents = new Set<string>();
@@ -445,37 +494,17 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
       const parent = parentDirOf(rel);
       if (isDirVisible(parent)) parents.add(parent);
     }
-    if (!parents.size) return;
-    for (const dir of parents) {
-      if (!dir) {
-        await refreshNode("");
-        continue;
-      }
-      await reloadNodeChildren(dir);
-    }
+    if (parents.size) applyChildrenBatch(await loadChildrenBatch([...parents]));
     await ensureExpandedNodesLoaded();
   }
 
   async function ensureExpandedNodesLoaded(): Promise<void> {
-    for (const key of [...expandedKeysRef.current]) {
+    const missing = [...expandedKeysRef.current].filter((key) => {
       const node = findNode(treeDataRef.current, key);
-      if (node && node.isLeaf === false && !Array.isArray(node.children)) {
-        await reloadNodeChildren(key);
-      }
-    }
-  }
-
-  function scheduleFsRefresh(
-    events: { path: string; kind: "add" | "change" | "unlink" }[],
-  ): void {
-    pendingFsEventsRef.current.push(...events);
-    if (fsRefreshTimerRef.current) clearTimeout(fsRefreshTimerRef.current);
-    fsRefreshTimerRef.current = setTimeout(() => {
-      fsRefreshTimerRef.current = null;
-      const batch = pendingFsEventsRef.current;
-      pendingFsEventsRef.current = [];
-      void silentRefreshFromEvents(batch);
-    }, 250);
+      return node !== null && node.isLeaf === false && !Array.isArray(node.children);
+    });
+    if (!missing.length) return;
+    applyChildrenBatch(await loadChildrenBatch(missing));
   }
 
   async function loadData(node: EventDataNode<FileNode>): Promise<void> {
@@ -514,15 +543,9 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
     });
   }
 
+  /** 只广播当前文件：标签页由 RightPane 统一处理 openSignal，避免同一次点击开两遍。 */
   function openFile(filePath: string): void {
-    previewStore.openPreview(filePath);
-    useRightTabsStore.getState().addTab("preview", {
-      filePath,
-      label: filePath.split(/[/\\]/).pop() ?? t.preview,
-    });
-    if (useLayoutStore.getState().rightCollapsed) {
-      useLayoutStore.getState().toggleRightCollapsed();
-    }
+    openPreview(filePath);
   }
 
   function onSelect(
@@ -729,7 +752,7 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
           openFile(target);
           break;
         case "cite":
-          composer.insertPathRef(target);
+          insertPath(target);
           message.success(t.filesCited);
           break;
         case "reveal":
@@ -863,32 +886,44 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
     openPrompt("dir", dir);
   }
 
-  function onWorkspaceFsChanged(event: Event): void {
-    const detail = (event as CustomEvent<FsChangedPayload>).detail;
-    scheduleFsRefresh(detail?.events ?? []);
+  function queueFsEvents(events: FsEvent[]): void {
+    if (!visibleRef.current) {
+      for (const event of events) pendingFsEventsRef.current.set(event.path, event.kind);
+      return;
+    }
+    void silentRefreshFromEvents(events);
   }
 
   useEffect(() => {
     void refreshRoot();
-    window.addEventListener("pi-fs-changed", onWorkspaceFsChanged);
+    const stop = subscribeFsChanges(queueFsEvents);
     return () => {
-      window.removeEventListener("pi-fs-changed", onWorkspaceFsChanged);
-      if (fsRefreshTimerRef.current) clearTimeout(fsRefreshTimerRef.current);
+      stop();
       clearDragState();
     };
   }, []);
 
-  const workspaceRootRef = useRef(workspace.root);
+  useEffect(() => {
+    visibleRef.current = visible;
+    if (!visible) return;
+    const snapshot = pendingFsEventsRef.current;
+    if (!snapshot.size) return;
+    const events = [...snapshot].map(([path, kind]) => ({ path, kind }));
+    snapshot.clear();
+    void silentRefreshFromEvents(events);
+  }, [visible]);
+
+  const workspaceRootRef = useRef(workspaceRoot);
 
   useEffect(() => {
-    if (workspaceRootRef.current === workspace.root) return;
-    workspaceRootRef.current = workspace.root;
+    if (workspaceRootRef.current === workspaceRoot) return;
+    workspaceRootRef.current = workspaceRoot;
     setExpandedKeys([]);
     setSelectedKeys([]);
     setCutPath(null);
     clearDragState();
     void refreshRoot();
-  }, [workspace.root]);
+  }, [workspaceRoot]);
 
   useEffect(() => {
     if (!ctx.show) return;
@@ -927,7 +962,7 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
         <div className={styles.head}>
           <Typography.Text
             className={styles.title}
-            title={workspace.root ?? undefined}
+            title={workspaceRoot ?? undefined}
           >
             {t.filesTab}
           </Typography.Text>
@@ -982,7 +1017,7 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
         onDragLeave={onRootDragLeave}
         onDrop={onRootDrop}
       >
-        {!workspace.root ? (
+        {!workspaceRoot ? (
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
             description={t.filesOpenWorkspaceFirst}

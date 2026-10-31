@@ -347,18 +347,35 @@ async function readNumStat(
 }
 
 /** 未跟踪文件不在 numstat 里，直接数行；二进制 / 超限返回 null。 */
+const untrackedLineCache = new Map<
+  string,
+  { size: number; mtimeMs: number; stat: LineStat | null }
+>();
+const UNTRACKED_LINE_CACHE_MAX = 512;
+
 function countUntrackedLines(absPath: string): LineStat | null {
   try {
     const stat = withoutAsar(() => fs.lstatSync(absPath));
     if (!stat.isFile() || stat.size > TEXT_PREVIEW_MAX_BYTES) return null;
+    const cached = untrackedLineCache.get(absPath);
+    if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) {
+      return cached.stat;
+    }
     const buf = withoutAsar(() => fs.readFileSync(absPath));
-    if (hasNullByte(buf)) return null;
-    const text = buf.toString("utf8");
-    if (!text) return { additions: 0, deletions: 0 };
-    return {
-      additions: text.replace(/\n$/, "").split("\n").length,
-      deletions: 0,
-    };
+    let lines: LineStat | null = null;
+    if (!hasNullByte(buf)) {
+      const text = buf.toString("utf8");
+      lines = !text
+        ? { additions: 0, deletions: 0 }
+        : { additions: text.replace(/\n$/, "").split("\n").length, deletions: 0 };
+    }
+    if (untrackedLineCache.size >= UNTRACKED_LINE_CACHE_MAX) untrackedLineCache.clear();
+    untrackedLineCache.set(absPath, {
+      size: stat.size,
+      mtimeMs: stat.mtimeMs,
+      stat: lines,
+    });
+    return lines;
   } catch {
     return null;
   }
@@ -366,6 +383,7 @@ function countUntrackedLines(absPath: string): LineStat | null {
 
 export async function getWorkspaceGitStatus(
   cwd: string,
+  options?: { stats?: boolean },
 ): Promise<GitStatusResult> {
   let repositoryRoot: string | null;
   try {
@@ -409,7 +427,8 @@ export async function getWorkspaceGitStatus(
     return { isGitRepository: true, branch, files: [] };
   }
 
-  const numStat = await readNumStat(repositoryRoot);
+  const numStat = options?.stats === false ? new Map<string, LineStat>() : await readNumStat(repositoryRoot);
+  const withStats = options?.stats !== false;
   const files: GitFileStatus[] = [];
   for (const entry of entries) {
     const abs = path.resolve(repositoryRoot, entry.path);
@@ -419,9 +438,10 @@ export async function getWorkspaceGitStatus(
     const ignored = isGitIgnoredPath(cwd, relativePath);
     // Filtered files are hidden from the Changes list entirely.
     if (ignored) continue;
-    const stat =
-      numStat.get(entry.path) ??
-      (entry.worktreeStatus === "?" ? countUntrackedLines(abs) : null);
+    const stat = withStats
+      ? (numStat.get(entry.path) ??
+        (entry.worktreeStatus === "?" ? countUntrackedLines(abs) : null))
+      : null;
     files.push({
       relativePath,
       ...classify(entry),

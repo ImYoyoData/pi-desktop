@@ -38,6 +38,12 @@
   margin-bottom: 0;
 }
 
+/* HTML 里没写尺寸的图片不能撑破容器。 */
+.root:global(.md) img {
+  max-width: 100%;
+  height: auto;
+}
+
 .root:global(.md) h1,
 .root:global(.md) h2,
 .root:global(.md) h3,

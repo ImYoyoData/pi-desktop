@@ -646,8 +646,8 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
         <div className={styles.toolbarActions}>
           <Button
             size="small"
-            type={selectMode ? "primary" : "default"}
-            variant={selectMode ? "filled" : "outlined"}
+            shape="circle"
+            type={selectMode ? "primary" : "text"}
             className={styles.selectElBtn}
             aria-label={t.selectElement}
             onClick={() => void applySelectMode(!selectMode)}

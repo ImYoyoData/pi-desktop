@@ -7,7 +7,7 @@
   min-height: 0;
   padding: 4px 8px;
   box-sizing: border-box;
-  background: #1a1a19;
+  background: var(--pi-dock-bg, #1a1a19);
 }
 
 .linesAdded {

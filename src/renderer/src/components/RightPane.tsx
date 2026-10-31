@@ -32,16 +32,13 @@ function readSideWidth(): number {
 
 export function RightPane(): ReactNode {
   const t = useI18n();
-  const layout = useLayoutStore();
-  const keybindings = useKeybindingsStore();
-  const previewStore = usePreviewStore();
-  const workspace = useWorkspaceStore();
-  const dock = useRightDockStore();
+  const view = useRightDockStore((s) => s.view);
+  const rightCollapsed = useLayoutStore((s) => s.rightCollapsed);
+  const openSignal = usePreviewStore((s) => s.openSignal);
+  const workspaceRoot = useWorkspaceStore((s) => s.root);
 
   const [sideWidth, setSideWidth] = useState(readSideWidth);
-  const openSignalRef = useRef(previewStore.openSignal);
-
-  const view = dock.view;
+  const openSignalRef = useRef(openSignal);
 
   function showView(next: RightDockView): void {
     const layoutState = useLayoutStore.getState();
@@ -80,8 +77,8 @@ export function RightPane(): ReactNode {
   }, [sideWidth]);
 
   useEffect(() => {
-    if (openSignalRef.current === previewStore.openSignal) return;
-    openSignalRef.current = previewStore.openSignal;
+    if (openSignalRef.current === openSignal) return;
+    openSignalRef.current = openSignal;
     const path = usePreviewStore.getState().filePath;
     if (!path) return;
     const store = useRightTabsStore.getState();
@@ -92,10 +89,11 @@ export function RightPane(): ReactNode {
     void store.refreshPreviewGitMeta();
     const layoutState = useLayoutStore.getState();
     if (layoutState.rightCollapsed) layoutState.toggleRightCollapsed();
-  }, [previewStore.openSignal]);
+  }, [openSignal]);
 
   useEffect(() => {
     window.addEventListener("keydown", onLayoutKeydown);
+    const keybindings = useKeybindingsStore.getState();
     keybindings.register("right-pane-files", () => showView("files"));
     void useAgentRunsStore.getState().refresh(useWorkspaceStore.getState().root);
 
@@ -125,23 +123,23 @@ export function RightPane(): ReactNode {
       useRightTabsStore.getState().closeTab(id);
     });
     return () => {
-      keybindings.unregister("right-pane-files");
+      useKeybindingsStore.getState().unregister("right-pane-files");
       offOpenBrowserTab();
       offCloseBrowserTab();
       window.removeEventListener("keydown", onLayoutKeydown);
     };
   }, []);
 
-  const workspaceRootRef = useRef(workspace.root);
+  const workspaceRootRef = useRef(workspaceRoot);
 
   useEffect(() => {
-    if (workspaceRootRef.current === workspace.root) return;
-    workspaceRootRef.current = workspace.root;
-    void useAgentRunsStore.getState().refresh(workspace.root);
-  }, [workspace.root]);
+    if (workspaceRootRef.current === workspaceRoot) return;
+    workspaceRootRef.current = workspaceRoot;
+    void useAgentRunsStore.getState().refresh(workspaceRoot);
+  }, [workspaceRoot]);
 
   function pageStyle(id: RightDockView): React.CSSProperties | undefined {
-    return view === id && !layout.rightCollapsed ? undefined : { display: "none" };
+    return view === id && !rightCollapsed ? undefined : { display: "none" };
   }
 
   return (
@@ -149,7 +147,7 @@ export function RightPane(): ReactNode {
       <div className={styles.body}>
         <div className={styles.page} style={pageStyle("files")}>
           <FilesPage
-            visible={view === "files" && !layout.rightCollapsed}
+            visible={view === "files" && !rightCollapsed}
             sideWidth={sideWidth}
             sideMinWidth={SIDE_MIN_WIDTH}
             sideMaxWidth={SIDE_MAX_WIDTH}
@@ -158,7 +156,7 @@ export function RightPane(): ReactNode {
         </div>
         <div className={styles.page} style={pageStyle("changes")}>
           <ChangesPage
-            visible={view === "changes" && !layout.rightCollapsed}
+            visible={view === "changes" && !rightCollapsed}
             sideWidth={sideWidth}
             sideMinWidth={SIDE_MIN_WIDTH}
             sideMaxWidth={SIDE_MAX_WIDTH}
@@ -166,7 +164,7 @@ export function RightPane(): ReactNode {
           />
         </div>
         <div className={styles.page} style={pageStyle("browser")}>
-          <BrowserPage visible={view === "browser" && !layout.rightCollapsed} />
+          <BrowserPage visible={view === "browser" && !rightCollapsed} />
         </div>
       </div>
     </aside>

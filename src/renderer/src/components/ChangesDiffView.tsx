@@ -9,8 +9,9 @@ type Props = {
   patch: string;
 };
 
-/** diffs 内部底色跟着右侧栏走；不覆盖变量的话上下文行仍是主题自带底色。 */
-const SURFACE_CSS = `:host,[data-diff],[data-file],pre,code{--diffs-bg:#1a1a19!important}`;
+/** diffs 内部底色跟着右侧栏走；不覆盖变量的话上下文行仍是主题自带底色。
+    shadow DOM 会继承宿主的 CSS 变量，壁纸模式下 --pi-dock-bg 为透明。 */
+const SURFACE_CSS = `:host,[data-diff],[data-file],pre,code{--diffs-bg:var(--pi-dock-bg,#1a1a19)!important}`;
 
 /** 更改页 diff：stream-diffs 按 patch 渲染，只高亮改动 hunk。 */
 export function ChangesDiffView({ patch }: Props): ReactNode {

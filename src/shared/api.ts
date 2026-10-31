@@ -582,8 +582,8 @@ export function createApi(
 		},
 	},
 	git: {
-		status: () =>
-			ipcRenderer.invoke(IpcChannels.git.status) as Promise<{
+		status: (opts?: { stats?: boolean }) =>
+			ipcRenderer.invoke(IpcChannels.git.status, opts) as Promise<{
 				isGitRepository: boolean;
 				branch: string | null;
 				files: {

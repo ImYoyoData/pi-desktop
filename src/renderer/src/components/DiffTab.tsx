@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Spin } from "antd";
 import ChangesDiffView from "@renderer/components/ChangesDiffView";
+import { subscribeFsChanges } from "@renderer/utils/fs-changed-bus";
 import styles from "./DiffTab.module.css";
 
 type Props = {
@@ -13,7 +14,6 @@ export function DiffTab({ filePath, visible }: Props): ReactNode {
   const [patch, setPatch] = useState("");
   const genRef = useRef(0);
   const patchRef = useRef("");
-  const fsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const filePathRef = useRef<string | null | undefined>(filePath);
   const visibleRef = useRef(visible);
   filePathRef.current = filePath;
@@ -26,10 +26,11 @@ export function DiffTab({ filePath, visible }: Props): ReactNode {
     try {
       const result = await window.api.git.diff(path);
       if (gen !== genRef.current) return;
-      setPatch(result.supported ? (result.patch ?? "") : "");
+      const next = result.supported ? (result.patch ?? "") : "";
+      setPatch((current) => (current === next ? current : next));
     } catch {
       if (gen !== genRef.current) return;
-      setPatch("");
+      setPatch((current) => (current === "" ? current : ""));
     } finally {
       if (gen === genRef.current) setLoading(false);
     }
@@ -42,19 +43,12 @@ export function DiffTab({ filePath, visible }: Props): ReactNode {
   }, [filePath]);
 
   useEffect(() => {
-    const onFsChanged = (): void => {
+    const stop = subscribeFsChanges(() => {
       if (!visibleRef.current || !filePathRef.current) return;
-      if (fsTimerRef.current) clearTimeout(fsTimerRef.current);
-      fsTimerRef.current = setTimeout(() => {
-        fsTimerRef.current = null;
-        if (filePathRef.current) void load(filePathRef.current);
-      }, 400);
-    };
-    window.addEventListener("pi-fs-changed", onFsChanged);
+      void load(filePathRef.current);
+    });
     return () => {
-      window.removeEventListener("pi-fs-changed", onFsChanged);
-      if (fsTimerRef.current) clearTimeout(fsTimerRef.current);
-      fsTimerRef.current = null;
+      stop();
       genRef.current += 1;
     };
   }, []);
