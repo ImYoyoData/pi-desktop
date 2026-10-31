@@ -122,6 +122,8 @@
 
 .dirArrow {
   flex-shrink: 0;
+  /* 抵消 content-wrapper 的 8px 左内边距，让箭头中心落在 14px 缩进单元中线（即引导线上） */
+  margin-left: -6.5px;
   margin-right: 3px;
   color: var(--fg-muted);
 }

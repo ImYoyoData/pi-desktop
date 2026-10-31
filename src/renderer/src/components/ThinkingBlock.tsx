@@ -196,7 +196,12 @@ export function ThinkingBlock({
     <div
       className={`${styles.thinking}${open ? ` ${styles.open}` : ""}`}
     >
-      <button type="button" className={styles.thinkingHead} onClick={toggleOpen}>
+      <button
+        type="button"
+        className={styles.thinkingHead}
+        aria-expanded={open}
+        onClick={toggleOpen}
+      >
         {leadingIcon ? <span className={styles.leadingIcon}>{leadingIcon}</span> : null}
         <span
           className={`${styles.label}${streaming ? " copilot-shimmer" : ""}`}

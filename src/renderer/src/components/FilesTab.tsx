@@ -28,7 +28,7 @@ import { gitCodeColor } from "@renderer/utils/editor-lang";
 import type { FsChangedPayload } from "@renderer/utils/fs-changed-bus";
 import { fileIcon } from "@renderer/utils/file-icon";
 import { matchesGitIgnorePatterns } from "../../../shared/git-ignore";
-import { ancestorChain, nextExpandedKeys } from "@renderer/utils/files-tree-expand";
+import { ancestorChain } from "@renderer/utils/files-tree-expand";
 import {
   encodeWorkspacePaths,
   PI_WORKSPACE_PATHS_MIME,
@@ -493,21 +493,19 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
     setLoadedKeys((current) => current.filter((k) => k !== relativeDir));
   }
 
+  /** 把目标目录的祖先链并进已展开的键：其他已展开的目录不受影响。 */
   function ensureExpanded(dir: string): void {
     if (!dir) return;
-    const chain = ancestorChain(dir);
     const prev = expandedKeysRef.current;
-    setExpandedKeys(chain);
-    const dropped = prev.filter((k) => !chain.includes(k));
-    if (!dropped.length) return;
-    requestAnimationFrame(() => {
-      for (const d of dropped) clearCachedChildren(d);
-    });
+    const missing = ancestorChain(dir).filter((k) => !prev.includes(k));
+    if (!missing.length) return;
+    setExpandedKeys([...prev, ...missing]);
   }
 
+  /** 树自己维护完整的展开键：收起的分支清掉子项缓存，再展开时重新读盘。 */
   function onExpand(nextKeys: React.Key[]): void {
     const prev = expandedKeysRef.current;
-    const finalKeys = nextExpandedKeys(prev, nextKeys.map(String));
+    const finalKeys = nextKeys.map(String);
     setExpandedKeys(finalKeys);
     const dropped = prev.filter((k) => !finalKeys.includes(k));
     if (!dropped.length) return;
