@@ -21,13 +21,43 @@
 .root:global(.md) :global(.markstream-react) {
   --code-bg: var(--pre-bg);
   --code-fg: inherit;
-  --code-border: var(--border-subtle, rgba(127, 127, 127, 0.25));
+  --code-border: rgba(127, 127, 127, 0.45);
   --code-header-bg: transparent;
   --code-action-fg: var(--fg-muted);
   --code-action-hover-bg: rgba(127, 127, 127, 0.14);
   --code-action-hover-fg: var(--fg);
   --code-line-number: var(--fg-faint);
   --table-border: var(--border-subtle, rgba(127, 127, 127, 0.3));
+}
+
+/*
+ * 壁纸模式下代码块与消息区一致：不留底色，直接透出壁纸，只用描边分界。
+ * 背景是 markstream 用内联 style + !important 逐层画的，只能逐层覆盖；
+ * shadow root 内部的底色与 gutter 分隔线由 MarkdownView 的 useGlassCodeBackground 渲染后清掉。
+ * diff 块自带高亮行底色，不参与。
+ */
+/* 透明底上只有这一圈描边能分出代码块边界：中蓝灰在深壁纸与浅底上都看得出来。 */
+.root:global(.md) :global(.markstream-react) :global(.code-block-container:not(.is-diff)) {
+  border: 1px solid var(--code-border) !important;
+}
+
+html[data-wallpaper="on"] .root:global(.md) :global(.markstream-react) :global(.code-block-container:not(.is-diff)) {
+  background-color: transparent !important;
+}
+
+html[data-wallpaper="on"] .root:global(.md) :global(.markstream-react) :global(.code-block-container:not(.is-diff)) :where(
+  .code-block-header,
+  .code-block-body,
+  .code-block-content,
+  .code-editor-layer,
+  .code-editor-container,
+  .code-editor-fallback-surface,
+  .stream-diffs-shell,
+  .diffs-container,
+  .code-fallback-plain,
+  pre
+) {
+  background-color: transparent !important;
 }
 
 .root:global(.md) p {

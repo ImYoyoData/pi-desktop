@@ -1,5 +1,55 @@
 # Changelog
 
+## v0.3.7-rc.1 (2026-10-31)
+
+本版重做右侧栏：文件、更改、浏览器拆成三个独立页面，文件树移到右侧并按参考图重做，Markdown 可在编辑 / 分栏 / 预览之间切换；语法高亮统一到 shiki 并删掉 monaco-editor，文件预览编辑器换成 @pierre/diffs 的可编辑编辑器，更改页的 diff 改由 stream-diffs 按 patch 渲染，主进程不再回传新旧全文。设置页改为弹窗，外观支持自定义界面与代码字体，窗口大小可以记住，拉取请求加了 TTL 缓存并能按工作区切换。同时把 ask_user 卡片搬进对话并支持附图片，并修复消息区贴底抽搐、切文件被全仓 git 扫描拖住等问题。
+
+### 新功能 Features
+
+- **右侧栏拆成三个页面**：文件、更改、浏览器各自一个页面与标题栏，视图状态收进 right-dock store；标题栏右侧新增终端 / 更改 / 浏览器 / 文件四个开关，左上角菜单改为左栏开关、侧栏收起时隐藏品牌名；旧混用的 dock 列与页签栏、右栏里的运行页一并移除。
+- **文件页**：文件树移到右侧、可整体收起，按参考图重做并支持同时展开多个目录；预览顶部显示文件图标、名称与 git 状态；Markdown 增加编辑 / 分栏 / 预览三态切换（编辑走 shiki 编辑器），拖动分栏线时直接改样式、松手才回写宽度。
+- **右栏统一标题栏**：三页共用一套标题栏（标题 + 收起列表 + 最大化编辑器 + 关闭右栏）；最大化改为只让右栏接管消息区，不再折叠左右侧栏与底栏。
+- **语法高亮统一到 shiki**：删除 monaco-editor 及其加载器、主题、补丁与样式；文件预览编辑器换成 @pierre/diffs 的可编辑编辑器，Markdown 代码块与 ```diff 交给 markstream 的代码块（stream-diffs），PR 文件 diff 同样走 @pierre/diffs。
+- **更改页 diff 按 patch 渲染**：主进程只回传 unified patch，不再回传新旧全文；渲染层交给 stream-diffs，只高亮改动的 hunk，字号与字体跟随外观设置。
+- **设置页改为弹窗**：设置不再是主区的全屏视图，改为 AiCustomizationModal 弹窗，打开时主区保持原样。
+- **自定义字体**：外观新增界面字体与代码字体，内置 Geist / Mona Sans / Monaspace Neon / Geist Mono，也可以选择本地字体文件（以内部族名注入 @font-face，随时可移除）。
+- **记住窗口大小**：设置 → 常用新增开关，默认开启；拖动窗口 400ms 后落盘、退出时同步落盘，启动按记住的尺寸开窗并裁进当前屏幕可用区域，默认 1550×960 按缩放比换算成 DIP。
+- **拉取请求缓存与工作区切换**：列表、计数与详情加 TTL 缓存并落盘（列表 5 分钟内视为新鲜、7 天内可先显示旧值，详情 60 秒），重启后直接显示上次结果；仓库名改为工作区下拉，可以切到最近工作区的 PR，主进程只接受已知工作区路径，其余回落到当前工作区。
+- **布局与配色**：侧栏与消息区改为贴边平铺；会话标题移入标题栏，双击即可重命名（Enter 提交、Esc 取消）；壁纸开启时右侧栏走与设置页同一套玻璃配方，设置页与下拉面板改用消息区底色，浅色模式的底色与选中态一并修正；壁纸下聊天代码块改为完全透明并只留一圈描边。
+- **ask_user 卡片搬进对话**：卡片跟着提问进入消息流，不再固定在输入框上方；多题在顶部用短标签切换（最多 4 字），每题常驻自定义输入框、写了字就算作答；回答时可以附图片（选择文件 / 拖拽 / 粘贴，单张 4MB、最多 6 张），作为图片内容一起交给模型。
+- **其它**：工具卡片运行中的图标改为转圈，后台按钮与展开箭头并到标题行行尾；草稿上下文下拉高亮当前项并隐藏远程分支，移除清除上下文菜单；外观新增「自动展开思考与工作步骤」开关；文件预览里 HTML 的 `<img>` 能显示本地图片，聊天消息不受影响；移除标题栏的 GitHub 入口与 Git 占位页。
+
+- **Right pane split into three pages**: Files, Changes and Browser each get their own page and header, with the view state moved into the right-dock store; the title bar gains terminal / changes / browser / files toggles, the top-left menu now toggles the left rail and the brand hides while it is collapsed, and the old mixed dock column, tab strip and in-pane run view are gone.
+- **Files page**: the file tree moves to the right side and can be collapsed as a whole, is reworked after the reference design and expands more than one folder at a time; the preview header shows the file icon, name and git status; Markdown gains edit / split / preview modes backed by the shiki editor, and dragging the splitter only writes the width back on mouse-up.
+- **One header for the right pane**: all three pages share a header (title, collapse list, maximize editor, close right pane); maximizing now only lets the right pane take over the message area instead of folding the side rails and the bottom panel too.
+- **Syntax highlighting unified on shiki**: monaco-editor and its loader, themes, patches and styles are gone; the file preview editor becomes @pierre/diffs' editable editor, Markdown code blocks and ```diff go to markstream's code block (stream-diffs), and PR file diffs render through @pierre/diffs as well.
+- **Changes diffs render from a patch**: the main process only returns the unified patch instead of both file versions, and stream-diffs highlights the changed hunks with the font size and family from the appearance settings.
+- **Settings became a dialog**: settings are no longer a full-screen main-area view but the AiCustomizationModal dialog, so the main area stays as it was.
+- **Custom fonts**: appearance gains a UI font and a mono font with Geist / Mona Sans / Monaspace Neon / Geist Mono built in, plus local font files injected as @font-face under an internal family name and removable at any time.
+- **Window size is remembered**: Settings → Common gains a switch, on by default; a resize is written 400 ms later and synchronously on close, startup reopens at the remembered size clamped to the display work area, and the 1550×960 default is converted to DIP using the scale factor.
+- **Pull request cache and workspace switching**: the list, counts and detail are TTL-cached and persisted (list pages stay fresh for 5 minutes and may show stale data for 7 days, details for 60 seconds), so a restart shows the previous result immediately; the repository name becomes a workspace dropdown that can open PRs from recent workspaces, and the main process only accepts known workspace paths and falls back to the current one.
+- **Layout and colours**: the sidebar and message area now sit edge to edge; the session title moves into the title bar and renames on double click (Enter commits, Escape cancels); with a wallpaper the right pane uses the same glass recipe as Settings, Settings and dropdowns take the message area background, light-theme surfaces and selection states are corrected, and chat code blocks become fully transparent under a wallpaper with just a single outline.
+- **ask_user cards live in the conversation**: the card sits in the message flow instead of above the composer; multiple questions switch through short tabs (4 characters at most), every question keeps a free-text box whose text alone counts as an answer, and a reply can carry images (file picker, drag or paste, 4 MB each and 6 in total) that reach the model as image content.
+- **Also**: running tool cards spin instead of showing a static icon and the background button and chevron moved to the end of the title row; the draft context dropdown highlights the current entry and hides remote branches, and the clear-context menu is gone; appearance gains an auto-expand switch for thinking and work steps; HTML `<img>` tags in a file preview resolve local images while chat messages keep their original handling; the title bar's GitHub entry and the Git placeholder page are gone.
+
+### 修复 Fixes
+
+- **修复消息区贴底抽搐**：贴底原来会在 scroll 事件里回写 scrollTop，与 virtua 在行高变化时的锚定补偿互相覆盖，看起来就是每帧来回扯；现在贴底只由内容与尺寸变化驱动、一帧最多写一次，排队卡片 / 等待 / 重试这类尾部提示的高度变化会单独收敛，展开或折叠卡片后 400ms 内不贴底，正在看的那一行不会被顶走。
+- **修复切文件被全仓 git 扫描拖住**：git status 加 800ms TTL 缓存，并按「要不要行数」分两档，未跟踪文件的行数按 size + mtime 缓存；文件页只挂载当前激活、有未保存改动或已丢失的预览，切标签不再重扫整个仓库。
+- **修复文件树只能展开一个目录**：展开状态改为集合，可以同时展开多个目录。
+- **修复浅色模式右侧栏**：底色与选中态、分栏线位置一并修正，分栏线在两种主题下都可见。
+- **修复文件变更事件重复派发**：渲染层把多个订阅者收进同一批，220ms 合并后一次性派发。
+- **修复 HTML 里的图片被当成标签**：文件预览需要单独的 markstream customId 才能拿到未清洗的 `<img>` 属性，聊天消息继续用原来的配置，行内代码里的 `<img>` 不会被渲染成巨图。
+- **修复二进制判定与恢复路径**：与 git 保持一致，只在文件开头 8000 字节内查找 NUL；`git restore` 的路径列表按 NUL 拆分。
+
+- **Fixed the message area twitching while pinned to the bottom**: pinning used to write scrollTop from scroll events, fighting virtua's anchoring compensation and pulling the view back and forth every frame; pinning is now driven only by content and size changes, at most once per frame, tail markers such as queued cards, waiting and retry hints re-converge on their own, and a card expanded or collapsed holds the viewport for 400 ms so the line being read is not pushed away.
+- **Fixed switching files stalling on a full-repository git scan**: git status is cached for 800 ms and split into a without-line-counts and a with-line-counts variant, untracked line counts are cached by size and mtime, and the files page only mounts the previews that are active, dirty or missing.
+- **Fixed the file tree expanding one folder at a time**: expansion is a set now, so several folders stay open.
+- **Fixed the right pane in light mode**: backgrounds, selection states and the splitter position are corrected, and the splitter is visible in both themes.
+- **Fixed duplicated file-change events**: the renderer folds every subscriber into one batch flushed after 220 ms.
+- **Fixed HTML images being parsed as tags**: a file preview needs its own markstream customId to receive uncleaned `<img>` attributes, while chat messages keep the original setup so an `<img>` inside inline code no longer renders as a huge image.
+- **Fixed binary detection and restore paths**: NUL is only looked for in the first 8000 bytes, matching git, and the `git restore` path list is split on NUL.
+
 ## v0.3.6-rc.7 (2026-10-28)
 
 本版新增工具调用审批：终端命令与写文件按四档权限放行，拿不准时在会话里弹审批条；消息区的 Markdown 渲染整体换成 markstream，会话打开改为历史反向分页与点击即时选中，几十条消息的会话切换不再卡住；工具卡片与 PR 详情共用 git-diff-view 渲染 diff，变更行数改由主进程一次 numstat 得出。同时把会话统计条移到主区底部通栏，统一过程区图标与思考行排版，并修复流式渲染卡住、上游 5xx 被误判为模型空响应等问题。

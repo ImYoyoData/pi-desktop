@@ -3,6 +3,7 @@ import {
   Fragment,
   useContext,
   useEffect,
+  useMemo,
   useState,
   type ComponentProps,
   type Key,
@@ -17,6 +18,7 @@ import {
   resolveMarkdownImageSrc,
   type MarkdownAssetBase,
 } from "@renderer/utils/markdown-assets";
+import { useAppearanceStore } from "@renderer/stores/appearance";
 import { DotDiagramNode } from "./DotDiagramNode";
 
 export const MARKDOWN_CUSTOM_ID = "pi-markdown";
@@ -84,11 +86,25 @@ function fenceLanguage(node: FenceNode): string {
   return (node.language ?? "").trim().split(/\s+/)[0] ?? "";
 }
 
+/**
+ * 代码块正文由 @pierre/diffs 渲染在 shadow root 里，:host 用 --diffs-bg 画底色，
+ * 外部选择器选不到内部元素，只能通过它渲染时注入的 unsafeCSS 改。
+ * 壁纸模式下与消息区一致：不留下底色，透出壁纸。
+ */
+const GLASS_CODE_CSS =
+  ":host{--diffs-light-bg:transparent;--diffs-dark-bg:transparent}" +
+  "pre,code,[data-gutter],[data-content]{background-color:transparent!important}";
+
 /** 代码块与 ```diff 都交给 markstream 的代码块（stream-diffs 高亮），只有图表自己渲染。 */
 function CodeBlockNode({ node, isDark }: CodeBlockProps): ReactNode {
   const code = node.code ?? "";
   const language = fenceLanguage(node);
   const langKey = language.toLowerCase();
+  const glassSurface = useAppearanceStore((state) => state.glassSurface);
+  const codeBlockOptions = useMemo(
+    () => (glassSurface && !node.diff ? { unsafeCSS: GLASS_CODE_CSS } : undefined),
+    [glassSurface, node.diff],
+  );
 
   if (MERMAID_LANGS.has(langKey) || (!langKey && looksLikeMermaidSource(code))) {
     return (
@@ -116,6 +132,7 @@ function CodeBlockNode({ node, isDark }: CodeBlockProps): ReactNode {
       }
       isDark={isDark}
       loading={Boolean(node.loading)}
+      codeBlockOptions={codeBlockOptions}
       showLineNumbers
       showExpandButton={false}
       enableFontSizeControl={false}
@@ -228,6 +245,7 @@ function HtmlImageNode({ node }: HtmlImageNodeProps): ReactNode {
   );
   const raw = (attrs.get("src") ?? "").trim();
   const src = safeImageSrc(raw, resolveMarkdownImageSrc(raw, assets));
+  const centered = (attrs.get("align") ?? "").toLowerCase() === "center";
   return (
     <img
       src={src}
@@ -236,6 +254,7 @@ function HtmlImageNode({ node }: HtmlImageNodeProps): ReactNode {
       width={attrs.get("width") || undefined}
       height={attrs.get("height") || undefined}
       className={attrs.get("class") || undefined}
+      style={centered ? { display: "block", margin: "0 auto" } : undefined}
       loading="lazy"
     />
   );
