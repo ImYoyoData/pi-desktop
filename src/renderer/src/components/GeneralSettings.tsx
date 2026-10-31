@@ -3,6 +3,7 @@ import { Select } from "antd";
 import { useSessionStatsStore } from "@renderer/stores/session-stats";
 import { useSendShortcutStore, type SendShortcutMode } from "@renderer/stores/send-shortcut";
 import { useTabFocusStore } from "@renderer/stores/tab-focus";
+import { useWindowSizeStore } from "@renderer/stores/window-size";
 import type { SessionTpsMode } from "@renderer/utils/session-stats";
 import {
   SettingsGroup,
@@ -20,6 +21,8 @@ export function GeneralSettings(): ReactNode {
   const setSendShortcut = useSendShortcutStore((state) => state.setMode);
   const tabFocus = useTabFocusStore((state) => state.enabled);
   const setTabFocus = useTabFocusStore((state) => state.setEnabled);
+  const rememberSize = useWindowSizeStore((state) => state.rememberSize);
+  const setRememberSize = useWindowSizeStore((state) => state.setRememberSize);
 
   const tpsModeOptions: { label: string; value: SessionTpsMode }[] = [
     { label: t.commonTpsModeStreaming, value: "streaming" },
@@ -59,6 +62,17 @@ export function GeneralSettings(): ReactNode {
             checked={tabFocus}
             label={t.commonTabFocus}
             onChange={setTabFocus}
+          />
+        </SettingsRow>
+
+        <SettingsRow
+          label={t.commonRememberWindowSize}
+          description={t.commonRememberWindowSizeHint}
+        >
+          <SettingsSwitch
+            checked={rememberSize}
+            label={t.commonRememberWindowSize}
+            onChange={setRememberSize}
           />
         </SettingsRow>
       </SettingsGroup>

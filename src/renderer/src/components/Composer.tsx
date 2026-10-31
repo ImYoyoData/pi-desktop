@@ -9,14 +9,14 @@ import {
   type MutableRefObject,
   type ReactNode,
 } from "react";
-import { Button, Dropdown, Image, Popover } from "antd";
+import { Button, Dropdown, Image, Popover, Spin } from "antd";
 import type { MenuProps } from "antd";
 import {
   AddOutline,
   ContractOutline,
   DocumentOutline,
   ExpandOutline,
-  SendOutline,
+  ReturnArrowOutline,
   StopOutline,
 } from "@renderer/components/icons/ionicons";
 import * as prefsApi from "@renderer/utils/prefs";
@@ -2186,14 +2186,11 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
                 </button>
               </Popover>
               {showPrimaryAction ? (
-                <Button
-                  size="small"
-                  shape="circle"
-                  type="primary"
-                  danger={primaryIsStop}
-                  loading={stopping}
+                <button
+                  type="button"
+                  className={styles.primaryBtn}
                   disabled={
-                    !primaryIsStop && !hasSendContent && !(isEditingQueue && hasSendContent)
+                    stopping || (!primaryIsStop && !hasSendContent && !(isEditingQueue && hasSendContent))
                   }
                   aria-label={
                     stopping
@@ -2212,8 +2209,15 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
                         : undefined
                   }
                   onClick={onPrimaryAction}
-                  icon={primaryIsStop ? <StopOutline /> : <SendOutline />}
-                />
+                >
+                  {stopping ? (
+                    <Spin size="small" />
+                  ) : primaryIsStop ? (
+                    <StopOutline size={18} />
+                  ) : (
+                    <ReturnArrowOutline size={18} />
+                  )}
+                </button>
               ) : null}
             </div>
           </div>

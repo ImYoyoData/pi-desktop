@@ -1,4 +1,4 @@
-import { BrowserWindow, nativeImage, screen, shell } from "electron";
+import { BrowserWindow, nativeImage, shell } from "electron";
 import { join } from "path";
 import { existsSync } from "fs";
 import { is } from "@electron-toolkit/utils";
@@ -8,6 +8,7 @@ import { editMenuLabels } from "../shared/edit-menu-i18n";
 import { getUiLocale, setUiLocale } from "./ui-locale";
 import { bindWindowVisibility } from "./window-visibility";
 import { closeUpdateToast } from "./update-toast";
+import { resolveWindowSize, trackWindowSize } from "./window-size";
 
 export { getUiLocale, setUiLocale };
 
@@ -66,10 +67,8 @@ export function createMainWindow(): BrowserWindow {
   forceClosing = false;
   const isMac = process.platform === "darwin";
   const iconPath = resolveWindowIcon();
-  const { scaleFactor } = screen.getPrimaryDisplay();
-  // 初始窗口按屏幕像素 1500×950 换算成 DIP，避免显示器缩放把窗口放大。
-  const initialWidth = Math.round(1500 / scaleFactor);
-  const initialHeight = Math.round(950 / scaleFactor);
+  // 记住窗口大小开着就用上次的大小，否则用默认尺寸 1500×950（逻辑像素）。
+  const { width: initialWidth, height: initialHeight } = resolveWindowSize();
 
   const mainWindow = new BrowserWindow({
     width: initialWidth,
@@ -134,6 +133,7 @@ export function createMainWindow(): BrowserWindow {
   installEditContextMenu(mainWindow);
   // Pause high-frequency IPC (terminal / run-output flushing) while hidden.
   bindWindowVisibility(mainWindow);
+  trackWindowSize(mainWindow);
 
   if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
     void mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);

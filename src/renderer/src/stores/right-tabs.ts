@@ -1,18 +1,13 @@
 import { create } from "zustand";
 import { subscribeLocale, t } from "@renderer/i18n";
 import { clearTabHistory } from "@renderer/stores/browser-library";
+import { useRightDockStore } from "@renderer/stores/right-dock";
 import { uniquePreviewTabLabel } from "@renderer/utils/preview-tab-label";
 import { localizedTabLabel } from "@renderer/utils/right-tab-labels";
 import * as prefs from "@renderer/utils/prefs";
 import type { ProgramStatusReport } from "@renderer/utils/osc-program-status";
 
-export type RightTabKind =
-  | "running"
-  | "changes"
-  | "files"
-  | "browser"
-  | "terminal"
-  | "preview";
+export type RightTabKind = "running" | "browser" | "terminal" | "preview";
 
 export type RightTab = {
   id: string;
@@ -131,10 +126,6 @@ function defaultTabLabel(
   switch (kind) {
     case "running":
       return t.runningTab;
-    case "changes":
-      return t.changesTab;
-    case "files":
-      return t.filesTab;
     case "browser":
       return counts === 0 ? t.browser : t.browserLabel(counts + 1);
     case "terminal":
@@ -154,9 +145,6 @@ type RightTabsBase = {
   panelActiveId: string;
   /** 当前标签页所属工作区：持久化与跨窗口同步都按它取键。 */
   root: string | null;
-  /** Right-pane Changes dock view asks the Changes tab to open this file's diff. */
-  changesRevealPath: string;
-  changesRevealTick: number;
 };
 
 type RightTabsDerived = {
@@ -168,14 +156,40 @@ type RightTabsDerived = {
 };
 
 function derive(base: RightTabsBase): RightTabsDerived {
-  const dockTabs = base.tabs.filter((tab) => !isPanelTab(tab));
-  const panelTabs = base.tabs.filter(isPanelTab);
+  const dockNext = base.tabs.filter((tab) => !isPanelTab(tab));
+  const panelNext = base.tabs.filter(isPanelTab);
+  // 内容不变时复用上一次的数组：终端状态上报不应通知文件页等订阅者。
+  if (!sameTabRefs(cachedDock, dockNext)) cachedDock = dockNext;
+  if (!sameTabRefs(cachedPanel, panelNext)) cachedPanel = panelNext;
+  const dockTabs = cachedDock;
+  const panelTabs = cachedPanel;
   return {
     dockTabs,
     panelTabs,
     activeTab: dockTabs.find((tab) => tab.id === base.activeId) ?? null,
     activePanelTab: panelTabs.find((tab) => tab.id === base.panelActiveId) ?? null,
   };
+}
+
+let cachedDock: RightTab[] = [];
+let cachedPanel: RightTab[] = [];
+
+function sameTabRefs(a: RightTab[], b: RightTab[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((tab, index) => tab === b[index]);
+}
+
+function sameProgramStatus(
+  a: ProgramStatusReport | undefined,
+  b: ProgramStatusReport | null,
+): boolean {
+  if (!a || !b) return !a && !b;
+  return (
+    a.state === b.state &&
+    a.app === b.app &&
+    a.kind === b.kind &&
+    a.message === b.message
+  );
 }
 
 export type RightTabsState = RightTabsBase &
@@ -192,14 +206,12 @@ export type RightTabsState = RightTabsBase &
       kind: RightTabKind,
       opts?: { label?: string; filePath?: string; cwd?: string; shellId?: string },
     ) => RightTab;
-    revealInChanges: (path: string) => void;
     addPreviewFromPicker: () => Promise<void>;
     registerSaveHandler: (id: string, handler: SaveHandler) => void;
     unregisterSaveHandler: (id: string) => void;
     saveTab: (id: string) => Promise<boolean>;
     refreshPreviewGitMeta: () => Promise<void>;
     reorderTabs: (fromIndex: number, toIndex: number) => void;
-    reorderDock: (ids: string[]) => void;
     persistTabs: (root: string | null) => void;
     restoreTabs: (root: string | null) => void;
     switchWorkspace: (prev: string | null, next: string | null) => void;
@@ -292,6 +304,7 @@ export const useRightTabsStore = create<RightTabsState>()((set, get) => {
     const state = get();
     const tab = state.tabs.find((t) => t.id === id);
     if (!tab) return;
+    if (sameProgramStatus(tab.piStatus, status)) return;
     commit({
       tabs: state.tabs.map((t) => (t.id === id ? { ...t, piStatus: status ?? undefined } : t)),
     });
@@ -302,7 +315,7 @@ export const useRightTabsStore = create<RightTabsState>()((set, get) => {
     if (!next) return;
     const state = get();
     const tab = state.tabs.find((t) => t.id === id);
-    if (!tab || tab.kind === "files") return;
+    if (!tab) return;
     commit({
       tabs: state.tabs.map((t) => (t.id === id ? { ...t, label: next, labelLocked: true } : t)),
     });
@@ -334,23 +347,8 @@ export const useRightTabsStore = create<RightTabsState>()((set, get) => {
     commit({ tabs });
   }
 
-  /** Reorder the right dock from drag UI; panel terminals keep their slots. */
-  function reorderDock(ids: string[]): void {
-    const state = get();
-    const dock = state.dockTabs;
-    if (ids.length !== dock.length || new Set(ids).size !== dock.length) return;
-    const byId = new Map(dock.map((tab) => [tab.id, tab]));
-    const next: RightTab[] = [];
-    for (const id of ids) {
-      const tab = byId.get(id);
-      if (!tab) return;
-      next.push(tab);
-    }
-    let i = 0;
-    commit({ tabs: state.tabs.map((tab) => (isPanelTab(tab) ? tab : next[i++]!)) });
-  }
-
   function addPreviewTab(filePath: string): RightTab {
+    useRightDockStore.getState().show("files");
     const state = get();
     const normalized = filePath.replace(/\\/g, "/");
     const existing = state.tabs.find(
@@ -416,7 +414,7 @@ export const useRightTabsStore = create<RightTabsState>()((set, get) => {
     const state = get();
     const counts = state.tabs.filter((t) => t.kind === kind).length;
     const label = defaultTabLabel(kind, counts, opts);
-    if (kind === "running" || kind === "files") {
+    if (kind === "running") {
       const existing = state.tabs.find((t) => t.kind === kind);
       if (existing) {
         commit({ activeId: existing.id });
@@ -442,24 +440,11 @@ export const useRightTabsStore = create<RightTabsState>()((set, get) => {
       tabs: [...state.tabs, tab],
       ...(isPanelTab(tab) ? { panelActiveId: tab.id } : { activeId: tab.id }),
     });
+    if (kind === "browser") useRightDockStore.getState().show("browser");
     if (kind === "preview") {
       commit({ tabs: refreshPreviewTabLabels(get().tabs) });
     }
     return tab;
-  }
-
-  /** Open (or focus) the singleton diff tab at `path`'s diff. */
-  function revealInChanges(path: string): void {
-    const normalized = path.replace(/\\/g, "/");
-    const label = normalized.split("/").pop() ?? normalized;
-    commit({ changesRevealPath: normalized, changesRevealTick: get().changesRevealTick + 1 });
-    const existing = get().tabs.find((tab) => tab.kind === "changes");
-    if (existing) {
-      patchTab(existing.id, { filePath: normalized, label });
-      commit({ activeId: existing.id });
-      return;
-    }
-    addTab("changes", { filePath: normalized, label });
   }
 
   function closeAllPreviewTabs(): void {
@@ -478,7 +463,7 @@ export const useRightTabsStore = create<RightTabsState>()((set, get) => {
 
   async function refreshPreviewGitMeta(): Promise<void> {
     try {
-      const status = await window.api.git.status();
+      const status = await window.api.git.status({ stats: false });
       const map = new Map(status.files.map((f) => [f.relativePath, f.code]));
       const state = get();
       let changed = false;
@@ -500,7 +485,6 @@ export const useRightTabsStore = create<RightTabsState>()((set, get) => {
     const state = get();
     const payload: PersistedTabs = {
       tabs: state.tabs
-        .filter((tab) => tab.kind !== "files")
         .map((tab) => ({
           kind: tab.kind,
           label: tab.label,
@@ -550,9 +534,9 @@ export const useRightTabsStore = create<RightTabsState>()((set, get) => {
     }
     const next: RightTab[] = [];
     for (const row of restored.tabs) {
-      if (row.kind === "files") continue;
-      // Diff views are transient — reopen them from the dock Changes view.
-      if (row.kind === "changes") continue;
+      // 旧版本把文件页 / 更改页存成 tab，现在它们是独立页面，忽略即可。
+      const kind = row.kind as string;
+      if (kind === "files" || kind === "changes") continue;
       if (row.kind === "preview" && !row.filePath) continue;
       const url =
         row.kind === "browser" && typeof row.url === "string" && row.url.trim()
@@ -644,8 +628,6 @@ export const useRightTabsStore = create<RightTabsState>()((set, get) => {
     activeId: "changes-0",
     panelActiveId: "",
     root: null,
-    changesRevealPath: "",
-    changesRevealTick: 0,
   };
 
 
@@ -661,14 +643,12 @@ export const useRightTabsStore = create<RightTabsState>()((set, get) => {
     setPiStatus,
     renameTab,
     addTab,
-    revealInChanges,
     addPreviewFromPicker,
     registerSaveHandler,
     unregisterSaveHandler,
     saveTab,
     refreshPreviewGitMeta,
     reorderTabs,
-    reorderDock,
     persistTabs,
     restoreTabs,
     switchWorkspace,

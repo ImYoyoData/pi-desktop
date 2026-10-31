@@ -4,7 +4,8 @@
   height: 100%;
   background: var(--bg-sidebar);
   min-width: 0;
-  /* 右侧分栏线由 splitter 提供，再描边会叠成 2px */
+  /* 侧栏贴边平铺（不套胶囊外壳），分栏线只能自己画：splitter 厚度已清零 */
+  border-right: 1px solid var(--sidebar-line);
 }
 
 .sessionsPane {
@@ -114,6 +115,13 @@
   position: relative;
   z-index: 6;
   background: var(--bg-sidebar);
+}
+
+.bottomActions {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  padding: 6px 8px 8px;
 }
 
 .topBtn {

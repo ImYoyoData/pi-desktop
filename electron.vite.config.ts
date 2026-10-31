@@ -18,48 +18,6 @@ const piEsmPackages = [
   "@earendil-works/pi-tui",
 ];
 
-/** monaco 只保留 utils/editor-lang.ts 会映射到的 21 种语言定义，其余 60 种不再进产物 */
-const monacoLanguages = new Set([
-  "c",
-  "cpp",
-  "csharp",
-  "css",
-  "go",
-  "html",
-  "ini",
-  "java",
-  "javascript",
-  "kotlin",
-  "less",
-  "markdown",
-  "powershell",
-  "python",
-  "rust",
-  "scss",
-  "shell",
-  "sql",
-  "typescript",
-  "xml",
-  "yaml",
-]);
-
-function trimMonacoLanguages(): Plugin {
-  return {
-    name: "pi-trim-monaco-languages",
-    enforce: "pre",
-    transform(code, id) {
-      if (!/[\\/]monaco-editor[\\/]esm[\\/]vs[\\/](index|editor\.main)\.js$/.test(id)) {
-        return null;
-      }
-      const trimmed = code.replace(
-        /^import '\.{1,2}\/languages\/definitions\/([\w.-]+)\/register\.js';\r?\n/gm,
-        (line, lang: string) => (monacoLanguages.has(lang) ? line : ""),
-      );
-      return trimmed === code ? null : trimmed;
-    },
-  };
-}
-
 /**
  * jiti 的懒加载 Babel 后备写成 `createRequire(import.meta.url)("../dist/babel.cjs")`，
  * 路径相对它自己所在文件解析。jiti 被 Rollup 打进 out/main/chunks/ 后，该路径变成
@@ -185,11 +143,7 @@ export default defineConfig({
       },
     },
     // 浏览器预览桥的端口：dev 时注入，env 可换端口避开多实例抢占。
-    plugins: [
-      react(),
-      trimMonacoLanguages(),
-      devBridgePlugin(),
-    ],
+    plugins: [react(), devBridgePlugin()],
     build: {
       // Electron 39 ships a modern Chromium: avoid transpiling to old
       // syntax and speed up esbuild.

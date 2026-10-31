@@ -1,21 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowUndoOutline } from "@renderer/components/icons/ionicons";
 import { useLayoutStore } from "@renderer/stores/layout";
-import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { subscribeFsChanges } from "@renderer/utils/fs-changed-bus";
 
 import { fileIcon, type FileIcon } from "@renderer/utils/file-icon";
-import {
-  useDialog,
-  useMessage,
-  type DialogHandle,
-} from "@renderer/services/feedback";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./RightDockChanges.module.css";
 
 type Props = {
-  /** False while the dock is hidden — defer git refreshes. */
+  /** False while the page is hidden — defer git refreshes. */
   visible?: boolean;
+  /** 当前在右侧 diff 区打开的文件。 */
+  selectedPath?: string;
+  onSelect: (path: string) => void;
 };
 
 type ChangeType = "added" | "modified" | "deleted";
@@ -58,19 +55,25 @@ function fileDir(p: string): string {
   return i > 0 ? p.slice(0, i) : "";
 }
 
-function badgeLetter(changeType: ChangeType): string {
-  return changeType === "added" ? "A" : changeType === "deleted" ? "D" : "M";
+function sameGitRows(a: GitRow[], b: GitRow[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((row, index) => {
+    const next = b[index]!;
+    return (
+      row.relativePath === next.relativePath &&
+      row.code === next.code &&
+      (row.additions ?? null) === (next.additions ?? null) &&
+      (row.deletions ?? null) === (next.deletions ?? null)
+    );
+  });
 }
 
-export function RightDockChanges({ visible = true }: Props): ReactNode {
+export function RightDockChanges({ visible = true, selectedPath, onSelect }: Props): ReactNode {
   const t = useI18n();
-  const workspace = useWorkspaceStore();
-  const message = useMessage();
-  const dialog = useDialog();
+  const workspaceRoot = useWorkspaceStore((s) => s.root);
 
   const [gitLoading, setGitLoading] = useState(false);
   const [gitFiles, setGitFiles] = useState<GitRow[]>([]);
-  const fsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
 
@@ -85,7 +88,7 @@ export function RightDockChanges({ visible = true }: Props): ReactNode {
       const files = status.isGitRepository
         ? (status.files as GitRow[]).filter((f) => !f.ignored)
         : [];
-      setGitFiles(files);
+      setGitFiles((current) => (sameGitRows(current, files) ? current : files));
     } catch {
       // Transient git hiccup (index.lock, …) — keep the last known list.
     } finally {
@@ -106,64 +109,21 @@ export function RightDockChanges({ visible = true }: Props): ReactNode {
   );
 
   function openDiff(row: ChangeRow): void {
-    useRightTabsStore.getState().revealInChanges(row.path);
+    onSelect(row.path);
     if (useLayoutStore.getState().rightCollapsed) useLayoutStore.getState().toggleRightCollapsed();
   }
 
-  function formatGitError(result: { message: string; code?: string }): string {
-    const key = `gitErr_${result.code || "unknown"}` as keyof typeof t;
-    return typeof t[key] === "string" ? (t[key] as string) : t.gitErr_unknown;
-  }
-
-  function onDiscard(row: ChangeRow): void {
-    const d: DialogHandle = dialog.warning({
-      title: t.changesDiscardFile,
-      content: t.changesDiscardConfirmFile,
-      positiveText: t.confirm,
-      negativeText: t.cancel,
-      onPositiveClick: () => {
-        d.loading = true;
-        return (async () => {
-          try {
-            const result = await window.api.git.restore([row.path]);
-            if (!result.ok) {
-              message.error(formatGitError(result));
-              return false;
-            }
-            message.success(t.changesDiscarded);
-            await refreshGit();
-            return true;
-          } catch (err) {
-            message.error(err instanceof Error ? err.message : String(err));
-            d.loading = false;
-            return false;
-          }
-        })();
-      },
-    });
-  }
-
   useEffect(() => {
-    void refreshGit();
-    const onFsChanged = (): void => {
+    const stop = subscribeFsChanges(() => {
       if (!useWorkspaceStore.getState().root || !visibleRef.current) return;
-      if (fsTimerRef.current) clearTimeout(fsTimerRef.current);
-      fsTimerRef.current = setTimeout(() => {
-        fsTimerRef.current = null;
-        void refreshGit();
-      }, 400);
-    };
-    window.addEventListener("pi-fs-changed", onFsChanged);
-    return () => {
-      window.removeEventListener("pi-fs-changed", onFsChanged);
-      if (fsTimerRef.current) clearTimeout(fsTimerRef.current);
-      fsTimerRef.current = null;
-    };
+      void refreshGit();
+    });
+    return stop;
   }, []);
 
   useEffect(() => {
     void refreshGit();
-  }, [workspace.root]);
+  }, [workspaceRoot]);
 
   useEffect(() => {
     if (visible) void refreshGit();
@@ -178,7 +138,9 @@ export function RightDockChanges({ visible = true }: Props): ReactNode {
           {rows.map((row) => (
             <li
               key={row.path}
-              className={styles.row}
+              className={
+                row.path === selectedPath ? `${styles.row} ${styles.selected}` : styles.row
+              }
               title={row.path}
               onClick={() => openDiff(row)}
             >
@@ -209,30 +171,6 @@ export function RightDockChanges({ visible = true }: Props): ReactNode {
                   <span className={styles.linesRemoved}>-{row.deletions}</span>
                 </span>
               ) : null}
-              <span className={styles.chatCollapsibleListActionBar}>
-                <button
-                  type="button"
-                  className={styles.action}
-                  title={t.changesDiscardFile}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onDiscard(row);
-                  }}
-                >
-                  <ArrowUndoOutline size={13} />
-                </button>
-              </span>
-              <span
-                className={`${styles.changesDecorationBadge} ${
-                  row.changeType === "added"
-                    ? styles.added
-                    : row.changeType === "deleted"
-                      ? styles.deleted
-                      : styles.modified
-                }`}
-              >
-                {badgeLetter(row.changeType)}
-              </span>
             </li>
           ))}
         </ul>

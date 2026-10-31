@@ -47,6 +47,52 @@ export function absoluteWorkspacePath(root: string, p: string): string {
   return `${root.replace(/\\/g, "/").replace(/\/+$/, "")}/${raw}`;
 }
 
+export type FsChangeListener = (
+  events: { path: string; kind: FsChangeKind }[],
+  root: string,
+) => void;
+
+/** 渲染进程统一合并窗口：主进程已按 180ms 合并，这里只把多个订阅者收进同一批。 */
+const FLUSH_DELAY_MS = 220;
+
+const listeners = new Set<FsChangeListener>();
+const pending = new Map<string, FsChangeKind>();
+let pendingRoot = "";
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function cancelFlush(): void {
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = null;
+}
+
+function flush(): void {
+  flushTimer = null;
+  if (!pending.size || !pendingRoot) return;
+  const root = pendingRoot;
+  const events = [...pending].map(([path, kind]) => ({ path, kind }));
+  pending.clear();
+  for (const listener of [...listeners]) listener(events, root);
+}
+
+function queueChange(payload: FsChangedPayload): void {
+  pendingRoot = payload.root;
+  for (const event of payload.events) pending.set(event.path, event.kind);
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = setTimeout(flush, FLUSH_DELAY_MS);
+}
+
+/** 订阅合并后的工作区文件变更；可见性由订阅方自己决定要不要处理。 */
+export function subscribeFsChanges(listener: FsChangeListener): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+    if (!listeners.size) {
+      cancelFlush();
+      pending.clear();
+    }
+  };
+}
+
 let off: (() => void) | null = null;
 
 export function startFsChangedBus(): () => void {
@@ -55,11 +101,11 @@ export function startFsChangedBus(): () => void {
     const workspace = useWorkspaceStore.getState();
     // 忽略上一个工作区 watcher 的迟到事件
     if (!workspace.root || !sameWorkspaceRoot(payload.root, workspace.root)) return;
-    window.dispatchEvent(
-      new CustomEvent<FsChangedPayload>("pi-fs-changed", { detail: payload }),
-    );
+    queueChange(payload);
   });
   off = () => {
+    cancelFlush();
+    pending.clear();
     detach();
     off = null;
   };

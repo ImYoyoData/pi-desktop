@@ -243,8 +243,9 @@ const REVIEW_REQUESTS =
 const OLDER = "pageInfo { hasPreviousPage startCursor }";
 const NEWER = "pageInfo { hasNextPage endCursor }";
 const THREAD_COMMENTS = `${NEWER} nodes { ${COMMENT} outdated }`;
-const MAX_OLDER_PAGES = 10;
-const MAX_THREAD_COMMENT_PAGES = 5;
+const MAX_OLDER_PAGES = 3;
+const MAX_THREAD_COMMENT_PAGES = 2;
+const THREAD_FETCH_LIMIT = 4;
 
 type ConnectionItem = z.ZodTypeAny;
 
@@ -719,6 +720,20 @@ async function laterNodes<T>(
 	return [...later.nodes, ...latest];
 }
 
+async function mapLimit<T, R>(items: T[], limit: number, run: (item: T) => Promise<R>): Promise<R[]> {
+	const results = new Array<R>(items.length);
+	let next = 0;
+	const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+		while (next < items.length) {
+			const index = next;
+			next += 1;
+			results[index] = await run(items[index] as T);
+		}
+	});
+	await Promise.all(workers);
+	return results;
+}
+
 async function withLaterComments(request: GraphQLRequest, thread: z.infer<typeof ThreadSchema>) {
 	if (!thread.comments.after) return thread;
 	const later = await laterNodes(
@@ -740,7 +755,7 @@ async function collect(request: GraphQLRequest, pullRequest: ParsedPullRequest):
 	return {
 		comments: [...comments, ...pullRequest.comments.nodes],
 		reviews: [...reviews, ...pullRequest.reviews.nodes],
-		threads: await Promise.all(allThreads.map((thread) => withLaterComments(request, thread))),
+		threads: await mapLimit(allThreads, THREAD_FETCH_LIMIT, (thread) => withLaterComments(request, thread)),
 	};
 }
 

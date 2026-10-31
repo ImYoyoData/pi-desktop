@@ -66,10 +66,6 @@ export type GitFileDiffResult = {
   supported: boolean;
   status?: GitFileStatusKind;
   patch?: string;
-  /** File content at HEAD (empty for new/untracked). */
-  oldContent?: string | null;
-  /** Working-tree content (empty for deleted). */
-  newContent?: string | null;
 };
 
 export type GitBranchesResult = {
@@ -351,18 +347,35 @@ async function readNumStat(
 }
 
 /** 未跟踪文件不在 numstat 里，直接数行；二进制 / 超限返回 null。 */
+const untrackedLineCache = new Map<
+  string,
+  { size: number; mtimeMs: number; stat: LineStat | null }
+>();
+const UNTRACKED_LINE_CACHE_MAX = 512;
+
 function countUntrackedLines(absPath: string): LineStat | null {
   try {
     const stat = withoutAsar(() => fs.lstatSync(absPath));
     if (!stat.isFile() || stat.size > TEXT_PREVIEW_MAX_BYTES) return null;
+    const cached = untrackedLineCache.get(absPath);
+    if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) {
+      return cached.stat;
+    }
     const buf = withoutAsar(() => fs.readFileSync(absPath));
-    if (hasNullByte(buf)) return null;
-    const text = buf.toString("utf8");
-    if (!text) return { additions: 0, deletions: 0 };
-    return {
-      additions: text.replace(/\n$/, "").split("\n").length,
-      deletions: 0,
-    };
+    let lines: LineStat | null = null;
+    if (!hasNullByte(buf)) {
+      const text = buf.toString("utf8");
+      lines = !text
+        ? { additions: 0, deletions: 0 }
+        : { additions: text.replace(/\n$/, "").split("\n").length, deletions: 0 };
+    }
+    if (untrackedLineCache.size >= UNTRACKED_LINE_CACHE_MAX) untrackedLineCache.clear();
+    untrackedLineCache.set(absPath, {
+      size: stat.size,
+      mtimeMs: stat.mtimeMs,
+      stat: lines,
+    });
+    return lines;
   } catch {
     return null;
   }
@@ -370,6 +383,7 @@ function countUntrackedLines(absPath: string): LineStat | null {
 
 export async function getWorkspaceGitStatus(
   cwd: string,
+  options?: { stats?: boolean },
 ): Promise<GitStatusResult> {
   let repositoryRoot: string | null;
   try {
@@ -413,7 +427,8 @@ export async function getWorkspaceGitStatus(
     return { isGitRepository: true, branch, files: [] };
   }
 
-  const numStat = await readNumStat(repositoryRoot);
+  const numStat = options?.stats === false ? new Map<string, LineStat>() : await readNumStat(repositoryRoot);
+  const withStats = options?.stats !== false;
   const files: GitFileStatus[] = [];
   for (const entry of entries) {
     const abs = path.resolve(repositoryRoot, entry.path);
@@ -423,9 +438,10 @@ export async function getWorkspaceGitStatus(
     const ignored = isGitIgnoredPath(cwd, relativePath);
     // Filtered files are hidden from the Changes list entirely.
     if (ignored) continue;
-    const stat =
-      numStat.get(entry.path) ??
-      (entry.worktreeStatus === "?" ? countUntrackedLines(abs) : null);
+    const stat = withStats
+      ? (numStat.get(entry.path) ??
+        (entry.worktreeStatus === "?" ? countUntrackedLines(abs) : null))
+      : null;
     files.push({
       relativePath,
       ...classify(entry),
@@ -475,8 +491,9 @@ export async function getGitSyncStatus(cwd: string): Promise<GitSyncResult> {
   return { upstream, ahead, behind };
 }
 
+/** 与 git 一致：只在开头 8000 字节内检查 NUL，避免文件尾部零星的 NUL 被当成二进制。 */
 function hasNullByte(content: Buffer): boolean {
-  return content.includes(0);
+  return content.subarray(0, 8000).includes(0);
 }
 
 function stageTextRejectReason(text: string): "binary" | "too_large" | null {
@@ -591,9 +608,7 @@ export async function getGitFileDiff(
       ]);
       if (!patch.includes("\n@@ ") && !patch.startsWith("@@ "))
         return { supported: false };
-      const oldContent =
-        (await readHeadContent(repositoryRoot, headPath)) ?? "";
-      return { supported: true, status, patch, oldContent, newContent: "" };
+      return { supported: true, status, patch };
     } catch {
       return { supported: false };
     }
@@ -639,8 +654,6 @@ export async function getGitFileDiff(
       supported: true,
       status: "added",
       patch,
-      oldContent: "",
-      newContent: content,
     };
   }
 
@@ -657,7 +670,7 @@ export async function getGitFileDiff(
     const patch = createAddedFilePatch(repoRelative, newContent);
     if (!patch.includes("\n@@ ") && !patch.startsWith("@@ "))
       return { supported: false };
-    return { supported: true, status, patch, oldContent: "", newContent };
+    return { supported: true, status, patch };
   }
   const trackedPatch = await createTrackedFilePatch(
     repositoryRoot,
@@ -670,7 +683,7 @@ export async function getGitFileDiff(
   ) {
     return { supported: false };
   }
-  return { supported: true, status, patch: trackedPatch, oldContent, newContent };
+  return { supported: true, status, patch: trackedPatch };
 }
 
 export async function listBranches(cwd: string): Promise<GitBranchesResult> {
@@ -753,7 +766,7 @@ export async function restorePaths(
       ...gitPaths,
     ]);
     if (listing.ok) {
-      for (const item of listing.stdout.split(" ")) {
+      for (const item of listing.stdout.split("\0")) {
         if (item) trackedSet.add(item);
       }
     }

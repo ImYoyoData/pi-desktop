@@ -1,0 +1,80 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.fileHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 6px 10px 4px;
+  background: var(--pi-dock-bg, #1a1a19);
+}
+
+.fileGlyph {
+  display: inline-flex;
+  align-items: center;
+  width: 18px;
+  flex-shrink: 0;
+  font-family: "seti";
+  font-size: 150%;
+  line-height: 1;
+}
+
+.fileName {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.9231rem;
+  color: var(--fg);
+}
+
+.viewModes {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.viewMode {
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 0.8462rem;
+  cursor: pointer;
+}
+
+.viewMode:hover {
+  background: rgba(127, 127, 127, 0.12);
+  color: var(--fg);
+}
+
+.viewModeActive {
+  background: rgba(127, 127, 127, 0.16);
+  color: var(--fg);
+}
+
+.panels {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  background: var(--pi-dock-bg, #1a1a19);
+}
+
+.panel {
+  position: absolute;
+  inset: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--pi-dock-bg, #1a1a19);
+}

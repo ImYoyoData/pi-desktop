@@ -1,12 +1,10 @@
 :global(.title-bar) {
+  position: relative;
   display: flex;
   align-items: center;
   height: 36px;
-  /*
-   * 右侧不留内边距：自绘窗口按钮要贴住窗口边缘，
-   * 否则关闭按钮悬停的红色块与窗口右缘之间会出现一条缝。
-   */
-  padding: 0 0 0 8px;
+  /* 左右都不留内边距：左段背景要按整宽百分比与侧栏对齐，缩进交给 .brand */
+  padding: 0;
   /*
    * 标题栏不加遮罩：背景全透、未启用壁纸时透出窗口底色，启用壁纸时直接透出壁纸，
    * 不做压暗也不做磨砂模糊。
@@ -46,7 +44,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding-left: 4px;
+  padding-left: 12px;
+  min-width: 0;
   color: var(--fg-strong);
 }
 
@@ -59,6 +58,60 @@
   font-weight: 600;
   font-size: 0.9615rem;
   letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+/* 会话标题对齐到主区左端（侧栏右边界 + 16px） */
+.sessionTitle {
+  position: absolute;
+  top: 50%;
+  right: 200px;
+  translate: 0 -50%;
+  min-width: 0;
+  max-width: min(40vw, 320px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-strong);
+  font-size: 0.9615rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  /* 双击进入重命名，不能放在 drag 区域里，否则鼠标事件被窗口抢走 */
+  pointer-events: auto;
+  cursor: default;
+  -webkit-app-region: no-drag;
+}
+
+/* 重命名输入框：宽度随内容伸缩（field-sizing），只靠 left 定位，
+   同时给 left/right 时宽度会被两端拉伸规则接管而失效。 */
+.sessionTitleInput {
+  position: absolute;
+  top: 50%;
+  right: auto;
+  translate: 0 -50%;
+  min-width: 48px;
+  max-width: min(40vw, 320px);
+  padding: 2px 5px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--fg-strong);
+  font-family: inherit;
+  font-size: 0.9615rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  outline: none;
+  field-sizing: content;
+  -webkit-app-region: no-drag;
+}
+
+/* 侧栏收起时标题回落到品牌与面板按钮之后，不用绝对定位避免重叠 */
+.titleInFlow {
+  position: static;
+  right: auto;
+  top: auto;
+  translate: none;
+  margin-left: 10px;
 }
 
 .layoutControls {
@@ -95,6 +148,14 @@
   color: var(--fg-strong);
 }
 
+/* 分区分组：面板开关与视图按钮之间一道竖线。 */
+.controlsSep {
+  width: 1px;
+  height: 14px;
+  margin: 0 4px;
+  background: var(--sidebar-line);
+}
+
 .center {
   flex: 1;
   min-width: 0;
@@ -104,6 +165,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
+  flex-shrink: 0;
 }
 
 /* 有新版本时的标题栏入口：胶囊小按钮，鼠标悬停才显出底色。 */

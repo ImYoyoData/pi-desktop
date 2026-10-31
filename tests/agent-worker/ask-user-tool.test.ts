@@ -30,6 +30,35 @@ describe("createAskUserToolDefinition", () => {
     expect(text).toContain("[ask_user answers]");
   });
 
+  it("passes attached images through as image content", async () => {
+    const waitForAnswers = vi.fn(async () => ({
+      text: "[ask_user answers]\n1. ok",
+      images: [{ data: "AAAA", mimeType: "image/png" }],
+    }));
+    const tool = createAskUserToolDefinition({ waitForAnswers });
+    const result = await tool.execute(
+      "tc-img",
+      {
+        questions: [
+          {
+            id: "q1",
+            prompt: "OK?",
+            type: "buttons",
+            options: [{ id: "y", label: "Yes" }],
+          },
+        ],
+      },
+      undefined,
+      undefined,
+      {} as never,
+    );
+    expect(result.content).toContainEqual({
+      type: "image",
+      data: "AAAA",
+      mimeType: "image/png",
+    });
+  });
+
   it("rejects empty questions without waiting", async () => {
     const waitForAnswers = vi.fn(async () => "nope");
     const tool = createAskUserToolDefinition({ waitForAnswers });

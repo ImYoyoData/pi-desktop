@@ -30,6 +30,12 @@ export function isGitHubImageUrl(url: string | undefined | null): boolean {
 	}
 }
 
+/** 同步读取已缓存的图片，让头像首帧直接显示，不闪 loading。 */
+export function cachedGithubImage(url: string | undefined | null): string | null {
+	if (!url) return null;
+	return dataUrlCache.get(url) ?? null;
+}
+
 /** 经主进程代理加载 GitHub 图片（绕过网络/防盗链限制），结果按 URL 缓存。 */
 export async function loadGithubImage(url: string): Promise<string | null> {
 	if (!isGitHubImageUrl(url)) return null;

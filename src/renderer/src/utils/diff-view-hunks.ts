@@ -1,5 +1,5 @@
 /**
- * 把工具卡片里的 unified diff 归一化成 @git-diff-view 能解析的形状。
+ * 把工具卡片里的 unified diff 归一化成 diffs 能解析的形状。
  *
  * pi 的补丁里 hunk 头常常是裸的 `@@`（工具卡片的 diff 在解析阶段就是这么造的），
  * 而库要求 `@@ -a,b +c,d @@`，缺行号会直接抛 `Invalid hunk header format`。

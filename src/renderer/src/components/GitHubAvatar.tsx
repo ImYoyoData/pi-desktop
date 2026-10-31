@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { avatarUrlOf, isBotLogin, loadGithubImage } from "@renderer/utils/github-image";
+import { avatarUrlOf, cachedGithubImage, isBotLogin, loadGithubImage } from "@renderer/utils/github-image";
 import styles from "./GitHubAvatar.module.css";
 
 type Props = {
@@ -53,10 +53,18 @@ export function GitHubAvatar({
   const [loaded, setLoaded] = useState<LoadState | null>(null);
   const url = avatarUrlOf(login, avatars, src);
   const bot = isBotLogin(login);
+  const cachedUrl = cachedGithubImage(url);
 
   useEffect(() => {
     let active = true;
     if (!url) {
+      return () => {
+        active = false;
+      };
+    }
+    const hit = cachedGithubImage(url);
+    if (hit) {
+      setLoaded({ url, dataUrl: hit });
       return () => {
         active = false;
       };
@@ -70,7 +78,7 @@ export function GitHubAvatar({
     };
   }, [url]);
 
-  const dataUrl = loaded && loaded.url === url ? loaded.dataUrl : null;
+  const dataUrl = (loaded && loaded.url === url ? loaded.dataUrl : null) ?? cachedUrl;
   const failed = !url || (loaded !== null && loaded.url === url && loaded.dataUrl === null);
 
   return (

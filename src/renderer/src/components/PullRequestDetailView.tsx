@@ -44,6 +44,7 @@ import {
 } from "@renderer/utils/pull-request-format";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import { useMessage } from "@renderer/services/feedback";
+import { usePullRequestsStore } from "@renderer/stores/pull-requests";
 import { plainIpcArgs } from "@renderer/utils/ipc-plain";
 import styles from "./PullRequestDetailView.module.css";
 
@@ -60,11 +61,26 @@ type DetailSection = "conversation" | "commits" | "checks" | "files";
 type MenuItem = NonNullable<MenuProps["items"]>[number];
 
 const DETAIL_TTL_MS = 30_000;
+const DETAIL_CACHE_LIMIT = 20;
+
+/** 跨挂载共享的详情缓存，关掉再打开同一个 PR 直接命中。 */
+const detailCache = new Map<string, { detail: PullRequestDetail; at: number }>();
+
+function rememberDetail(key: string, detail: PullRequestDetail): void {
+	detailCache.delete(key);
+	detailCache.set(key, { detail, at: Date.now() });
+	while (detailCache.size > DETAIL_CACHE_LIMIT) {
+		const oldest = detailCache.keys().next();
+		if (oldest.done) break;
+		detailCache.delete(oldest.value);
+	}
+}
 
 export const PullRequestDetailView = forwardRef<PullRequestDetailViewHandle, Props>(
   function PullRequestDetailView({ url, onBack }, ref) {
     const t = useI18n();
     const message = useMessage();
+    const cwd = usePullRequestsStore((state) => state.cwd);
 
     const [detail, setDetailState] = useState<PullRequestDetail | null>(null);
     const [loading, setLoading] = useState(false);
@@ -88,7 +104,6 @@ export const PullRequestDetailView = forwardRef<PullRequestDetailViewHandle, Pro
     const patchRef = useRef("");
     const patchHeadRef = useRef<string | null>(null);
     const sectionRef = useRef<DetailSection>("conversation");
-    const detailCache = useRef(new Map<string, { detail: PullRequestDetail; at: number }>());
     const onBackRef = useRef(onBack);
     onBackRef.current = onBack;
 
@@ -177,7 +192,7 @@ export const PullRequestDetailView = forwardRef<PullRequestDetailViewHandle, Pro
 
     async function loadDetail(force = false): Promise<void> {
       const target = url;
-      const cached = detailCache.current.get(target);
+      const cached = detailCache.get(target);
       if (!force && cached && Date.now() - cached.at < DETAIL_TTL_MS) {
         setDetail(cached.detail);
         return;
@@ -185,7 +200,9 @@ export const PullRequestDetailView = forwardRef<PullRequestDetailViewHandle, Pro
       setLoading(detailRef.current === null);
       setError(null);
       try {
-        const response = await window.api.github.pullRequestDetail(plainIpcArgs({ url: target }));
+        const response = await window.api.github.pullRequestDetail(
+          plainIpcArgs({ url: target, ...(cwd ? { cwd } : {}), ...(force ? { fresh: true } : {}) }),
+        );
         if (!response.success) {
           setError(response.error || t.prCouldNotLoad);
           return;
@@ -196,8 +213,9 @@ export const PullRequestDetailView = forwardRef<PullRequestDetailViewHandle, Pro
           setPatch("");
           setPatchError(t.prStaleNotice);
         }
-        detailCache.current.set(target, { detail: next, at: Date.now() });
+        rememberDetail(target, next);
         setDetail(next);
+        if (next.stale) void loadDetail(true);
       } catch {
         setError(t.prCouldNotLoad);
       } finally {
@@ -214,6 +232,7 @@ export const PullRequestDetailView = forwardRef<PullRequestDetailViewHandle, Pro
         const response = await window.api.github.pullRequestPatch(
           plainIpcArgs({
             url,
+            ...(cwd ? { cwd } : {}),
             ...(/^[0-9a-f]{40}$/.test(head) ? { headSha: head } : {}),
           }),
         );
@@ -241,7 +260,9 @@ export const PullRequestDetailView = forwardRef<PullRequestDetailViewHandle, Pro
       const key = actionKey(action);
       setPending((current) => new Set(current).add(key));
       try {
-        const response = await window.api.github.pullRequestAction(plainIpcArgs({ url, action }));
+        const response = await window.api.github.pullRequestAction(
+          plainIpcArgs({ url, action, ...(cwd ? { cwd } : {}) }),
+        );
         if (!response.success) {
           message.error(response.error || t.prCouldNotUpdate);
           return false;
@@ -329,7 +350,9 @@ export const PullRequestDetailView = forwardRef<PullRequestDetailViewHandle, Pro
       setChoicesLoading(true);
       setChoicesError(null);
       try {
-        const response = await window.api.github.pullRequestChoices(plainIpcArgs({ url, kind }));
+        const response = await window.api.github.pullRequestChoices(
+          plainIpcArgs({ url, kind, ...(cwd ? { cwd } : {}) }),
+        );
         if (!response.success) {
           setChoicesError(response.error || t.prCouldNotLoadChoices);
           return;

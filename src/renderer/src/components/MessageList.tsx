@@ -12,7 +12,6 @@ import {
 import {
   Virtualizer,
   type CustomContainerComponentProps,
-  type VirtualizerHandle,
 } from "virtua";
 import { Button, Tag, Typography } from "antd";
 import { fontSizeRem } from "../../../shared/appearance";
@@ -34,8 +33,11 @@ import { useCheckpointStore } from "@renderer/stores/checkpoint";
 import { useComposerStore } from "@renderer/stores/composer";
 import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
+import { useAppearanceStore } from "@renderer/stores/appearance";
 import ThinkingBlock from "@renderer/components/ThinkingBlock";
 import ToolCallCard from "@renderer/components/ToolCallCard";
+import AskUserStrip from "@renderer/components/AskUserStrip";
+import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
 import TurnDiffSummary from "@renderer/components/TurnDiffSummary";
 import WorkSectionGroup from "@renderer/components/WorkSectionGroup";
 import AgentWaitIndicator from "@renderer/components/AgentWaitIndicator";
@@ -114,8 +116,11 @@ function preloadMarkdownView(): () => void {
  */
 const OVERSCAN_PX = 200;
 const NEAR_BOTTOM_PX = 120;
-/** virtua 的行高估值：接近真实行高，锚定补偿的位移才不会被放大成剧烈跳动。 */
-const EST_ROW_HEIGHT = 120;
+/**
+ * 用户展开/折叠是一次局部重排：这段时间内的贴底会把视口拽到新的末尾，
+ * 看起来就是“内容往上开”。窗口内保持视口不动，等下一次真实内容增长再恢复跟随。
+ */
+const FOLD_HOLD_MS = 400;
 
 type Props = {
   messages: ChatMessage[];
@@ -153,6 +158,7 @@ export function MessageList({
   visible,
 }: Props): ReactNode {
   const t = useI18n();
+  const autoExpandSummary = useAppearanceStore((s) => s.autoExpandSummary);
   const chat = useChatStore();
   const checkpoints = useCheckpointStore();
   const composer = useComposerStore();
@@ -179,8 +185,8 @@ export function MessageList({
   const lastJumpedUserId = useRef<string | null>(null);
   /** Avoid follow-bottom immediately undoing the post-send card-bottom scroll. */
   const suppressFollowBottomUntil = useRef(0);
-  /** virtua 的虚拟列表实例：负责测量、窗口与滚动位置补偿。 */
-  const virtualizerRef = useRef<VirtualizerHandle | null>(null);
+  /** 折叠/展开窗口：期内不贴底，避免把用户正在看的位置顶走。 */
+  const foldHoldUntil = useRef(0);
   /** virtua 容器元素，用于实测其在滚动内容中的起始偏移。 */
   const virtualHostRef = useRef<HTMLDivElement | null>(null);
   /**
@@ -204,7 +210,6 @@ export function MessageList({
   const [settlingUi, setSettlingUi] = useState(false);
   /** Show floating jump control when user scrolled away from latest. */
   const [showJumpLatest, setShowJumpLatest] = useState(false);
-  const scrollRaf = useRef(0);
   /** 意图序号：滚动事件到达前若用户又改了意图，排队的复查作废。 */
   const intentToken = useRef(0);
   /** 向下意图的复查帧：滚轮/键盘事件先于滚动发生，底部区域要等滚动落地才能判断。 */
@@ -242,6 +247,17 @@ export function MessageList({
     () => buildSettledRowIds(allMessages, workSectionMembership),
     [allMessages, workSectionMembership],
   );
+
+  const pendingAskRowId = useMemo(() => {
+    if (!chat.activePendingAskUser) return null;
+    for (let i = allMessages.length - 1; i >= 0; i--) {
+      const m = allMessages[i]!;
+      if (m.role === "tool" && m.toolName === ASK_USER_TOOL_NAME) return m.id;
+    }
+    return null;
+  }, [allMessages, chat.activePendingAskUser]);
+
+  const dockAsk = Boolean(chat.activePendingAskUser) && !pendingAskRowId;
 
   const finalAnswerIds = useMemo(
     () => buildFinalAnswerIds(allMessages),
@@ -366,16 +382,35 @@ export function MessageList({
     sc.scrollTop = sc.scrollHeight;
   }
 
-  /** virtua 行高变化：贴底时重新收敛到底部。 */
-  const virtualResizeRaf = useRef(0);
-  function handleVirtualResize(): void {
-    if (virtualResizeRaf.current) return;
-    virtualResizeRaf.current = requestAnimationFrame(() => {
-      virtualResizeRaf.current = 0;
-      // 行高变化会顶长内容，贴底状态下重新贴回底部；已经离开底部则不打扰阅读。
+  /** 已经贴在底部就不必再写 scrollTop：virtua 的补偿可能刚刚写完。 */
+  function atBottom(sc: HTMLElement): boolean {
+    return sc.scrollHeight - sc.scrollTop - sc.clientHeight < 1;
+  }
+
+  /**
+   * 贴底的唯一写入口。
+   *
+   * 不再从 scroll 事件里回写 scrollTop：virtua 本身会在行高变化时做锤定补偿
+   * （保持视口内容不动），两者同时写同一个 scrollTop 会互相覆盖，贴在底部的时候
+   * 就变成每帧来回扯 —— 也就是“消息区抽搐”。
+   * 这里只由内容/尺寸变化驱动，一帧最多写一次。
+   */
+  const bottomScrollRaf = useRef(0);
+  function scheduleBottomScroll(): void {
+    // Hard latch first: a reader must never be yanked, even if followBottom is
+    // still momentarily true in a state snapshot taken mid-wheel.
+    if (!followBottom.current) return;
+    // Minimized / hidden: no layout work until the window is restored.
+    if (document.hidden || paneHidden()) return;
+    if (bottomScrollRaf.current) return;
+    bottomScrollRaf.current = requestAnimationFrame(() => {
+      bottomScrollRaf.current = 0;
       const sc = scrollerRef.current;
-      if (!sc || !followBottom.current) return;
-      if (selectDrag.current) return;
+      if (!sc || document.hidden || paneHidden()) return;
+      // 重新检查：排队期间用户可能已经上滑，或者正在拖选文本。
+      if (!followBottom.current || selectDrag.current) return;
+      if (Date.now() < foldHoldUntil.current) return;
+      if (atBottom(sc)) return;
       scrollToBottom();
     });
   }
@@ -437,33 +472,6 @@ export function MessageList({
         if (!followBottom.current) return;
         scrollToBottom();
       });
-    });
-  }
-
-  /**
-   * Coalesced follow-bottom scroll for streaming updates. Forcing layout three
-   * times per tool_execution_update (immediate + two rAF re-sets) starved the UI
-   * thread while bash/write output streamed. One scrollTop set per animation
-   * frame is enough; later updates simply re-schedule.
-   */
-  const bottomScrollRaf = useRef(0);
-  function scheduleBottomScroll(): void {
-    // Hard latch first: a reader must never be yanked, even if followBottom is
-    // still momentarily true in a state snapshot taken mid-wheel.
-    if (!followBottom.current) return;
-    // Minimized / hidden: no layout work until the window is restored.
-    if (document.hidden || paneHidden()) return;
-    if (bottomScrollRaf.current) return;
-    bottomScrollRaf.current = requestAnimationFrame(() => {
-      bottomScrollRaf.current = 0;
-      // Re-check at fire time, not just schedule time: the user may have scrolled
-      // up after the snap was queued (the follow decision is sync, this rAF is
-      // not) — never yank the viewport back down while they read history.
-      if (document.hidden || paneHidden() || !followBottom.current) return;
-      // Even when a prior state sample left follow=true (samples are not atomic
-      // with a mid-await wheel), the hard reading latch still wins at fire time.
-      if (!followBottom.current) return;
-      scrollToBottom();
     });
   }
 
@@ -733,27 +741,14 @@ export function MessageList({
     applyFollowIntent("down");
   }
 
-  /** 贴底状态下滚动：把视口重新收敛到底部（内容增长后可能偏离）。 */
-  function handleScrollerScroll(): void {
-    const sc = scrollerRef.current;
-    if (!sc || settlingSession.current) return;
-    if (!followBottom.current) return;
-    if (selectDrag.current) return;
-    scrollToBottom();
-  }
-
   /**
-   * 滚动事件不参与贴底决策：虚拟列表的锚定补偿同样会派发 scroll 事件
-   * （把 scrollTop 往下推回去保持内容视觉位置不变），把它当成用户意图就会把视口吸回底部。
-   * 这里只负责跟随态的收敛。
+   * 折叠/展开是用户主动的局部重排：这一下不跟着贴底，
+   * 否则视口被拽到新的末尾，正在看的那一行会“往上开”。
    */
-  function onScrollerScroll(): void {
-    if (paneHidden()) return;
-    if (scrollRaf.current) return;
-    scrollRaf.current = requestAnimationFrame(() => {
-      scrollRaf.current = 0;
-      handleScrollerScroll();
-    });
+  function onScrollerClickCapture(event: MouseEvent): void {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target?.closest("[aria-expanded]")) return;
+    foldHoldUntil.current = Date.now() + FOLD_HOLD_MS;
   }
 
   function engageHistoryReading(): void {
@@ -767,28 +762,27 @@ export function MessageList({
   }
 
   const latestHandlers = useRef({
-    onScrollerScroll,
     onScrollerWheel,
     onScrollerKeydown,
     onScrollerTouchStart,
     onScrollerTouchMove,
     onScrollerPointerDown,
     onScrollerPointerUp,
+    onScrollerClickCapture,
   });
   latestHandlers.current = {
-    onScrollerScroll,
     onScrollerWheel,
     onScrollerKeydown,
     onScrollerTouchStart,
     onScrollerTouchMove,
     onScrollerPointerDown,
     onScrollerPointerUp,
+    onScrollerClickCapture,
   };
 
   useEffect(() => {
     const sc = scrollerRef.current;
     if (!sc) return;
-    const onScroll = (): void => latestHandlers.current.onScrollerScroll();
     const onWheel = (event: WheelEvent): void =>
       latestHandlers.current.onScrollerWheel(event);
     const onKeydown = (event: KeyboardEvent): void =>
@@ -800,12 +794,15 @@ export function MessageList({
     const onPointerDown = (event: PointerEvent): void =>
       latestHandlers.current.onScrollerPointerDown(event);
     const onPointerUp = (): void => latestHandlers.current.onScrollerPointerUp();
-    sc.addEventListener("scroll", onScroll, { passive: true });
+    const onClick = (event: MouseEvent): void =>
+      latestHandlers.current.onScrollerClickCapture(event);
     sc.addEventListener("wheel", onWheel, { passive: true });
     sc.addEventListener("keydown", onKeydown);
     sc.addEventListener("touchstart", onTouchStart, { passive: true });
     sc.addEventListener("touchmove", onTouchMove, { passive: true });
     sc.addEventListener("pointerdown", onPointerDown, { passive: true });
+    // 捕获阶段：展开按钮自己会 stopPropagation，冒泡阶段收不到。
+    sc.addEventListener("click", onClick, true);
     // 松手可能落在面板之外，挂在 window 上才收得到。
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerUp);
@@ -815,26 +812,18 @@ export function MessageList({
     void beginSessionSettle();
     void loadModelNames();
     return () => {
-      sc.removeEventListener("scroll", onScroll);
       sc.removeEventListener("wheel", onWheel);
       sc.removeEventListener("keydown", onKeydown);
+      sc.removeEventListener("click", onClick, true);
       sc.removeEventListener("touchstart", onTouchStart);
       sc.removeEventListener("touchmove", onTouchMove);
       sc.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointercancel", onPointerUp);
       document.removeEventListener("visibilitychange", onVisibilityChange);
-      if (scrollRaf.current) {
-        cancelAnimationFrame(scrollRaf.current);
-        scrollRaf.current = 0;
-      }
       if (bottomScrollRaf.current) {
         cancelAnimationFrame(bottomScrollRaf.current);
         bottomScrollRaf.current = 0;
-      }
-      if (virtualResizeRaf.current) {
-        cancelAnimationFrame(virtualResizeRaf.current);
-        virtualResizeRaf.current = 0;
       }
       if (liveEdgeCheckRaf.current) {
         cancelAnimationFrame(liveEdgeCheckRaf.current);
@@ -978,14 +967,8 @@ export function MessageList({
     // Follow while generating; also snap once when the turn settles (actions
     // mount) — but never yank a user who scrolled up to read history.
     if (running || streaming || justFinished) {
-      if (!followBottom.current) return;
       // Coalesced + re-checked at fire time (never yanks a scrolled-up reader).
       scheduleBottomScroll();
-      if (justFinished) {
-        requestAnimationFrame(() => {
-          if (followBottom.current) scrollToBottom();
-        });
-      }
     }
   }, [messages.length, streaming, running]);
 
@@ -1402,6 +1385,15 @@ export function MessageList({
     return agentOutputSilenceMs(s as ChatState) >= 15_000;
   }, [waitState]);
 
+  /**
+   * 尾部提示（排队卡片 / 等待 / 重试）是 .inner 里的非虚拟元素，高度变化不会触发
+   * virtua 的 resize；贴底时单独收敛一次，否则它们会被裁在视口外。
+   */
+  const tailMarkers = `${pendingCards.length}:${dockAsk ? 1 : 0}:${retryHint ? 1 : 0}:${waitState ? 1 : 0}`;
+  useEffect(() => {
+    scheduleBottomScroll();
+  }, [tailMarkers]);
+
   /** 当前放大的图片；灯箱本身的交互与样式都在 ImageLightbox 里。 */
   const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null);
 
@@ -1447,6 +1439,7 @@ export function MessageList({
             <WorkSectionGroup
               items={membership.items}
               autoCollapse={rowSettled(msg)}
+              autoExpand={autoExpandSummary}
               onOpen={openPreview}
             />
           </div>
@@ -1577,6 +1570,7 @@ export function MessageList({
                     thinking={msg.thinking ?? ""}
                     streaming={Boolean(msg.streaming && !msg.text)}
                     autoCollapse={turnDone || !(msg.streaming && !msg.text)}
+                    autoExpand={autoExpandSummary}
                     leadingIcon={<BrainOutline size={13} aria-hidden="true" />}
                     durationMs={msg.thinkingDurationMs}
                     startedAt={msg.thinkingStartedAt}
@@ -1659,6 +1653,15 @@ export function MessageList({
       );
     }
     if (msg.role === "tool") {
+      if (msg.id === pendingAskRowId) {
+        return (
+          <article key={msg.id} className={rowClass} data-msg-id={msg.id}>
+            <div className={styles.tool}>
+              <AskUserStrip />
+            </div>
+          </article>
+        );
+      }
       const status = toolStatus(msg);
       return (
         <article key={msg.id} className={rowClass} data-msg-id={msg.id}>
@@ -1685,6 +1688,7 @@ export function MessageList({
             <button
               className={styles.summaryHead}
               type="button"
+              aria-expanded={open}
               onClick={() => toggleSummary(msg.id)}
             >
               {open ? <ChevronDownOutline /> : <ChevronForwardOutline />}
@@ -1746,18 +1750,18 @@ export function MessageList({
           ) : null}
 
           <Virtualizer
-            ref={virtualizerRef}
             as={VirtualHost}
             data={renderRows}
             scrollRef={scrollerRef}
             shift={shift}
             startMargin={startMargin}
             bufferSize={OVERSCAN_PX}
-            itemSize={EST_ROW_HEIGHT}
-            onResize={handleVirtualResize}
+            onResize={scheduleBottomScroll}
           >
             {(msg, index) => renderMessageRow(msg, index)}
           </Virtualizer>
+
+          {dockAsk ? <AskUserStrip /> : null}
 
           {showJumpLatest ? null : (
             <>

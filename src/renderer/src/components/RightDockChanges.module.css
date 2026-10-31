@@ -7,7 +7,7 @@
   min-height: 0;
   padding: 4px 8px;
   box-sizing: border-box;
-  background: var(--bg-panel);
+  background: var(--pi-dock-bg, #1a1a19);
 }
 
 .linesAdded {
@@ -94,6 +94,10 @@
   background: var(--bg-hover);
 }
 
+.row.selected {
+  background: var(--bg-active, var(--bg-hover));
+}
+
 /* VS Code Seti 主题图标 —— 主题字体声明的字号为 150% */
 .fileIcon {
   flex-shrink: 0;
@@ -138,7 +142,7 @@
   color: var(--fg-faint, var(--fg-muted));
 }
 
-/* Line counts — hidden on hover while the action bar has actions */
+/* Line counts */
 .workingSetLineCounts {
   margin: 0 6px;
   display: inline-flex;
@@ -146,65 +150,4 @@
   gap: 4px;
   font-size: 0.8462rem;
   font-variant-numeric: tabular-nums;
-}
-
-.row:hover .workingSetLineCounts,
-.row:focus-within .workingSetLineCounts {
-  display: none;
-}
-
-.chatCollapsibleListActionBar {
-  padding-left: 6px;
-  display: none;
-  align-items: center;
-  gap: 2px;
-}
-
-.row:hover .chatCollapsibleListActionBar,
-.row:focus-within .chatCollapsibleListActionBar {
-  display: inline-flex;
-}
-
-.action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--fg-muted);
-  cursor: pointer;
-}
-
-.action:hover {
-  background: var(--bg-active, var(--bg-hover));
-  color: var(--fg);
-}
-
-/* A/M/D decoration badge — rightmost */
-.changesDecorationBadge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  min-width: 16px;
-  margin-right: 2px;
-  font-size: 0.8462rem;
-  font-weight: 600;
-  opacity: 0.9;
-}
-
-.changesDecorationBadge.added {
-  color: var(--git-u);
-}
-
-.changesDecorationBadge.modified {
-  color: var(--git-m);
-}
-
-.changesDecorationBadge.deleted {
-  color: var(--git-d);
 }

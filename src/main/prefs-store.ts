@@ -83,3 +83,14 @@ export function removePrefs(
 	);
 	return next;
 }
+
+/** 退出等来不及等异步队列的场合：直接读改写落盘。 */
+export function updatePrefsSync(
+	patch: Record<string, string>,
+	agentDirOverride?: string,
+): Record<string, string> {
+	const filePath = prefsPath(agentDirOverride);
+	const merged = { ...readPrefs(filePath), ...patch };
+	writeJsonAtomic(filePath, merged);
+	return merged;
+}

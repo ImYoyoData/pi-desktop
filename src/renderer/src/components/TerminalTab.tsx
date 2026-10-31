@@ -9,7 +9,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
-import { fontSizePx } from "../../../shared/appearance";
+import { fontSizePx, resolveMonoFontStack } from "../../../shared/appearance";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { sanitizeTerminalCommandLabel, truncateTabLabel } from "../../../shared/tab-label";
 import { useDialog } from "@renderer/services/feedback";
@@ -208,7 +208,7 @@ export function TerminalTab({
     const term = new Terminal({
       cursorBlink: true,
       fontSize: fontSizePx(13, useAppearanceStore.getState().fontSize),
-      fontFamily: "Cascadia Code, Consolas, Menlo, monospace",
+      fontFamily: resolveMonoFontStack(useAppearanceStore.getState().fonts),
       rightClickSelectsWord: false,
       scrollback: 5000,
       windowOptions: {},
@@ -330,8 +330,9 @@ export function TerminalTab({
     const term = termRef.current;
     if (!term) return;
     term.options.fontSize = fontSizePx(13, appearance.fontSize);
+    term.options.fontFamily = resolveMonoFontStack(useAppearanceStore.getState().fonts);
     scheduleFit();
-  }, [appearance.fontSize]);
+  }, [appearance.fontSize, appearance.fonts]);
 
   return (
     <div className={styles.terminalTab}>

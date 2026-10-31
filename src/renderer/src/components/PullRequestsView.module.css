@@ -30,6 +30,21 @@
   white-space: nowrap;
 }
 
+.repoBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 260px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.repoBtn:hover .repoName {
+  color: var(--fg);
+}
+
 .repoName {
   color: var(--fg-muted);
   font-family: var(--font-mono);
@@ -37,6 +52,28 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.repoChev {
+  flex-shrink: 0;
+  color: var(--fg-muted);
+}
+
+.repoOption {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.3;
+}
+
+.repoOptionName {
+  color: var(--fg);
+}
+
+.repoOptionRepo {
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: 0.8462rem;
 }
 
 .headTools {
@@ -269,11 +306,12 @@
   list-style: none;
   margin: 0;
   padding: 0;
+  container-type: inline-size;
 }
 
 .prRow {
   display: grid;
-  grid-template-columns: 13px minmax(0, 1fr) 84.5px 58.5px;
+  grid-template-columns: 13px minmax(0, 1fr) 84.5px minmax(58.5px, max-content);
   align-items: center;
   gap: 0 13px;
   padding: 10px 12px;
@@ -289,24 +327,6 @@
 
 .prRow.highlighted {
   background: rgba(127, 127, 127, 0.05);
-}
-
-@media (min-width: 1280px) {
-  .prRow {
-    grid-template-columns: 13px minmax(0, 1fr) 117px 97.5px 123.5px 84.5px 65px;
-  }
-}
-
-@media (max-width: 1279px) {
-  .rowChecks,
-  .rowLabels,
-  .rowDiff {
-    display: none;
-  }
-
-  .rowInline {
-    display: inline-flex;
-  }
 }
 
 .stateIcon {
@@ -496,6 +516,21 @@
   color: var(--diff-removed);
 }
 
+.inlineDiff {
+  display: inline-flex;
+  gap: 4px;
+  font-size: 0.8846rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.inlineDiff .added {
+  color: var(--diff-added);
+}
+
+.inlineDiff .removed {
+  color: var(--diff-removed);
+}
+
 .rowTime {
   position: relative;
   justify-content: flex-end;
@@ -680,4 +715,22 @@
 
 .skeletonLine.short {
   width: 60%;
+}
+
+@container (min-width: 1100px) {
+  .prRow {
+    grid-template-columns: 13px minmax(0, 1fr) 117px 97.5px 123.5px 84.5px minmax(65px, max-content);
+  }
+}
+
+@container (max-width: 1099.98px) {
+  .rowChecks,
+  .rowLabels,
+  .rowDiff {
+    display: none;
+  }
+
+  .rowInline {
+    display: inline-flex;
+  }
 }

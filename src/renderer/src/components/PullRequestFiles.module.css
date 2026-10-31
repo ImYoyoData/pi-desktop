@@ -235,38 +235,24 @@
 .fileBody {
   border-top: 1px solid var(--border);
   overflow-x: auto;
-}
-
-/* 库默认用 GitHub 固定配色（纯白/深黑背景），改为跟随应用主题变量。 */
-.fileBody
-  :global(.diff-tailwindcss-wrapper[data-theme="light"] .diff-style-root),
-.fileBody
-  :global(.diff-tailwindcss-wrapper[data-theme="dark"] .diff-style-root) {
-  --diff-border--: var(--border);
-  --diff-plain-content--: transparent;
-  --diff-plain-lineNumber--: rgba(127, 127, 127, 0.05);
-  --diff-plain-lineNumber-color--: var(--fg-muted);
-  --diff-expand-content--: rgba(127, 127, 127, 0.07);
-  --diff-expand-lineNumber--: rgba(127, 127, 127, 0.07);
-  --diff-expand-lineNumber-color--: var(--fg-muted);
-  --diff-empty-content--: rgba(127, 127, 127, 0.04);
-  --diff-add-content--: rgba(88, 124, 12, 0.12);
-  --diff-del-content--: rgba(173, 7, 7, 0.12);
-  --diff-add-lineNumber--: rgba(88, 124, 12, 0.2);
-  --diff-del-lineNumber--: rgba(173, 7, 7, 0.2);
-  --diff-add-content-highlight--: rgba(88, 124, 12, 0.24);
-  --diff-del-content-highlight--: rgba(173, 7, 7, 0.24);
-  --diff-hunk-content--: rgba(127, 127, 127, 0.08);
-  --diff-hunk-lineNumber--: rgba(127, 127, 127, 0.12);
-  --diff-hunk-content-color--: var(--fg-muted);
-  --diff-hunk-lineNumber-hover--: var(--accent);
-  --diff-add-widget--: var(--accent);
-  background: transparent;
-}
-
-.fileBody :global(.diff-style-root) {
-  background: transparent;
   font-size: 0.9231rem;
+}
+
+.addComment {
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 0.9231rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.addComment:hover {
+  border-color: var(--accent-border);
+  color: var(--fg);
 }
 
 .fileNote {

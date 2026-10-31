@@ -288,6 +288,8 @@
 }
 
 .embeddedEditor {
+  /* 内嵌在设置页里，没有右侧栏，dock 底色改跟设置面板走。 */
+  --pi-dock-bg: var(--bg);
   flex: 1;
   min-width: 0;
   min-height: 0;

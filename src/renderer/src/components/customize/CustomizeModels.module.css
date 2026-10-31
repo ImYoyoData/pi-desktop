@@ -28,7 +28,7 @@
   padding: 10px 8px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--bg-elevated);
+  background: var(--w-elevated-surface, transparent);
   overflow: hidden;
 }
 
@@ -173,7 +173,7 @@
   padding: 12px 14px 10px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--bg-elevated);
+  background: var(--w-elevated-surface, transparent);
   overflow: hidden;
 }
 

@@ -33,6 +33,7 @@ import {
   resolveConflictPath,
   checkoutConflictSide,
   abortMerge,
+  type GitStatusResult,
 } from "./git-host";
 import { getWorkspace } from "./workspace-ipc";
 import { addGitIgnored, listGitIgnored, removeGitIgnored } from "./git-ignore-store";
@@ -41,15 +42,30 @@ function requireRoot(): string | null {
   return getWorkspace();
 }
 
+/** 切文件/切标签/改动页会同时要多份状态，一次扫描服务所有调用方；行数统计单独一档。 */
+const STATUS_TTL_MS = 800;
+const statusCache = new Map<string, { at: number; result: Promise<GitStatusResult> }>();
+
+function workspaceStatus(root: string, stats: boolean): Promise<GitStatusResult> {
+  const key = `${root}\0${stats ? "stats" : "basic"}`;
+  const now = Date.now();
+  const cached = statusCache.get(key);
+  if (cached && now - cached.at < STATUS_TTL_MS) return cached.result;
+  const result = getWorkspaceGitStatus(root, { stats });
+  if (statusCache.size > 8) statusCache.clear();
+  statusCache.set(key, { at: now, result });
+  return result;
+}
+
 function noWorkspace(): GitOpResult {
   return { ok: false, code: "invalid_args", message: "No workspace" };
 }
 
 export function registerGitIpc(): void {
-  ipcMain.handle(IpcChannels.git.status, async () => {
+  ipcMain.handle(IpcChannels.git.status, async (_e, opts?: { stats?: boolean }) => {
     const root = requireRoot();
     if (!root) return { isGitRepository: false, branch: null, files: [] };
-    return getWorkspaceGitStatus(root);
+    return workspaceStatus(root, opts?.stats !== false);
   });
 
   ipcMain.handle(IpcChannels.git.syncStatus, async () => {
