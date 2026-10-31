@@ -3,7 +3,7 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: #1a1a19;
+  background: var(--pi-dock-bg, #1a1a19);
 }
 
 .head {
@@ -43,7 +43,7 @@
   margin: 4px 4px 2px;
   padding: 0 8px;
   border-radius: 5px;
-  background: #262625;
+  background: var(--pi-dock-input, #262625);
 }
 
 .searchIcon {
@@ -101,9 +101,15 @@
   transition: background 120ms ease;
 }
 
-.body :global(.ant-tree .ant-tree-treenode-active .ant-tree-node-content-wrapper) {
-  background: var(--accent-soft, rgba(37, 99, 235, 0.12));
-  box-shadow: inset 0 0 0 1px var(--accent-border, #93c5fd);
+.body :global(.ant-tree .ant-tree-node-content-wrapper:hover) {
+  background: var(--bg-hover);
+}
+
+.body :global(.ant-tree .ant-tree-treenode-active .ant-tree-node-content-wrapper),
+.body :global(.ant-tree .ant-tree-node-content-wrapper.ant-tree-node-selected) {
+  background: var(--bg-selected);
+  color: var(--fg-strong);
+  box-shadow: none;
 }
 
 /* 拖拽中的源节点半透明：naive 是在节点内容上加 .drag-source，antd 是在节点上加 .dragging。 */
@@ -138,7 +144,7 @@
   background-image: repeating-linear-gradient(
     to right,
     transparent 0 6px,
-    #2f2f2e 6px 7px,
+    var(--border-strong) 6px 7px,
     transparent 7px 14px
   );
 }

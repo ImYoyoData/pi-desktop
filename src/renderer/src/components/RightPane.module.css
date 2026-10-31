@@ -1,17 +1,15 @@
 .root {
-  /* 右侧栏统一用固定面板色，内部组件里的 var(--bg) / var(--bg-panel) 一并跟随 */
-  --bg-panel: #1a1a19;
+  /* 面板底色走主题变量，内部组件里的 var(--bg) / var(--bg-panel) 一并跟随。
+     壁纸模式下 wallpaper.css 只改 --pi-dock-bg，内部实色底一起让位给玻璃层。 */
+  --bg-panel: var(--pi-dock-bg);
   --bg: var(--bg-panel);
-  /* 选中高亮改为同底色上的白色叠加，不再用不透明的 #2c2d2e */
-  --bg-active: #ffffff1f;
-  /* 文件树节点的 hover / 选中改成同底色上的白色叠加 */
-  --ant-tree-node-hover-bg: #ffffff14;
-  --ant-tree-node-selected-bg: #ffffff1f;
+  /* 选中态用同底色上的叠加色，不铺不透明实色 */
+  --bg-active: var(--bg-selected);
   display: flex;
   flex-direction: column;
   height: 100%;
   min-width: 0;
-  background: #1a1a19;
+  background: var(--pi-dock-bg);
   /* 左侧分栏线由 splitter 提供，再描边会叠成 2px */
 }
 

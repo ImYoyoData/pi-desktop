@@ -45,6 +45,9 @@
   --bg-panel: #fafafd;
   --bg-elevated: #fafafd;
   --bg-input: #f7f7fa;
+  /* 右侧栏等独立面板的固定底色，内部组件统一引用 */
+  --pi-dock-bg: #fafafd;
+  --pi-dock-input: #f7f7fa;
   --bg-hover: #00000014;
   --bg-active: #dadada99;
   --bg-selected: #00000025;
@@ -140,6 +143,9 @@ html[data-theme="dark"] {
   --bg-panel: #1a1a19;
   --bg-elevated: #202122;
   --bg-input: #1a1a19;
+  /* 右侧栏等独立面板的固定底色，内部组件统一引用 */
+  --pi-dock-bg: #1a1a19;
+  --pi-dock-input: #262625;
   --bg-hover: #ffffff14;
   --bg-active: #2c2d2e;
   --bg-selected: #ffffff22;
