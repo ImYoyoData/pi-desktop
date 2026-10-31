@@ -40,13 +40,17 @@
 
 <br /><br />
 
-## Screenshots
+</div>
+
+---
+
+<h2 align="center">Screenshots</h2>
 
 **Chat workbench** — run a task and watch the agent think, call tools and stream results in real time:
 
-<img src="docs/screenshots/chat-git-panel.png" alt="Pi Desktop chat workbench with streaming tool calls" width="1801" height="1082" />
-
-
+<p align="center">
+  <img src="docs/screenshots/chat-git-panel.png" alt="Pi Desktop chat workbench with streaming tool calls" width="760" />
+</p>
 
 ## License
 

@@ -52,9 +52,11 @@
 
 ---
 
-## 截图
+<h2 align="center">截图</h2>
 
-<img src="docs/screenshots/chat-git-panel.png" alt="Pi Desktop" width="760" />
+<p align="center">
+  <img src="docs/screenshots/chat-git-panel.png" alt="Pi Desktop" width="760" />
+</p>
 
 ### 为什么选择Pi Desktop？
 
