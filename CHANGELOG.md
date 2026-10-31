@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.3.7-rc.2 (2026-10-31)
+
+本版修复笔记本休眠唤醒后把整段睡眠当成 worker 静默：空闲会话会被判成卡死，界面随即重启 worker 并重发最近的消息。心跳与看门狗改为按定时器实际间隔识别暂停，唤醒后不再误判；空闲会话也不再触发自动恢复。
+
+### 修复 Fixes
+
+- **修复休眠唤醒后多个会话重发最近消息**：主进程心跳与渲染层看门狗都只看墙钟，睡眠数小时后唤醒的第一个 tick 会把已回复完的空闲会话判成卡死并触发「重启 + 重发」。现在两者都比对上次 tick 的实际间隔，命中暂停就重置静默基准并跳过该轮判定，真卡死的 worker 仍在宽限后照常判出。
+- **修复空闲会话被自动恢复重发**：自动恢复只对正在跑的回合生效，空闲会话即便收到卡死事件也不再重发上一条消息，会话末尾不会多出一条相同内容。
+- **修复唤醒后正在运行的命令被误杀**：运行面板的卡死判定同样识别暂停，唤醒后给正在跑的命令一轮完整宽限，宽限用尽后照常终止。
+
+- **Fixed several sessions resending their last message after the machine woke from sleep**: the main-process heartbeat and the renderer watchdog both measured silence on the wall clock, so the first tick after hours of sleep judged already-replied idle sessions stuck and triggered "restart and resend". Both now compare the real interval since the previous tick: a suspend resets the silence baseline and skips that round, while a genuinely wedged worker is still caught once the grace expires.
+- **Fixed auto-recover resending for idle sessions**: recovery only applies to a running turn now, so an idle session never re-sends its last message when a stuck event arrives and no duplicate copy is appended to the end of the conversation.
+- **Fixed runs being killed right after wake-up**: the Running panel's stall check recognises the same suspend, gives the commands that were in flight one full grace window, and resumes normal termination afterwards.
+
 ## v0.3.7-rc.1 (2026-10-31)
 
 本版重做右侧栏：文件、更改、浏览器拆成三个独立页面，文件树移到右侧并按参考图重做，Markdown 可在编辑 / 分栏 / 预览之间切换；语法高亮统一到 shiki 并删掉 monaco-editor，文件预览编辑器换成 @pierre/diffs 的可编辑编辑器，更改页的 diff 改由 stream-diffs 按 patch 渲染，主进程不再回传新旧全文。设置页改为弹窗，外观支持自定义界面与代码字体，窗口大小可以记住，拉取请求加了 TTL 缓存并能按工作区切换。同时把 ask_user 卡片搬进对话并支持附图片，并修复消息区贴底抽搐、切文件被全仓 git 扫描拖住等问题。

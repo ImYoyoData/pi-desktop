@@ -49,6 +49,7 @@ import {
 	shouldStallRecover,
 	type AutoRecoverReason,
 } from "../utils/agent-auto-recover";
+import { timerGapDetected } from "../../../shared/timer-gap";
 import {
 	dropErrorKeepHistory,
 	findUserBeforeError,
@@ -469,6 +470,8 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 		}
 	}
 	let softHangTimer: ReturnType<typeof setInterval> | null = null;
+	/** 上次看门狗 tick 时刻；与当前时刻差过大说明系统休眠或进程被挂起过。 */
+	let softHangTickAt = 0;
 	/** 会话事件订阅的解绑函数（已绑定时非 null，保证幂等）。 */
 	let unbindEvents: (() => void) | null = null;
 	const agentEventSink = createHiddenEventSink<AgentEvent>({
@@ -844,6 +847,8 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 	): Promise<boolean> {
 		if (recoveringIds.has(sessionId)) return false;
 		const state = stateFor(sessionId);
+		// 空闲会话没有可恢复的回合：主进程误报卡死时重发历史消息只会造出重复消息。
+		if (!state.running) return false;
 		if (state.pendingAskUser || state.pendingExtensionUi || state.pendingPermission) {
 			return false;
 		}
@@ -943,30 +948,40 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 	}
 
 	/**
-	 * 隐藏期间窗口定时器被 Chromium 节流，会话事件缓冲的消费随之滞后，
-	 * lastWorkerAliveAt 会停在旧值上，把「UI 没收到心跳」误报成「worker 心跳异常」。
-	 * 恢复可见时以当前时刻重置基准，真伪交给随后到达的心跳确认。
+	 * 隐藏期间窗口定时器被 Chromium 节流，休眠唤醒后墙钟直接跳过数小时：两种情况
+	 * lastActivityAt / lastWorkerAliveAt 都停在旧值上，把「没收到输出/心跳」误报成
+	 * worker 卡死。恢复时以当前时刻重置基准，真假交给随后到达的输出与心跳确认。
 	 */
-	function resetWorkerAliveClocks(): void {
-		const now = Date.now();
+	function resetSilenceClocks(now = Date.now()): void {
 		for (const [sessionId, state] of Object.entries(get().bySession)) {
-			if (!state?.running || state.lastWorkerAliveAt == null) continue;
-			setSessionState(sessionId, { ...state, lastWorkerAliveAt: now });
+			if (!state?.running) continue;
+			setSessionState(sessionId, {
+				...state,
+				lastActivityAt: now,
+				lastWorkerAliveAt: now,
+			});
 		}
 	}
 
 	function handleVisibilityChange(): void {
 		if (document.hidden) return;
 		agentEventSink.flushNow();
-		resetWorkerAliveClocks();
+		resetSilenceClocks();
 	}
 
 	function checkSoftHangSessions(): void {
+		const now = Date.now();
+		const paused = timerGapDetected(softHangTickAt, now);
+		softHangTickAt = now;
 		// 隐藏窗口的定时器同样被节流：事件消费滞后会让「没收到心跳」看起来像 stall
 		// 或软挂，后台不做静默判定。真死 / 真卡由主进程（不受窗口隐藏影响）的
 		// stall / exit 事件兜底。
 		if (document.hidden) return;
-		const now = Date.now();
+		// 休眠唤醒后的空洞来自暂停本身，不是卡死：重置基准，下一 tick 再判。
+		if (paused) {
+			resetSilenceClocks(now);
+			return;
+		}
 		for (const [sessionId, state] of Object.entries(get().bySession)) {
 			if (!state?.running || state.autoRecovering || recoveringIds.has(sessionId))
 				continue;

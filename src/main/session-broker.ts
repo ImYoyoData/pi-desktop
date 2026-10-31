@@ -39,6 +39,7 @@ import {
   thinkingLanguageBlock,
 } from "../shared/thinking-language";
 import { getThinkingLanguageSettings } from "./thinking-language-host";
+import { timerGapDetected } from "../shared/timer-gap";
 
 const HEARTBEAT_INTERVAL_MS = 5_000;
 /**
@@ -206,6 +207,8 @@ type SessionRecord = {
   spawnedAt: number;
   /** Wall-clock ms of last message from this worker (any kind). */
   lastAliveAt: number;
+  /** Wall-clock ms of the last heartbeat tick (suspend detection). */
+  lastHeartbeatAt: number;
   heartbeatTimer: ReturnType<typeof setInterval> | null;
   idleDestroyTimer: ReturnType<typeof setTimeout> | null;
   /** True once worker_stall was emitted for the current silence episode. */
@@ -336,10 +339,22 @@ export function createSessionBroker(deps: {
     }
     stopHeartbeat(rec);
     rec.lastAliveAt = Date.now();
+    rec.lastHeartbeatAt = rec.lastAliveAt;
     rec.stallEmitted = false;
     rec.heartbeatTimer = setInterval(() => {
       const current = sessions.get(sessionId);
       if (!current?.worker) {
+        return;
+      }
+      const now = Date.now();
+      const paused = timerGapDetected(current.lastHeartbeatAt, now);
+      current.lastHeartbeatAt = now;
+      // 休眠唤醒后 tick 之间的空洞不是 worker 静默：重置基准并跳过本轮，
+      // 否则唤醒瞬间会把每个空闲会话判成卡死并让界面重发最近的消息。
+      if (paused) {
+        current.lastAliveAt = now;
+        current.stallEmitted = false;
+        void current.worker.send({ kind: "ping" });
         return;
       }
       // Never declare stuck while a turn is in flight — silence is normal
@@ -349,10 +364,7 @@ export function createSessionBroker(deps: {
         // Total event-loop silence (no pong, no events) past the stall window
         // means the loop is wedged, not slow. Emit once — the renderer decides
         // whether to abort + restart; we never kill a mid-turn worker here.
-        if (
-          Date.now() - current.lastAliveAt >= stallEmitMs &&
-          !current.stallEmitted
-        ) {
+        if (now - current.lastAliveAt >= stallEmitMs && !current.stallEmitted) {
           current.stallEmitted = true;
           emit({ type: "worker_stall", sessionId });
         }
@@ -362,7 +374,7 @@ export function createSessionBroker(deps: {
       // Idle only: mark stuck when silent for the full miss window.
       // Using lastAliveAt (not a miss counter) avoids false positives when the main
       // process was blocked and several setInterval callbacks queue up at once.
-      const silentMs = Date.now() - current.lastAliveAt;
+      const silentMs = now - current.lastAliveAt;
       if (silentMs >= HEARTBEAT_INTERVAL_MS * HEARTBEAT_MISS_LIMIT_IDLE) {
         if (current.summary.status !== "stuck") {
           setStatus(sessionId, "stuck");
@@ -762,6 +774,7 @@ export function createSessionBroker(deps: {
       workerPromise: null,
       spawnedAt: 0,
       lastAliveAt: Date.now(),
+      lastHeartbeatAt: 0,
       heartbeatTimer: null,
       idleDestroyTimer: null,
       stallEmitted: false,

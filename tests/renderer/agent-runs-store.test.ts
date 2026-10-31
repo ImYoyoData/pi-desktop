@@ -202,4 +202,36 @@ describe("agent-runs store", () => {
     expect(state().runs.map((r) => r.id)).toEqual(["b1"]);
     expect(state().selectedId).toBe("b1");
   });
+
+  // 回归 #49：休眠唤醒后墙钟跳过数小时，看门狗第一个 tick 会把正在跑的命令
+  // 全判成卡死并终止。
+  it("gives running commands a grace window instead of killing them right after a suspend", async () => {
+    vi.useFakeTimers({ now: 1_700_000_000_000 });
+    setWorkspaceRoot("c:/ws/a");
+    const store = state();
+    const terminate = vi.mocked(window.api.runs.terminate);
+    store.applyEvent({
+      type: "upsert",
+      run: snap({
+        id: "r-suspend",
+        startedAt: Date.now() - 130_000,
+        lastOutputAt: Date.now() - 10_000,
+      }),
+    });
+    store.bind();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(terminate).not.toHaveBeenCalled();
+
+    // 休眠 1h：墙钟前进，唤醒后定时器只补跑一个 tick。
+    vi.setSystemTime(Date.now() + 3_600_000);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(terminate).not.toHaveBeenCalled();
+
+    // 宽限用尽后判定照旧：真卡死的命令仍会被终止。
+    await vi.advanceTimersByTimeAsync(130_000);
+    expect(terminate).toHaveBeenCalledTimes(1);
+    expect(terminate).toHaveBeenCalledWith("r-suspend");
+    store.unbind();
+    vi.useRealTimers();
+  });
 });

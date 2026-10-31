@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { AgentRunEvent, AgentRunSnapshot } from "../../../shared/agent-runs";
-import { shouldInterruptBashStall } from "../../../shared/bash-stall";
+import { BASH_STALL_SILENCE_MS, shouldInterruptBashStall } from "../../../shared/bash-stall";
+import { timerGapDetected } from "../../../shared/timer-gap";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { getMessage } from "@renderer/services/feedback";
 import { t } from "@renderer/i18n";
@@ -49,6 +50,9 @@ export const useAgentRunsStore = create<AgentRunsState>()((set, get) => {
   let unsub: (() => void) | null = null;
   let refreshGen = 0;
   let stallTimer: ReturnType<typeof setInterval> | null = null;
+  /** 上次卡死检查时刻，以及与暂停后宽限期的截止时刻（休眠唤醒）。 */
+  let stallTickAt = 0;
+  let stallGraceUntil = 0;
   /** Avoid repeat terminate storms for the same run id. */
   const stallTerminating = new Set<string>();
 
@@ -168,6 +172,12 @@ export const useAgentRunsStore = create<AgentRunsState>()((set, get) => {
 
   function checkBashStalls(): void {
     const now = Date.now();
+    const paused = timerGapDetected(stallTickAt, now);
+    stallTickAt = now;
+    // 休眠唤醒 / 进程被挂起后，tick 之间的空洞不是命令静默：给一轮完整宽限，
+    // 否则唤醒瞬间会把正在跑的命令全判成卡死并终止。
+    if (paused) stallGraceUntil = now + BASH_STALL_SILENCE_MS;
+    if (now < stallGraceUntil) return;
     for (const run of get().runs) {
       if (stallTerminating.has(run.id)) continue;
       if (
