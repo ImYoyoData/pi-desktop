@@ -470,6 +470,11 @@ button {
   box-shadow: var(--shadow-md);
 }
 
+/* 下拉框只在设置页里出现，展开面板跟设置页、消息区同底色 */
+.ant-select-dropdown {
+  background-color: var(--bg) !important;
+}
+
 .ant-menu-item,
 .ant-menu-submenu-title,
 .ant-dropdown-menu-item,
@@ -714,6 +719,20 @@ button {
 }
 
 /* Settings modals */
+/*
+ * 设置页与消息区同底色：外壳、卡片、输入与下拉控件统一取 --bg，
+ * 不再比聊天区高一档（原来用 --bg-elevated / --bg-input，深色下差别最明显）。
+ * 壁纸模式由 wallpaper.css 的玻璃表面规则接管，这里不参与。
+ */
+html[data-theme]:not([data-wallpaper="on"]) .pi-settings-modal,
+html[data-theme]:not([data-wallpaper="on"]) .modal-editor-panel {
+  --bg-elevated: var(--bg);
+  --bg-input: var(--bg);
+  --ant-color-bg-elevated: var(--bg);
+  --ant-color-bg-container: var(--bg);
+  --ant-modal-content-bg: var(--bg);
+}
+
 /* antd v6 的弹窗内容盒是 .ant-modal-container，v5 的 .ant-modal-content 已不存在 */
 .pi-settings-modal .ant-modal-container {
   border-radius: var(--radius-lg);
