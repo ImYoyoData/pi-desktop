@@ -25,7 +25,7 @@ export function createWorkspaceTarget({ current, recent }: WorkspaceTargetDeps) 
 	return async function resolve(requested: unknown): Promise<string | null> {
 		const root = current();
 		if (typeof requested !== "string" || !requested.trim()) return root;
-		const target = path.resolve(requested.trim());
+		const target = path.resolve(requested.trim().replace(/\\/g, "/"));
 		if (root && workspacePathsEqual(root, target, CASE_INSENSITIVE)) {
 			return target;
 		}
