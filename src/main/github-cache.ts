@@ -1,19 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { PullRequestDetail, PullRequestPage } from "../shared/github-types";
+import type { PullRequestPage } from "../shared/github-types";
 import { agentDir } from "./agent-dir";
 import type { TtlCacheEntry, TtlCacheOptions } from "./github-list";
 
 const WRITE_DELAY_MS = 800;
 
 const PAGE_FILE = "desktop-github-pages.json";
-const DETAIL_FILE = "desktop-github-details.json";
 const PAGE_LIMIT = 48;
-const DETAIL_LIMIT = 8;
 const PAGE_FRESH_MS = 5 * 60 * 1000;
 const PAGE_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 export const DETAIL_CACHE_TTL_MS = 60 * 1000;
-const DETAIL_STALE_MS = 24 * 60 * 60 * 1000;
 
 type Entries<T> = Record<string, TtlCacheEntry<T>>;
 
@@ -74,14 +71,9 @@ function jsonStore<T>(fileName: string): JsonStore<T> {
 }
 
 const pages = jsonStore<PullRequestPage>(PAGE_FILE);
-const details = jsonStore<PullRequestDetail>(DETAIL_FILE);
 
 export const PULL_REQUEST_PAGE_TTL_MS = PAGE_FRESH_MS;
 
 export function pageCacheOptions(): TtlCacheOptions<PullRequestPage> {
 	return { staleMs: PAGE_STALE_MS, limit: PAGE_LIMIT, load: pages.load, save: pages.save };
-}
-
-export function detailCacheOptions(): TtlCacheOptions<PullRequestDetail> {
-	return { staleMs: DETAIL_STALE_MS, limit: DETAIL_LIMIT, load: details.load, save: details.save };
 }

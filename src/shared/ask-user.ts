@@ -245,13 +245,18 @@ export function formatAskUserAnswers(
 
 export const ASK_USER_TOOL_NAME = "ask_user";
 
+/** 单张图片 data URL 上限：约 6MB 原图 base64 后的长度，超过直接拒绝。 */
+const IMAGE_DATA_URL_MAX_LENGTH = 8 * 1024 * 1024;
+const IMAGE_DATA_URL = /^data:(image\/[\w.+-]+);base64,([\s\S]+)$/;
+
 /** data URL → 传给模型的 base64 图片内容；格式不对返回 null。 */
 export function imageDataFromDataUrl(
   dataUrl: string,
 ): { data: string; mimeType: string } | null {
-  const match = /^data:([^;,]*)(?:;base64)?,([\s\S]*)$/.exec(dataUrl.trim());
-  if (!match) return null;
-  const data = (match[2] ?? "").trim();
+  if (dataUrl.length > IMAGE_DATA_URL_MAX_LENGTH) return null;
+  const match = IMAGE_DATA_URL.exec(dataUrl.trim());
+  if (!match?.[1] || !match[2]) return null;
+  const data = match[2].trim();
   if (!data) return null;
-  return { data, mimeType: match[1]?.trim() || "image/png" };
+  return { data, mimeType: match[1].trim() };
 }

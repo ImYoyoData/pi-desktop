@@ -1136,18 +1136,10 @@ export const zhTW = {
 	unsavedChangesClose: (label: string) => `「${label}」已修改，關閉前是否儲存？`,
 
 	// Browser
-	cannotBookmark: "目前頁面無法加入書籤",
-	bookmarkAdded: "已加入書籤",
-	bookmarkRemoved: "已移除書籤",
-	bookmarkPage: "將此頁加入書籤",
-	unbookmark: "移除書籤",
 	urlPlaceholder: "輸入網址",
 	browserPreviewUnavailable:
 		"內建瀏覽器依賴 Electron 的 webview，外部瀏覽器預覽模式下無法使用，請在桌面端使用。",
 	cancelSelect: "取消選取",
-	historyAndBookmarks: "歷史與書籤",
-	history: "歷史",
-	bookmarks: "書籤",
 	devtools: "開發人員工具 (F12)",
 	resizeDevtools: "拖曳調整寬度",
 	browserNotReady: "瀏覽器尚未就緒",
@@ -1161,11 +1153,6 @@ export const zhTW = {
 	regionTagAdded: "已新增區域標籤",
 	chipRegion: "區域截圖",
 	search: "搜尋",
-	noHistory: "尚無歷史記錄",
-	noBookmarks: "尚無書籤",
-	historyToday: "今天",
-	historyWeek: "最近 7 天",
-	historyOlder: "更早",
 
 	// Sessions / welcome / chat
 	newSession: "新增工作階段",

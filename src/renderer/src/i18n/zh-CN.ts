@@ -1137,18 +1137,10 @@ export const zh = {
 	unsavedChangesClose: (label: string) => `「${label}」已修改，关闭前是否保存？`,
 
 	// Browser
-	cannotBookmark: "当前页面无法收藏",
-	bookmarkAdded: "已加入收藏",
-	bookmarkRemoved: "已取消收藏",
-	bookmarkPage: "收藏此页",
-	unbookmark: "取消收藏",
 	urlPlaceholder: "输入网址",
 	browserPreviewUnavailable:
 		"内置浏览器依赖 Electron 的 webview，外部浏览器预览模式下不可用，请在桌面端使用。",
 	cancelSelect: "取消选取",
-	historyAndBookmarks: "历史与收藏",
-	history: "历史",
-	bookmarks: "收藏",
 	devtools: "开发者工具 (F12)",
 	resizeDevtools: "拖动调整宽度",
 	browserNotReady: "浏览器尚未就绪",
@@ -1162,11 +1154,6 @@ export const zh = {
 	regionTagAdded: "已添加区域标签",
 	chipRegion: "区域截图",
 	search: "搜索",
-	noHistory: "暂无历史记录",
-	noBookmarks: "暂无收藏",
-	historyToday: "今天",
-	historyWeek: "最近 7 天",
-	historyOlder: "更早",
 
 	// Sessions / welcome / chat
 	newSession: "新会话",

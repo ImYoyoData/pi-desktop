@@ -1,7 +1,18 @@
-import { startTransition, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { Button, Input, Spin } from "antd";
 import { PatchDiff } from "@pierre/diffs/react";
-import type { DiffLineAnnotation, SelectedLineRange } from "@pierre/diffs";
+import type {
+  DiffLineAnnotation,
+  FileDiffOptions,
+  SelectedLineRange,
+} from "@pierre/diffs";
 import { ChatbubbleOutline, ChevronDownOutline, SearchOutline } from "@renderer/components/icons/ionicons";
 import type {
   PullRequestAction,
@@ -203,10 +214,25 @@ export function PullRequestFiles({ patch, loading, error, detail, pending, onRun
     );
   }
 
-  function openWidget(file: DiffFile, range: SelectedLineRange): void {
+  const openWidget = useCallback((file: DiffFile, range: SelectedLineRange): void => {
     const side = (range.endSide ?? range.side) === "deletions" ? "LEFT" : "RIGHT";
     setWidgetTarget({ path: file.path, line: range.end || range.start, side });
-  }
+  }, []);
+
+  const diffOptionsByPath = useMemo(() => {
+    const out = new Map<string, FileDiffOptions<LineNote, undefined>>();
+    for (const file of files) {
+      out.set(file.path, {
+        diffStyle: layout,
+        diffIndicators: "bars",
+        overflow: "wrap",
+        disableFileHeader: true,
+        themeType,
+        onGutterUtilityClick: (range) => openWidget(file, range),
+      });
+    }
+    return out;
+  }, [files, layout, themeType, openWidget]);
 
   const submitWidget = useCallback(
     (target: WidgetTarget, body: string): void => {
@@ -370,14 +396,7 @@ export function PullRequestFiles({ patch, loading, error, detail, pending, onRun
                     {file.hasHunks ? (
                       <PatchDiff<LineNote>
                         patch={file.rawSection}
-                        options={{
-                          diffStyle: layout,
-                          diffIndicators: "bars",
-                          overflow: "wrap",
-                          disableFileHeader: true,
-                          themeType,
-                          onGutterUtilityClick: (range) => openWidget(file, range),
-                        }}
+                        options={diffOptionsByPath.get(file.path)}
                         renderGutterUtility={
                           canComment
                             ? () => (

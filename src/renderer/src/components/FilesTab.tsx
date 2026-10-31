@@ -914,7 +914,14 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
   }, [ctx.show]);
 
   const visibleTree = useMemo(() => filterTree(treeData, filter), [treeData, filter]);
-  const visibleExpanded = filter ? dirKeysWithChildren(visibleTree) : expandedKeys;
+
+  useEffect(() => {
+    if (!filter) return;
+    setExpandedKeys((prev) => {
+      const merged = [...new Set([...prev, ...dirKeysWithChildren(visibleTree)])];
+      return merged.length === prev.length ? prev : merged;
+    });
+  }, [filter, visibleTree]);
 
   return (
     <div className={styles.filesTab}>
@@ -992,7 +999,7 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
                 draggable={{ icon: false, nodeDraggable: () => true }}
                 allowDrop={allowTreeDrop}
                 treeData={visibleTree}
-                expandedKeys={visibleExpanded}
+                expandedKeys={expandedKeys}
                 selectedKeys={selectedKeys}
                 loadedKeys={loadedKeys}
                 loadData={loadData}

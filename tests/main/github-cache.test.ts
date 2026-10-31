@@ -9,7 +9,6 @@ vi.mock("electron", () => ({
 }));
 
 const PAGE_FILE = "desktop-github-pages.json";
-const DETAIL_FILE = "desktop-github-details.json";
 
 let dir = "";
 
@@ -26,7 +25,6 @@ async function loadCacheModule() {
 }
 
 const page = { pullRequests: [], nextCursor: null, totalCount: 0, repository: "o/r" };
-const detail = { body: "hello" } as never;
 
 describe("github-cache", () => {
 	beforeEach(() => {
@@ -41,15 +39,13 @@ describe("github-cache", () => {
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 
-	it("keeps pages and details in separate files", async () => {
+	it("persists list pages", async () => {
 		const cache = await loadCacheModule();
 
 		cache.pageCacheOptions().save?.({ "o/r#open": { value: page, at: Date.now() } });
-		cache.detailCacheOptions().save?.({ "https://github.com/o/r/pull/1": { value: detail, at: Date.now() } });
 		vi.advanceTimersByTime(1000);
 
 		expect(Object.keys(readEntries(PAGE_FILE))).toEqual(["o/r#open"]);
-		expect(Object.keys(readEntries(DETAIL_FILE))).toEqual(["https://github.com/o/r/pull/1"]);
 	});
 
 	it("rehydrates saved entries on the next start", async () => {

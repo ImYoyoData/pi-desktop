@@ -202,6 +202,7 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
   async function refreshGitForFile(path: string): Promise<void> {
     try {
       const status = await window.api.git.status();
+      if (currentPathRef.current !== path) return;
       const rel = normalizeFsPath(workspaceRelativePath(path));
       const hit = status.files.find((f) => normalizeFsPath(f.relativePath) === rel);
       syncTabMeta({ gitCode: hit?.code });
@@ -229,6 +230,7 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
     setCurrentPath(path);
     setDirty(false);
     setMissing(false);
+    syncTabMeta({ gitCode: "" });
     diskContentRef.current = null;
     if (!path) {
       setResult(null);
@@ -274,7 +276,7 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
         setLiveContent("");
         syncTabMeta({ dirty: false });
       }
-      await refreshGitForFile(path);
+      void refreshGitForFile(path);
     } finally {
       if (gen === loadGenRef.current) setLoading(false);
     }

@@ -50,7 +50,6 @@ export function TabStrip({ tabs, activeId, onAdd, addTitle }: Props): ReactNode 
 
   const barRef = useRef<HTMLDivElement | null>(null);
   const ctxMenuRef = useRef<HTMLDivElement | null>(null);
-  const resizeObsRef = useRef<ResizeObserver | null>(null);
 
   const idsKey = tabs.map((tab) => tab.id).join("|");
 
@@ -198,11 +197,9 @@ export function TabStrip({ tabs, activeId, onAdd, addTitle }: Props): ReactNode 
     }
     const observer = new ResizeObserver(() => updateScrollState());
     observer.observe(el);
-    resizeObsRef.current = observer;
     updateScrollState();
     return () => {
       observer.disconnect();
-      resizeObsRef.current = null;
     };
   }, []);
 

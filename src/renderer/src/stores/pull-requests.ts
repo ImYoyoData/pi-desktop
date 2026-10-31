@@ -10,6 +10,7 @@ import type {
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { plainIpcArgs } from "@renderer/utils/ipc-plain";
 import * as prefs from "@renderer/utils/prefs";
+import { workspacePathsEqual } from "../../../shared/workspace-path";
 
 export const SELECTION_KEY = "pi-desktop:pull-request-selection:v1";
 const MAX_LIST_PAGES = 10;
@@ -137,12 +138,6 @@ const EMPTY_LIST: Omit<ListState, "key"> = {
 };
 
 const SUPERSEDED = Symbol("superseded");
-
-/** 工作区路径比较（分隔符与大小写无关）。 */
-function sameWorkspacePath(a: string, b: string): boolean {
-	const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-	return norm(a) === norm(b);
-}
 
 function mergeByUrl(current: PullRequestSummary[], incoming: PullRequestSummary[]): PullRequestSummary[] {
 	return [...new Map([...current, ...incoming].map((entry) => [entry.url, entry])).values()];
@@ -454,7 +449,7 @@ export const usePullRequestsStore = create<PullRequestsState>()((set, get) => {
 	/** 切换拉取请求页查看的仓库目录；null 表示回到当前工作区。 */
 	function setRepoRoot(root: string | null): void {
 		const current = get();
-		const next = root && current.workspaceRoot && sameWorkspacePath(root, current.workspaceRoot) ? null : root;
+		const next = root && current.workspaceRoot && workspacePathsEqual(root, current.workspaceRoot, true) ? null : root;
 		if (next === current.repoRoot) return;
 		commit({ repoRoot: next });
 		void load();
