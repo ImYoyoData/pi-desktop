@@ -1172,18 +1172,10 @@ export const en = {
 		`“${label}” has unsaved changes. Save before closing?`,
 
 	// Browser
-	cannotBookmark: "This page cannot be bookmarked",
-	bookmarkAdded: "Added to bookmarks",
-	bookmarkRemoved: "Removed from bookmarks",
-	bookmarkPage: "Bookmark this page",
-	unbookmark: "Remove bookmark",
 	urlPlaceholder: "Enter a URL",
 	browserPreviewUnavailable:
 		"The built-in browser needs Electron's webview and is unavailable in external browser preview mode. Use the desktop app.",
 	cancelSelect: "Cancel selection",
-	historyAndBookmarks: "History & bookmarks",
-	history: "History",
-	bookmarks: "Bookmarks",
 	devtools: "DevTools (F12)",
 	resizeDevtools: "Drag to resize",
 	browserNotReady: "Browser is not ready yet",
@@ -1197,11 +1189,6 @@ export const en = {
 	regionTagAdded: "Region tag added",
 	chipRegion: "Region",
 	search: "Search",
-	noHistory: "No history yet",
-	noBookmarks: "No bookmarks yet",
-	historyToday: "Today",
-	historyWeek: "Last 7 days",
-	historyOlder: "Older",
 
 	// Sessions / welcome / chat
 	newSession: "New session",

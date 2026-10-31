@@ -46,7 +46,6 @@ import {
 } from "./github-list";
 import {
 	DETAIL_CACHE_TTL_MS,
-	detailCacheOptions,
 	PULL_REQUEST_PAGE_TTL_MS,
 	pageCacheOptions,
 } from "./github-cache";
@@ -152,7 +151,7 @@ export function createGhCliTransport(options: GitHubTransportOptions = {}): GitH
 	const choices = createTtlCache<PullRequestChoices>();
 	const pages = createTtlCache<PullRequestPage>(PULL_REQUEST_PAGE_TTL_MS, pageCacheOptions());
 	const counts = createTtlCache<PullRequestCounts>();
-	const details = createTtlCache<PullRequestDetail>(DETAIL_CACHE_TTL_MS, detailCacheOptions());
+	const details = createTtlCache<PullRequestDetail>(DETAIL_CACHE_TTL_MS, { limit: 8 });
 	const patches = createTtlCache<PullRequestPatchResult>(DETAIL_CACHE_TTL_MS, { limit: 4 });
 
 	const inProject = async (cwd: string, url: string): Promise<RepositoryIdentity> => {
@@ -203,7 +202,7 @@ export function createGhCliTransport(options: GitHubTransportOptions = {}): GitH
 				await runPullRequestAction(cwd, url, action, slow);
 			} finally {
 				details.forget(url);
-				patches.forgetPrefix(url);
+				patches.forgetPrefix(`${url}|`);
 				pages.forgetPrefix(pageKeyPrefix(project));
 				counts.forgetPrefix(countsKeyPrefix(project));
 			}

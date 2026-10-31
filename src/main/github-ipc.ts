@@ -1,5 +1,4 @@
 import { ipcMain } from "electron";
-import path from "node:path";
 import { z } from "zod";
 import { IpcChannels } from "../shared/protocol";
 import type {
@@ -10,7 +9,7 @@ import type {
 	PullRequestSummary,
 } from "../shared/github-types";
 import { getWorkspace, listRecent } from "./workspace-ipc";
-import { workspacePathsEqual } from "./session-list";
+import { createWorkspaceTarget } from "./workspace-target";
 import { githubClient, isGitHubError, loadGitHubImage } from "./github-host";
 import { parsePullRequestAction } from "./github-detail";
 import { PullRequestFiltersSchema } from "./github-list";
@@ -52,27 +51,7 @@ function workspaceRoot(): string | null {
 	return getWorkspace();
 }
 
-const KNOWN_WORKSPACE_TTL_MS = 30_000;
-let knownWorkspaces: { paths: string[]; at: number } | null = null;
-
-/** 已知工作区列表（Desktop 最近 + Pi 发现），短缓存避免每次请求都扫盘。 */
-async function knownWorkspacePaths(): Promise<string[]> {
-	const now = Date.now();
-	if (knownWorkspaces && now - knownWorkspaces.at < KNOWN_WORKSPACE_TTL_MS) return knownWorkspaces.paths;
-	const paths = await listRecent();
-	knownWorkspaces = { paths, at: now };
-	return paths;
-}
-
-/** 渲染端可指定别的已知工作区目录查看其仓库，未知路径回落到当前工作区。 */
-async function resolveCwd(requested: unknown): Promise<string | null> {
-	const root = workspaceRoot();
-	if (typeof requested !== "string" || !requested.trim()) return root;
-	const target = path.resolve(requested.trim());
-	if (root && workspacePathsEqual(root, target)) return target;
-	const known = await knownWorkspacePaths();
-	return known.some((entry) => workspacePathsEqual(entry, target)) ? target : root;
-}
+const resolveCwd = createWorkspaceTarget({ current: getWorkspace, recent: listRecent });
 
 function failure(error: unknown, fallback: string): { success: false; error: string } {
 	return { success: false, error: isGitHubError(error) ? error.github.message : fallback };

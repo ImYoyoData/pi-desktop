@@ -85,6 +85,7 @@ export function AiCustomizationModal(): ReactNode {
     /** Esc 关闭；页面内打开的模态优先消费 Esc。 */
     function onWindowKeydown(event: KeyboardEvent): void {
       if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (useLayoutStore.getState().centerView !== "customize") return;
       if (hasOverlayModal()) return;
       close();
     }

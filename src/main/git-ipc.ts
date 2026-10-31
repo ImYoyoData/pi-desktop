@@ -33,12 +33,27 @@ import {
   resolveConflictPath,
   checkoutConflictSide,
   abortMerge,
+  type GitStatusResult,
 } from "./git-host";
 import { getWorkspace } from "./workspace-ipc";
 import { addGitIgnored, listGitIgnored, removeGitIgnored } from "./git-ignore-store";
 
 function requireRoot(): string | null {
   return getWorkspace();
+}
+
+/** 切文件/切标签/改动页会同时要多份状态，一次扫描服务所有调用方。 */
+const STATUS_TTL_MS = 800;
+let statusCache: { root: string; at: number; result: Promise<GitStatusResult> } | null = null;
+
+function workspaceStatus(root: string): Promise<GitStatusResult> {
+  const now = Date.now();
+  if (statusCache && statusCache.root === root && now - statusCache.at < STATUS_TTL_MS) {
+    return statusCache.result;
+  }
+  const result = getWorkspaceGitStatus(root);
+  statusCache = { root, at: now, result };
+  return result;
 }
 
 function noWorkspace(): GitOpResult {
@@ -49,7 +64,7 @@ export function registerGitIpc(): void {
   ipcMain.handle(IpcChannels.git.status, async () => {
     const root = requireRoot();
     if (!root) return { isGitRepository: false, branch: null, files: [] };
-    return getWorkspaceGitStatus(root);
+    return workspaceStatus(root);
   });
 
   ipcMain.handle(IpcChannels.git.syncStatus, async () => {

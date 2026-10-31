@@ -2,6 +2,7 @@ import { agentDir, homeDir } from "./agent-dir";
 import fs from "node:fs";
 import path from "node:path";
 import type { SessionSummary } from "../shared/protocol";
+import { workspacePathKey } from "../shared/workspace-path";
 import { listSessionSummariesOffMain } from "./session-history-offload";
 import type { DiskSessionRow } from "./session-history-worker";
 import { readSettingsRoot, settingsPath } from "./settings-file";
@@ -55,10 +56,11 @@ function sessionListCacheKey(cwd: string, dir: string): string {
 
 /** Case-fold on Windows/macOS so Desktop recent and CLI cwd keys merge cleanly. */export function normalizeWorkspacePath(input: string): string {
   const resolved = path.resolve(input.trim());
+  const key = workspacePathKey(resolved);
   // macOS APFS is case-insensitive by default, like Windows.
   return process.platform === "win32" || process.platform === "darwin"
-    ? resolved.toLowerCase()
-    : resolved;
+    ? key.toLowerCase()
+    : key;
 }
 
 export function workspacePathsEqual(a: string, b: string): boolean {

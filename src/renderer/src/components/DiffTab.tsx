@@ -37,6 +37,7 @@ export function DiffTab({ filePath, visible }: Props): ReactNode {
 
   useEffect(() => {
     setPatch("");
+    patchRef.current = "";
     if (filePath) void load(filePath);
   }, [filePath]);
 

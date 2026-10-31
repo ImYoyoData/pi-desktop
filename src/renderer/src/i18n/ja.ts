@@ -1136,18 +1136,10 @@ export const ja = {
 	unsavedChangesClose: (label: string) => `「${label}」が変更されています。閉じる前に保存しますか？`,
 
 	// Browser
-	cannotBookmark: "このページはブックマークできません",
-	bookmarkAdded: "ブックマークに追加しました",
-	bookmarkRemoved: "ブックマークを外しました",
-	bookmarkPage: "このページをブックマーク",
-	unbookmark: "ブックマークを外す",
 	urlPlaceholder: "URL を入力",
 	browserPreviewUnavailable:
 		"内蔵ブラウザーは Electron の webview に依存しているため、外部ブラウザーのプレビューモードでは使えません。デスクトップアプリでご利用ください。",
 	cancelSelect: "選択を中止",
-	historyAndBookmarks: "履歴とブックマーク",
-	history: "履歴",
-	bookmarks: "ブックマーク",
 	devtools: "開発者ツール (F12)",
 	resizeDevtools: "ドラッグして幅を調整",
 	browserNotReady: "ブラウザーがまだ準備できていません",
@@ -1161,11 +1153,6 @@ export const ja = {
 	regionTagAdded: "範囲タグを追加しました",
 	chipRegion: "範囲のスクリーンショット",
 	search: "検索",
-	noHistory: "履歴はありません",
-	noBookmarks: "ブックマークはありません",
-	historyToday: "今日",
-	historyWeek: "過去 7 日間",
-	historyOlder: "それ以前",
 
 	// Sessions / welcome / chat
 	newSession: "新しいセッション",
