@@ -1018,6 +1018,8 @@ export const ja = {
 	userCardCollapse: "折りたたむ",
 	revertTurn: "巻き戻す",
 	reverted: "巻き戻しました",
+	receiptSent: "送信済み",
+	receiptRead: "既読",
 	revertTurnConfirm:
 		"このターンで変更したワークスペースのファイルを元に戻します（チャット履歴は残ります）。続行しますか？",
 	revertTurnDone: (restored: number, deleted: number) =>

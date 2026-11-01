@@ -478,6 +478,15 @@
   color: var(--fg-muted, #61666b) !important;
 }
 
+/* 发送回执：跟操作栏一起悬停出现，颜色比按钮更淡。 */
+.userReceipt {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 2px;
+  color: var(--fg-faint, #81858c);
+  opacity: 0.55;
+}
+
 /* Copy / re-edit under the prompt (hover). Revert is inside the bubble. */
 .userActions {
   justify-content: flex-end;

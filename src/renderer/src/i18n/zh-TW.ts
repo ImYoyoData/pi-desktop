@@ -1018,6 +1018,8 @@ export const zhTW = {
 	userCardCollapse: "收合",
 	revertTurn: "撤回",
 	reverted: "已撤回",
+	receiptSent: "已傳送",
+	receiptRead: "已讀",
 	revertTurnConfirm:
 		"將還原本輪對話修改過的工作區檔案（聊天記錄保留）。是否繼續？",
 	revertTurnDone: (restored: number, deleted: number) =>

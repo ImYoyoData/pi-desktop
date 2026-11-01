@@ -1415,6 +1415,7 @@ softHangReported.delete(sessionId);
 		const edit = get().pendingUserEdit;
 		commit({ pendingUserEdit: null });
 		if (edit?.sessionId === sessionId) {
+			await stopRunBeforeMutation(sessionId);
 			const before = stateFor(sessionId);
 			const located = locateUserTurn(before, edit.messageId);
 			if (located) {

@@ -1047,6 +1047,8 @@ export const en = {
 	userCardCollapse: "Collapse",
 	revertTurn: "Revert files",
 	reverted: "Reverted",
+	receiptSent: "Sent",
+	receiptRead: "Read",
 	revertTurnConfirm:
 		"Restore workspace files changed in this turn? Chat messages will be kept.",
 	revertTurnDone: (restored: number, deleted: number) =>

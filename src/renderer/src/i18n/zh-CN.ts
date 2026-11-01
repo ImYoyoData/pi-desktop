@@ -1019,6 +1019,8 @@ export const zh = {
 	userCardCollapse: "收起",
 	revertTurn: "撤回",
 	reverted: "已撤回",
+	receiptSent: "已发送",
+	receiptRead: "已读",
 	revertTurnConfirm:
 		"将还原本轮对话修改过的工作区文件（聊天记录保留）。是否继续？",
 	revertTurnDone: (restored: number, deleted: number) =>

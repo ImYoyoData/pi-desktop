@@ -132,6 +132,13 @@ export function buildFinalAnswerIds(displayed: readonly ChatMessage[]): Set<stri
   return finalAnswerRowIds(displayed.map(toRow));
 }
 
+/** 最后一条用户消息是否已被模型读取：其后已经出现 agent 行（回答 / 工具 / 报错）。 */
+export function isLatestUserRead(displayed: readonly ChatMessage[]): boolean {
+  const last = displayed.at(-1);
+  if (!last || last.role === "user") return false;
+  return displayed.some((row) => row.role === "user");
+}
+
 /** 非 user 行 → 它所属轮的 user 消息；操作栏的还原检查点 / 派生对话需要它。 */
 export function buildRoundUserByRow(
   messages: readonly ChatMessage[],
