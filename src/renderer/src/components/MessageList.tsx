@@ -405,38 +405,57 @@ export function MessageList({
     sc.scrollTop = sc.scrollHeight;
   }
 
-  /** 已经贴在底部就不必再写 scrollTop：virtua 的补偿可能刚刚写完。 */
+  /** 已经贴在底部就不必再写：写入会打断平滑滚动，还会派发多余的 scroll 事件。 */
   function atBottom(sc: HTMLElement): boolean {
     return sc.scrollHeight - sc.scrollTop - sc.clientHeight < 1;
   }
 
   /**
-   * 贴底的唯一写入口。
+   * 贴底写入本体，只读 refs，任何帧内阶段都可调用。
    *
-   * 不再从 scroll 事件里回写 scrollTop：virtua 本身会在行高变化时做锤定补偿
-   * （保持视口内容不动），两者同时写同一个 scrollTop 会互相覆盖，贴在底部的时候
-   * 就变成每帧来回扯 —— 也就是“消息区抽搐”。
-   * 这里只由内容/尺寸变化驱动，一帧最多写一次。
+   * 必须由 ResizeObserver 同步驱动：RO 回调在本帧 paint 之前，写进去的位置当场生效。
+   * 放进 rAF 会读到上一帧布局的 scrollHeight，等行高修正落地后底部又低了一截，
+   * 下一帧才补上 —— 贴底永远差一步，就是“消息区抽搐”。
    */
+  function commitBottomScroll(): void {
+    // A reader must never be yanked, even if followBottom is still momentarily
+    // true in a state snapshot taken mid-wheel.
+    if (!followBottom.current || selectDrag.current) return;
+    // Minimized / hidden: no layout work until the window is restored.
+    if (document.hidden || paneHidden()) return;
+    if (Date.now() < foldHoldUntil.current) return;
+    const sc = scrollerRef.current;
+    if (!sc || atBottom(sc)) return;
+    scrollToBottom();
+  }
+
+  const commitScrollRef = useRef(commitBottomScroll);
+  commitScrollRef.current = commitBottomScroll;
+
+  /** 非尺寸变化触发的兜底贴底（新消息、尾部提示），一帧最多写一次。 */
   const bottomScrollRaf = useRef(0);
   function scheduleBottomScroll(): void {
-    // Hard latch first: a reader must never be yanked, even if followBottom is
-    // still momentarily true in a state snapshot taken mid-wheel.
     if (!followBottom.current) return;
-    // Minimized / hidden: no layout work until the window is restored.
     if (document.hidden || paneHidden()) return;
     if (bottomScrollRaf.current) return;
     bottomScrollRaf.current = requestAnimationFrame(() => {
       bottomScrollRaf.current = 0;
-      const sc = scrollerRef.current;
-      if (!sc || document.hidden || paneHidden()) return;
-      // 重新检查：排队期间用户可能已经上滑，或者正在拖选文本。
-      if (!followBottom.current || selectDrag.current) return;
-      if (Date.now() < foldHoldUntil.current) return;
-      if (atBottom(sc)) return;
-      scrollToBottom();
+      commitBottomScroll();
     });
   }
+
+  /**
+   * 内容真正长高/变矮都体现在 .inner 高度上（virtua 容器高度即总尺寸）。
+   * 在 RO 里同步贴底，视口位置与内容在同一帧完成，看不到中间态。
+   */
+  const innerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const inner = innerRef.current;
+    if (!inner) return;
+    const observer = new ResizeObserver(() => commitScrollRef.current());
+    observer.observe(inner);
+    return () => observer.disconnect();
+  }, []);
 
   /**
    * 虚拟列表之前的头部高度：virtua 以此为基准换算可见区间，填错会让视口整体偏移。
@@ -1770,7 +1789,7 @@ export function MessageList({
         ref={scrollerRef}
         className={`${styles.messageList}${settlingUi ? ` ${styles.isSettling}` : ""}`}
       >
-        <div className={styles.inner}>
+        <div ref={innerRef} className={styles.inner}>
           {olderState?.hasMore ? (
             <div className={styles.loadOlder}>
               <Button type="text" loading={olderState.loading} onClick={onLoadOlder}>
@@ -1786,7 +1805,7 @@ export function MessageList({
             shift={shift}
             startMargin={startMargin}
             bufferSize={OVERSCAN_PX}
-            onResize={scheduleBottomScroll}
+            onResize={commitBottomScroll}
           >
             {(msg, index) => renderMessageRow(msg, index)}
           </Virtualizer>
