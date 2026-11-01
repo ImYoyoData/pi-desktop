@@ -48,6 +48,7 @@ import {
   buildRoundUserByRow,
   buildSettledRowIds,
   buildWorkSectionMembership,
+  isLatestUserRead,
   lastIdPerRound,
   type UserMessage,
 } from "@renderer/utils/message-rows";
@@ -133,6 +134,26 @@ type Props = {
 };
 
 type ImagePreview = { dataUrl: string; mimeType: string };
+
+function SendReceipt({ read }: { read: boolean }): ReactElement {
+  const paths = read
+    ? ["M1 6.6 4.1 9.8 9.5 2.6", "M6.2 6.6 9.3 9.8 14.7 2.6"]
+    : ["M3.5 6.6 6.6 9.8 12 2.6"];
+  return (
+    <svg viewBox="0 0 16 12" width={16} height={12} fill="none" aria-hidden="true">
+      {paths.map((d) => (
+        <path
+          key={d}
+          d={d}
+          stroke="currentColor"
+          strokeWidth={1.6}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      ))}
+    </svg>
+  );
+}
 
 function rowRoleClass(role: ChatMessage["role"]): string {
   switch (role) {
@@ -271,6 +292,8 @@ export function MessageList({
     }
     return null;
   }, [allMessages]);
+
+  const latestUserRead = useMemo(() => isLatestUserRead(allMessages), [allMessages]);
 
   const rowsRef = useRef({
     allMessages,
@@ -1170,7 +1193,7 @@ export function MessageList({
 
   function onEditUser(msg: Extract<ChatMessage, { role: "user" }>): void {
     const id = sessionId;
-    if (!id || running) return;
+    if (!id) return;
     const edited = chat.beginEditUser(id, msg.id);
     if (!edited) return;
     if (sendQueue.editingId) sendQueue.setEditing(id, null);
@@ -1527,24 +1550,31 @@ export function MessageList({
                 </button>
               ) : null}
             </div>
-            {!running ? (
-              <div className={`${styles.actions} ${styles.userActions}`}>
-                <Button
-                  type="text"
-                  shape="circle"
-                  size="small"
-                  icon={<CopyOutline />}
-                  onClick={() => copyText(view.text)}
-                />
-                <Button
-                  type="text"
-                  shape="circle"
-                  size="small"
-                  icon={<CreateOutline />}
-                  onClick={() => onEditUser(msg)}
-                />
-              </div>
-            ) : null}
+            <div className={`${styles.actions} ${styles.userActions}`}>
+              {msg.id === latestUserMessageId ? (
+                <span
+                  className={styles.userReceipt}
+                  title={latestUserRead ? t.receiptRead : t.receiptSent}
+                  aria-label={latestUserRead ? t.receiptRead : t.receiptSent}
+                >
+                  <SendReceipt read={latestUserRead} />
+                </span>
+              ) : null}
+              <Button
+                type="text"
+                shape="circle"
+                size="small"
+                icon={<CopyOutline />}
+                onClick={() => copyText(view.text)}
+              />
+              <Button
+                type="text"
+                shape="circle"
+                size="small"
+                icon={<CreateOutline />}
+                onClick={() => onEditUser(msg)}
+              />
+            </div>
           </div>
         </article>
       );

@@ -58,6 +58,8 @@
   <img src="docs/screenshots/chat-git-panel.png" alt="Pi Desktop" width="760" />
 </p>
 
+---
+
 ### 为什么选择Pi Desktop？
 
 - 使用Pi-SDK非其他同种产品使用RPC连接CLI工作

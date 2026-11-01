@@ -4,6 +4,7 @@ import {
   buildRoundUserByRow,
   buildSettledRowIds,
   buildWorkSectionMembership,
+  isLatestUserRead,
   lastIdPerRound,
 } from "../../src/renderer/src/utils/message-rows";
 import type { ChatMessage } from "../../src/renderer/src/stores/chat-reducer";
@@ -119,5 +120,21 @@ describe("lastIdPerRound", () => {
   it("keeps the last match inside a round", () => {
     const all: ChatMessage[] = [user("u1"), answer("a1"), answer("a2"), user("u2")];
     expect(lastIdPerRound(all, (m) => m.role === "assistant")).toEqual([null, "a2", null]);
+  });
+});
+
+describe("isLatestUserRead", () => {
+  it("treats a trailing user row as not read yet", () => {
+    expect(isLatestUserRead([user("u1"), answer("a1"), user("u2")])).toBe(false);
+  });
+
+  it("treats any agent row after the prompt as read", () => {
+    expect(isLatestUserRead([user("u1"), tool("t1")])).toBe(true);
+    expect(isLatestUserRead([user("u1"), answer("a1")])).toBe(true);
+  });
+
+  it("ignores transcripts with no user row", () => {
+    expect(isLatestUserRead([])).toBe(false);
+    expect(isLatestUserRead([answer("a1")])).toBe(false);
   });
 });
