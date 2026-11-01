@@ -83,6 +83,47 @@ function normalizePreMaximize(raw: unknown): PreMaximizeState | null {
 	};
 }
 
+function samePreMaximize(
+  a: PreMaximizeState | null,
+  b: PreMaximizeState | null,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.leftCollapsed === b.leftCollapsed &&
+    a.rightCollapsed === b.rightCollapsed &&
+    a.bottomCollapsed === b.bottomCollapsed &&
+    a.leftSize === b.leftSize &&
+    a.centerSize === b.centerSize &&
+    a.rightSize === b.rightSize
+  );
+}
+
+/**
+ * 两份布局是否等价。
+ *
+ * 偏好写入后主进程会广播回本窗口，回声收到的是刚存下去的值；再用它 set 一次
+ * 会生成新状态对象，整棵分栏树白重渲染一轮。
+ */
+export function samePersistedLayout(
+  a: PersistedLayout,
+  b: PersistedLayout,
+): boolean {
+  return (
+    a.leftSize === b.leftSize &&
+    a.centerSize === b.centerSize &&
+    a.rightSize === b.rightSize &&
+    a.leftCollapsed === b.leftCollapsed &&
+    a.rightCollapsed === b.rightCollapsed &&
+    a.bottomSize === b.bottomSize &&
+    a.bottomCollapsed === b.bottomCollapsed &&
+    a.centerView === b.centerView &&
+    a.customizeSection === b.customizeSection &&
+    a.editorMaximized === b.editorMaximized &&
+    samePreMaximize(a.preMaximize, b.preMaximize)
+  );
+}
+
 export const LAYOUT_SYNC_PREFIX = "layout:";
 
 export function layoutStorageKey(workspaceRoot: string): string {

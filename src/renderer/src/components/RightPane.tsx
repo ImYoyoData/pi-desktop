@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import BrowserPage from "@renderer/components/BrowserPage";
 import ChangesPage from "@renderer/components/ChangesPage";
 import FilesPage from "@renderer/components/FilesPage";
@@ -171,4 +171,4 @@ export function RightPane(): ReactNode {
   );
 }
 
-export default RightPane;
+export default memo(RightPane);
