@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { AgentRunEvent, AgentRunSnapshot } from "../../../shared/agent-runs";
 import { BASH_STALL_SILENCE_MS, shouldInterruptBashStall } from "../../../shared/bash-stall";
+import { stripBashBackgroundMarker } from "../../../shared/bash-background";
 import { timerGapDetected } from "../../../shared/timer-gap";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { getMessage } from "@renderer/services/feedback";
@@ -28,6 +29,7 @@ type AgentRunsState = AgentRunsBase &
   AgentRunsDerived & {
     applyEvent: (event: AgentRunEvent) => void;
     refresh: (workspaceRoot: string | null) => Promise<void>;
+    resync: (workspaceRoot: string | null) => Promise<void>;
     bind: () => void;
     unbind: () => void;
     terminate: (runId: string) => Promise<void>;
@@ -53,6 +55,8 @@ export const useAgentRunsStore = create<AgentRunsState>()((set, get) => {
   /** 上次卡死检查时刻，以及与暂停后宽限期的截止时刻（休眠唤醒）。 */
   let stallTickAt = 0;
   let stallGraceUntil = 0;
+  /** 卡片兜底补快照的节流：多张卡同时缺 run 时只发一次 IPC。 */
+  let lastResyncAt = 0;
   /** Avoid repeat terminate storms for the same run id. */
   const stallTerminating = new Set<string>();
 
@@ -162,6 +166,34 @@ export const useAgentRunsStore = create<AgentRunsState>()((set, get) => {
     writeBase({ runs: next, selectedId: syncSelection(next, get().selectedId) });
   }
 
+  /**
+   * 只补本地缺失的 run。快照不能用替换语义：列表返回前新到的 run 会被抹掉，
+   * 而 run_output 事件在 store 里找不到条目就丢弃，不会重建。
+   */
+  async function resync(workspaceRoot: string | null): Promise<void> {
+    if (!workspaceRoot) return;
+    const now = Date.now();
+    if (now - lastResyncAt < 3_000) return;
+    lastResyncAt = now;
+    // 与 refresh 共用代号：若期间 refresh 发了完整快照，这里就不再写回旧列表。
+    const gen = refreshGen;
+    try {
+      const list = await window.api.runs.list(workspaceRoot);
+      if (gen !== refreshGen) return;
+      const known = new Set(get().runs.map((r) => r.id));
+      const missing = list.filter(
+        (r) => !known.has(r.id) && matchesWorkspace(r.workspaceRoot, workspaceRoot),
+      );
+      if (!missing.length) return;
+      writeBase({
+        runs: [...get().runs, ...missing],
+        selectedId: get().selectedId ?? missing[0]!.id,
+      });
+    } catch {
+      // 兜底补快照失败就保持现状，不能反过来弄坏已能用的界面。
+    }
+  }
+
   async function terminate(runId: string): Promise<void> {
     await window.api.runs.terminate(runId);
   }
@@ -224,13 +256,14 @@ export const useAgentRunsStore = create<AgentRunsState>()((set, get) => {
     sessionId: string,
     command: string,
   ): AgentRunSnapshot | null {
-    const cmd = command.trim();
+    // 卡片拿到的是模型原始参数（可能带行尾 marker），注册表里是剥离后的命令。
+    const cmd = stripBashBackgroundMarker(command).command.trim();
     if (!cmd) return null;
     let best: AgentRunSnapshot | null = null;
     for (const run of get().runs) {
       if (run.sessionId !== sessionId) continue;
       if (run.detached) continue;
-      if (run.command.trim() !== cmd) continue;
+      if (stripBashBackgroundMarker(run.command).command.trim() !== cmd) continue;
       if (!best || run.startedAt >= best.startedAt) best = run;
     }
     return best;
@@ -247,6 +280,7 @@ export const useAgentRunsStore = create<AgentRunsState>()((set, get) => {
     ...derive(base),
     applyEvent,
     refresh,
+    resync,
     bind,
     unbind,
     terminate,

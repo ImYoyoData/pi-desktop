@@ -160,6 +160,32 @@ describe("agent-runs store", () => {
     expect(state().runs.map((r) => r.id)).toEqual(["keep"]);
   });
 
+  it("matches the card command when it carries the background marker", () => {
+    setWorkspaceRoot("c:/ws/a");
+    const store = state();
+    store.applyEvent({
+      type: "upsert",
+      run: snap({ id: "r1", command: "npm run dev" }),
+    });
+
+    expect(
+      state().findBlockingRun("sess-1", "npm run dev # pi-desktop:background")?.id,
+    ).toBe("r1");
+  });
+
+  it("resync only adds missing runs and keeps runs that arrived meanwhile", async () => {
+    setWorkspaceRoot("c:/ws/a");
+    const store = state();
+    store.applyEvent({ type: "upsert", run: snap({ id: "fresh", command: "new" }) });
+    vi.mocked(window.api.runs.list).mockResolvedValueOnce([
+      snap({ id: "stale", command: "old" }),
+    ]);
+
+    await store.resync("c:/ws/a");
+
+    expect(state().runs.map((r) => r.id).sort()).toEqual(["fresh", "stale"]);
+  });
+
   it("refresh clears when workspace is null", async () => {
     setWorkspaceRoot("c:/ws/a");
     const store = state();

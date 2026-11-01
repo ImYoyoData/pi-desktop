@@ -1643,7 +1643,7 @@ export function StopOutline({
   return (
     <svg
       xmlns={"http://www.w3.org/2000/svg"}
-      viewBox={"0 0 512 512"}
+      viewBox={"55.5 90 378 378"}
       width={size ?? "1em"}
       height={size ?? "1em"}
       className={className}

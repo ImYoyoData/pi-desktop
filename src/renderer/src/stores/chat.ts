@@ -20,6 +20,8 @@ import {
 	setPendingExtensionUi,
 	setPendingPermission,
 	withRunClock,
+	type ChatCompaction,
+	type ChatLlmProgress,
 	type ChatMessage,
 	type ChatRetryHint,
 	type ChatState,
@@ -78,6 +80,8 @@ import {
 } from "../../../shared/permissions";
 
 export type {
+	ChatCompaction,
+	ChatLlmProgress,
 	ChatMessage,
 	ChatState,
 	ChatUserImage,
@@ -141,6 +145,10 @@ export type ChatWaitState = {
 	lastActivityAt: number | null;
 	lastWorkerAliveAt: number | null;
 	autoRecovering: boolean;
+	llmProgress: ChatLlmProgress | null;
+	llmRound: number;
+	nextToolOrder: number;
+	compaction: ChatCompaction | null;
 };
 
 type ChatDerived = {
@@ -267,6 +275,10 @@ function waitStateOf(state: ChatState | undefined): ChatWaitState | null {
 		lastActivityAt: state.lastActivityAt,
 		lastWorkerAliveAt: state.lastWorkerAliveAt,
 		autoRecovering: state.autoRecovering,
+		llmProgress: state.llmProgress,
+		llmRound: state.llmRound,
+		nextToolOrder: state.nextToolOrder,
+		compaction: state.compaction,
 	};
 }
 
@@ -545,6 +557,7 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 				text: row.text,
 				kind: row.kind,
 				...(row.tokensBefore != null ? { tokensBefore: row.tokensBefore } : {}),
+				...(row.summaryTokens != null ? { summaryTokens: row.summaryTokens } : {}),
 			};
 		}
 		return {
@@ -1030,6 +1043,7 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 					toolInFlight,
 					outputSilenceMs,
 					workerSilenceMs,
+					compacting: Boolean(state.compaction),
 				})
 			) {
 				continue;
@@ -1137,6 +1151,9 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 					lastWorkerAliveAt: null,
 					autoRecoverCount: 0,
 					autoRecovering: false,
+					llmProgress: null,
+					llmRound: 0,
+					compaction: null,
 				},
 			},
 		});

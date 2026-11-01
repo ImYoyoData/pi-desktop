@@ -14,13 +14,23 @@ import {
 import FileChip from "@renderer/components/FileChip";
 import {
   readPreviewText,
+  clipText,
   type BashToolCard,
   type FileToolCard,
   type GenericToolCard,
+  type GrepToolCard,
   type ReadToolCard,
   type TodoToolCard,
   type ToolCard,
 } from "@renderer/utils/tool-diff";
+import { grepOpenPath, type GrepLine } from "@renderer/utils/grep-card";
+import {
+  browserResultHead,
+  mcpServerName,
+  toolCountLabel,
+  toolFamily,
+  toolResultCount,
+} from "@renderer/utils/tool-family";
 
 import {
   buildJsonTree,
@@ -31,6 +41,7 @@ import {
 import {
   parseScriptReport,
   pathListFromOutput,
+  splitTrailingNotice,
   type ScriptReport,
   type StructuredBlock,
 } from "@renderer/utils/structured-text";
@@ -81,6 +92,8 @@ function renderToolBody({
           toolName={toolName}
         />
       );
+    case "grep":
+      return <GrepBody card={card} onOpen={onOpen} />;
     case "todo":
       return <TodoBody card={card} />;
     case "generic":
@@ -270,6 +283,96 @@ function TerminalBody({
   );
 }
 
+/** grep 命中行：左行号 + 语法高亮，点整行打开所在文件。 */
+function GrepLineRow({
+  row,
+  lang,
+  onOpen,
+}: {
+  row: GrepLine;
+  lang: string;
+  onOpen?: () => void;
+}): ReactNode {
+  const html = useMemo(() => highlightToSafeHtml(row.text, lang), [row.text, lang]);
+  return (
+    <button
+      type="button"
+      className={`${styles.grepLine}${row.match ? ` ${styles.grepHit}` : ""}`}
+      onClick={onOpen}
+    >
+      <span className={styles.grepLineNo}>{row.line}</span>
+      <span className={styles.grepLineText} dangerouslySetInnerHTML={{ __html: html }} />
+    </button>
+  );
+}
+
+function GrepBody({
+  card,
+  onOpen,
+}: {
+  card: GrepToolCard;
+  onOpen?: (path: string) => void;
+}): ReactNode {
+  const t = useI18n();
+  const summary = card.matchCount
+    ? t.toolBodyGrepMatches(card.matchCount, card.hits.length)
+    : card.noMatches
+      ? t.toolBodyGrepNoMatches
+      : null;
+
+  return (
+    <>
+      <div className={styles.head}>
+        <span className={styles.langBadge}>grep</span>
+        {card.ignoreCase ? <span className={styles.meta}>{t.toolBodyGrepIgnoreCase}</span> : null}
+        {card.literal ? <span className={styles.meta}>{t.toolBodyGrepLiteral}</span> : null}
+        {card.glob ? <span className={styles.langBadge}>{card.glob}</span> : null}
+        {card.searchPath ? <span className={styles.path}>{card.searchPath}</span> : null}
+        {summary ? <span className={styles.meta}>{summary}</span> : null}
+      </div>
+      <div className={styles.body} data-inner-scroll="">
+        {card.hits.length ? (
+          <div className={styles.grepFiles}>
+            {card.hits.map((group) => {
+              const path = grepOpenPath(card.searchPath, group.path);
+              const lang = languageFromPath(group.path);
+              return (
+                <div key={path} className={styles.grepFile}>
+                  <div className={styles.grepFileHead}>
+                    <FileChip path={path} label={group.path} onOpen={onOpen} />
+                    <span className={styles.langBadge}>{lang}</span>
+                    <span className={styles.meta}>
+                      {t.toolBodyGrepFileHits(group.lines.filter((row) => row.match).length)}
+                    </span>
+                  </div>
+                  {group.lines.map((row, index) => (
+                    <GrepLineRow
+                      key={`${row.line}-${index}`}
+                      row={row}
+                      lang={lang}
+                      onOpen={onOpen ? () => onOpen(path) : undefined}
+                    />
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <pre className={styles.plain}>{card.preview ?? t.toolResultNoOutput}</pre>
+        )}
+      </div>
+      {card.notices.length ? (
+        <div className={styles.notice}>
+          <span className={styles.meta}>{t.toolTruncated}</span>
+          {card.notices.map((notice, index) => (
+            <span key={index}>{notice}</span>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function TodoBody({ card }: { card: TodoToolCard }): ReactNode {
   return (
     <ul className={styles.todoList}>
@@ -425,17 +528,31 @@ function PathList({ entries }: { entries: string[] }): ReactNode {
   );
 }
 
-function PathListBody({ entries }: { entries: string[] }): ReactNode {
+function PathListBody({
+  entries,
+  notices,
+}: {
+  entries: string[];
+  notices: string[];
+}): ReactNode {
   const t = useI18n();
   return (
     <>
       <div className={styles.head}>
         <span className={styles.langBadge}>{t.toolBodyPathList}</span>
         <span className={styles.meta}>{t.toolBodyPathCount(entries.length)}</span>
+        {notices.length ? <span className={styles.meta}>{t.toolTruncated}</span> : null}
       </div>
       <div className={styles.body} data-inner-scroll="">
         <PathList entries={entries} />
       </div>
+      {notices.length ? (
+        <div className={styles.notice}>
+          {notices.map((notice, index) => (
+            <span key={index}>{notice}</span>
+          ))}
+        </div>
+      ) : null}
     </>
   );
 }
@@ -556,12 +673,25 @@ function JsonBody({
     return pathListFromOutput(text, toolName);
   }, [card.previewFromArgs, isError, report, streaming, text, toolName, tree]);
 
+  const family = toolFamily(toolName);
+  /** 量级摘要：清单条目 / 浏览器元素 / 搜索到的工具。 */
+  const count = useMemo(
+    () => (streaming ? null : toolResultCount(toolName, text, card.structured)),
+    [card.structured, streaming, text, toolName],
+  );
+
   if (tree) {
+    /** browser_* 返回 { url, title, elements }：要说清 snapshot 的是哪一页。 */
+    const browserHead = family === "browser" ? browserResultHead(data) : null;
+    const badge = family === "browser" ? "browser" : (mcpServerName(toolName) ?? "json");
     return (
       <>
         <div className={styles.head}>
-          <span className={styles.langBadge}>json</span>
-          <span className={styles.meta}>{t.toolBodyStructured}</span>
+          <span className={styles.langBadge}>{badge}</span>
+          {browserHead?.url ? <span className={styles.path}>{browserHead.url}</span> : null}
+          <span className={styles.meta}>
+            {count ? toolCountLabel(t, count) : t.toolBodyStructured}
+          </span>
         </div>
         <div className={styles.body} data-inner-scroll="">
           <JsonTree tree={tree} />
@@ -573,14 +703,25 @@ function JsonBody({
     return <ScriptReportBody report={report} />;
   }
   if (paths && paths.length) {
-    return <PathListBody entries={paths} />;
+    return (
+      <PathListBody
+        entries={paths}
+        notices={splitTrailingNotice(text).notices}
+      />
+    );
   }
   return (
-    <div className={styles.body} data-inner-scroll="">
-      <pre className={styles.plain}>
-        {card.preview?.trim() ? card.preview : t.toolResultNoOutput}
-      </pre>
-    </div>
+    <>
+      <div className={styles.head}>
+        <span className={styles.langBadge}>{clipText(toolName, 32)}</span>
+        {count ? <span className={styles.meta}>{toolCountLabel(t, count)}</span> : null}
+      </div>
+      <div className={styles.body} data-inner-scroll="">
+        <pre className={styles.plain}>
+          {card.preview?.trim() ? card.preview : t.toolResultNoOutput}
+        </pre>
+      </div>
+    </>
   );
 }
 

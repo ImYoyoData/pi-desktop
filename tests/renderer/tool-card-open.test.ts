@@ -30,7 +30,7 @@ describe("toolCardAutoExpandAllowed", () => {
   });
 
   it("never allows reads or generic tools (huge dumps)", () => {
-    for (const kind of ["read", "generic", "other"] as const) {
+    for (const kind of ["read", "grep", "generic", "other"] as const) {
       expect(toolCardAutoExpandAllowed(kind)).toBe(false);
     }
   });

@@ -27,7 +27,7 @@ import {
   RefreshOutline,
   BrainOutline,
 } from "@renderer/components/icons/ionicons";
-import type { ChatMessage, ChatRetryHint } from "@renderer/stores/chat";
+import type { ChatLlmProgress, ChatMessage, ChatRetryHint } from "@renderer/stores/chat";
 import { useChatStore } from "@renderer/stores/chat";
 import { useCheckpointStore } from "@renderer/stores/checkpoint";
 import { useComposerStore } from "@renderer/stores/composer";
@@ -52,7 +52,12 @@ import {
   lastIdPerRound,
   type UserMessage,
 } from "@renderer/utils/message-rows";
-import { agentOutputSilenceMs } from "@renderer/utils/agent-wait";
+import {
+  agentOutputSilenceMs,
+  clipRequestError,
+  formatElapsedShort,
+  formatTokenCount,
+} from "@renderer/utils/agent-wait";
 import type { ChatState } from "@renderer/stores/chat-reducer";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
@@ -134,6 +139,58 @@ type Props = {
 };
 
 type ImagePreview = { dataUrl: string; mimeType: string };
+
+/** 自动重试行：重试倒计时 + 重试请求已发出时的网络阶段。 */
+function RetryHintRow({
+  hint,
+  progress,
+}: {
+  hint: ChatRetryHint;
+  progress: ChatLlmProgress | null;
+}): ReactElement {
+  const t = useI18n();
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(timer);
+  }, []);
+
+  const sent = progress != null && progress.startedAt >= hint.at;
+  const remaining = Math.max(
+    0,
+    Math.ceil((hint.delayMs - (now - hint.at)) / 1000),
+  );
+  const detail = (() => {
+    if (sent && progress) {
+      if (progress.stage === "failed")
+        return t.agentWaitRequestFailed(
+          progress.host,
+          progress.error ? clipRequestError(progress.error) : undefined,
+        );
+      if (progress.stage === "response") {
+        return progress.status != null
+          ? t.agentWaitResponseHeaders(progress.status)
+          : t.agentWaitResponseNoStatus;
+      }
+      return t.agentWaitRequestSent(progress.host);
+    }
+    return remaining > 0 ? t.agentWaitRetryCountdown(remaining) : "";
+  })();
+
+  return (
+    <div className={styles.runningIndicator}>
+      <span className={`${styles.dot} ${styles.warn}`} />
+      <Typography.Text type="secondary" style={{ fontSize: fontSizeRem(12) }}>
+        {t.retrying(hint.attempt, hint.maxAttempts)}
+        {detail ? <span className={styles.retryDetail}> · {detail}</span> : null}
+        {hint.message ? (
+          <span className={styles.retryDetail}> · {hint.message}</span>
+        ) : null}
+      </Typography.Text>
+    </div>
+  );
+}
 
 function SendReceipt({ read }: { read: boolean }): ReactElement {
   const paths = read
@@ -1731,6 +1788,13 @@ export function MessageList({
     }
     if (msg.role === "summary") {
       const open = isSummaryOpen(msg.id);
+      const meta = [
+        msg.tokensBefore ? t.summaryTokens(msg.tokensBefore) : "",
+        msg.durationMs ? t.summaryDuration(formatElapsedShort(msg.durationMs)) : "",
+        msg.summaryTokens ? t.summaryCost(formatTokenCount(msg.summaryTokens)) : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
       return (
         <article key={msg.id} className={rowClass} data-msg-id={msg.id}>
           <div className={styles.summaryCard}>
@@ -1744,11 +1808,7 @@ export function MessageList({
               <span className={styles.summaryTitle}>
                 {msg.kind === "compaction" ? t.summaryCompaction : t.summaryBranch}
               </span>
-              {msg.tokensBefore ? (
-                <span className={styles.summaryMeta}>
-                  {t.summaryTokens(msg.tokensBefore)}
-                </span>
-              ) : null}
+              {meta ? <span className={styles.summaryMeta}>{meta}</span> : null}
             </button>
             {open ? <div className={styles.summaryBody}>{msg.text}</div> : null}
           </div>
@@ -1815,15 +1875,7 @@ export function MessageList({
           {showJumpLatest ? null : (
             <>
               {retryHint ? (
-                <div className={styles.runningIndicator}>
-                  <span className={`${styles.dot} ${styles.warn}`} />
-                  <Typography.Text type="secondary" style={{ fontSize: fontSizeRem(12) }}>
-                    {t.retrying(retryHint.attempt, retryHint.maxAttempts)}
-                    {retryHint.message ? (
-                      <span className={styles.retryDetail}> · {retryHint.message}</span>
-                    ) : null}
-                  </Typography.Text>
-                </div>
+                <RetryHintRow hint={retryHint} progress={waitState?.llmProgress ?? null} />
               ) : waitState && (showWaitWhileStreaming || !streaming) ? (
                 <AgentWaitIndicator state={waitState} />
               ) : null}

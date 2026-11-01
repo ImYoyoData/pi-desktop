@@ -627,6 +627,30 @@ export const en = {
 	agentRunning: "Pi is running…",
 	agentWaitStarting: "Starting…",
 	agentWaitModel: "Waiting for model…",
+	agentWaitRequestSent: (host: string) => `Request sent → ${host}, awaiting response…`,
+	agentWaitResponseHeaders: (status: number) =>
+		`Response ${status} received, awaiting first token…`,
+	agentWaitResponseNoStatus: "Response received, awaiting first token…",
+	agentWaitRequestFailed: (host: string, error?: string) =>
+		`Request failed → ${host}${error ? ` (${error})` : ""}, retrying…`,
+	agentWaitConnectSlow: (host: string, elapsed: string) =>
+		`Request sent → ${host}, still no response after ${elapsed} — likely network or proxy`,
+	agentWaitResponseLimited: (status: number) => `Rate limited (${status}), waiting to retry…`,
+	agentWaitResponseServer: (status: number) => `Server error ${status}, waiting to retry…`,
+	agentWaitResponseRejected: (status: number) =>
+		`Request rejected (${status}), waiting to retry…`,
+	agentWaitRoundOnly: (round: number) => `round ${round}`,
+	agentWaitRetryCountdown: (seconds: number) => `retrying in ${seconds}s`,
+	agentWaitRoundWithTools: (round: number, tools: number) =>
+		`round ${round} · ${tools} tools`,
+	agentWaitCompacting: "Compacting context…",
+	agentWaitCompactionManual: "manual",
+	agentWaitCompactionThreshold: "context near limit",
+	agentWaitCompactionOverflow: "context window exceeded",
+	agentWaitCompactionSize: (text: string) => `${text} before compaction`,
+	agentWaitCompactionWaitingResponse: "awaiting summary response",
+	agentWaitCompactionSummarizing: "summary received, writing it",
+	agentWaitCompactionFailed: "summary request failed",
 	agentWaitThinking: "Thinking…",
 	agentWaitWriting: "Writing…",
 	agentWaitTool: (name: string) => `Running tool: ${name}`,
@@ -685,6 +709,9 @@ export const en = {
 	summaryCompaction: "Context compacted",
 	summaryBranch: "Branch summary",
 	summaryTokens: (tokens: number) => `${tokens.toLocaleString()} tokens → summary`,
+	summaryDuration: (text: string) => `took ${text}`,
+	summaryCost: (text: string) => `${text} tokens for the summary`,
+	compactionCancelled: "Context compaction cancelled",
 	/** Visible user bubble when retrying after a partial AI turn. */
 	retryContinue: "Continue",
 	/** Instruction sent to the agent (may differ from the bubble text). */
@@ -1258,6 +1285,7 @@ export const en = {
 	wsSummarySteps: (n: number) => (n === 1 ? "Finished with 1 step" : `Finished with ${n} steps`),
 	wsSummaryEditCount: (n: number) => `Updated ${n} files`,
 	wsSummaryReadCount: (n: number) => `Reviewed ${n} files`,
+	wsSummaryGrepCount: (n: number) => `Searched ${n} ${n === 1 ? "time" : "times"}`,
 	wsSummaryBashCount: (n: number) => `Ran ${n} commands`,
 	wsSummaryTodoCount: (n: number) => `Updated todos ${n} times`,
 	wsSummaryToolCount: (n: number) => `Used ${n} tools`,
@@ -1279,6 +1307,8 @@ export const en = {
 	toolResultReadRange: (start: number, end: number, total?: number | null) =>
 		total != null ? `lines ${start}-${end} of ${total}` : `lines ${start}-${end}`,
 	toolResultImages: (n: number) => `${n} images`,
+	toolResultElements: (n: number) => `${n} ${n === 1 ? "element" : "elements"}`,
+	toolResultTools: (n: number) => `${n} ${n === 1 ? "tool" : "tools"}`,
 	toolResultNoOutput: "No output",
 	toolCallCount: (n: number) => (n === 1 ? "1 call" : `${n} calls`),
 	toolTruncated: "Truncated",
@@ -1294,6 +1324,12 @@ export const en = {
 	toolBodyScriptFailed: "Script failed",
 	toolBodyScriptSections: (n: number) => (n === 1 ? "1 section" : `${n} sections`),
 	toolBodyWallTime: (seconds: number) => `Wall time ${seconds}s`,
+	toolBodyGrepMatches: (matches: number, files: number) =>
+		`${matches} ${matches === 1 ? "match" : "matches"} in ${files} ${files === 1 ? "file" : "files"}`,
+	toolBodyGrepNoMatches: "No matches",
+	toolBodyGrepIgnoreCase: "ignore case",
+	toolBodyGrepLiteral: "literal",
+	toolBodyGrepFileHits: (n: number) => `${n}`,
 	toolNestedArgs: "Arguments",
 	toolNestedResult: "Result",
 	toolNestedError: "Error",

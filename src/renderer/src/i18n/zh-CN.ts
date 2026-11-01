@@ -610,6 +610,28 @@ export const zh = {
 	agentRunning: "Pi 运行中…",
 	agentWaitStarting: "正在启动…",
 	agentWaitModel: "等待模型响应…",
+	agentWaitRequestSent: (host: string) => `请求已发出 → ${host}，等待响应头…`,
+	agentWaitResponseHeaders: (status: number) => `已收到响应 ${status}，等待首个 token…`,
+	agentWaitResponseNoStatus: "已收到响应，等待首个 token…",
+	agentWaitRequestFailed: (host: string, error?: string) =>
+		`请求失败 → ${host}${error ? `（${error}）` : ""}，等待重试…`,
+	agentWaitConnectSlow: (host: string, elapsed: string) =>
+		`请求已发出 → ${host}，${elapsed} 仍未连上，可能在等网络/代理`,
+	agentWaitResponseLimited: (status: number) => `被限流（${status}），等待重试…`,
+	agentWaitResponseServer: (status: number) => `服务端错误 ${status}，等待重试…`,
+	agentWaitResponseRejected: (status: number) => `请求被拒绝（${status}），等待重试…`,
+	agentWaitRoundOnly: (round: number) => `第 ${round} 轮`,
+	agentWaitRetryCountdown: (seconds: number) => `${seconds}s 后重试`,
+	agentWaitRoundWithTools: (round: number, tools: number) =>
+		`第 ${round} 轮 · ${tools} 个工具`,
+	agentWaitCompacting: "正在压缩上下文…",
+	agentWaitCompactionManual: "手动触发",
+	agentWaitCompactionThreshold: "上下文接近上限",
+	agentWaitCompactionOverflow: "超出上下文窗口",
+	agentWaitCompactionSize: (text: string) => `压缩前 ${text}`,
+	agentWaitCompactionWaitingResponse: "摘要请求等待响应",
+	agentWaitCompactionSummarizing: "摘要已返回，正在生成",
+	agentWaitCompactionFailed: "摘要请求失败",
 	agentWaitThinking: "思考中…",
 	agentWaitWriting: "生成中…",
 	agentWaitTool: (name: string) => `执行工具：${name}`,
@@ -668,6 +690,9 @@ export const zh = {
 	summaryBranch: "分支摘要",
 	summaryTokens: (tokens: number) =>
 		`${tokens.toLocaleString()} tokens → 摘要`,
+	summaryDuration: (text: string) => `耗时 ${text}`,
+	summaryCost: (text: string) => `摘要 ${text} tokens`,
+	compactionCancelled: "上下文压缩已取消",
 	/** Visible user bubble when retrying after a partial AI turn. */
 	retryContinue: "继续",
 	/** Instruction sent to the agent (may differ from the bubble text). */
@@ -1223,6 +1248,7 @@ export const zh = {
 	wsSummarySteps: (n: number) => `已完成 ${n} 个步骤`,
 	wsSummaryEditCount: (n: number) => `编辑 ${n} 个文件`,
 	wsSummaryReadCount: (n: number) => `查看 ${n} 个文件`,
+	wsSummaryGrepCount: (n: number) => `搜索 ${n} 次`,
 	wsSummaryBashCount: (n: number) => `执行 ${n} 条命令`,
 	wsSummaryTodoCount: (n: number) => `更新待办 ${n} 次`,
 	wsSummaryToolCount: (n: number) => `调用 ${n} 个工具`,
@@ -1244,6 +1270,8 @@ export const zh = {
 	toolResultReadRange: (start: number, end: number, total?: number | null) =>
 		total != null ? `第 ${start}-${end} 行，共 ${total} 行` : `第 ${start}-${end} 行`,
 	toolResultImages: (n: number) => `${n} 张图片`,
+	toolResultElements: (n: number) => `${n} 个元素`,
+	toolResultTools: (n: number) => `${n} 个工具`,
 	toolResultNoOutput: "无输出",
 	toolCallCount: (n: number) => `${n} 个调用`,
 	toolTruncated: "已截断",
@@ -1259,6 +1287,12 @@ export const zh = {
 	toolBodyScriptFailed: "脚本失败",
 	toolBodyScriptSections: (n: number) => `${n} 个小节`,
 	toolBodyWallTime: (seconds: number) => `耗时 ${seconds} 秒`,
+	toolBodyGrepMatches: (matches: number, files: number) =>
+		`${matches} 处匹配 / ${files} 个文件`,
+	toolBodyGrepNoMatches: "没有匹配",
+	toolBodyGrepIgnoreCase: "忽略大小写",
+	toolBodyGrepLiteral: "字面量",
+	toolBodyGrepFileHits: (n: number) => `${n} 处`,
 	toolNestedArgs: "调用参数",
 	toolNestedResult: "调用结果",
 	toolNestedError: "失败原因",

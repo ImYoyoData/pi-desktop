@@ -198,6 +198,18 @@ html[data-theme][data-wallpaper="on"] .app-context-menu {
   backdrop-filter: blur(14px) saturate(1.15);
 }
 
+/* diff 代码块默认铺 @pierre/diffs 的深色壳（dark 下 --diffs-dark-bg 是纯黑），
+   markstream 又在 shell / stage / editor 三层各画一档近黑底，壁纸模式下
+   这部分与普通代码块不一致：渲染完就整块压暗，与透明的首帧之间明显跳变。
+   这里统一让位给壁纸，只保留改动行的语义底色与描边。 */
+html[data-theme][data-wallpaper="on"] .code-block-container.is-diff {
+  --markstream-diff-shell-bg: transparent;
+  --markstream-diff-stage-bg: transparent;
+  --markstream-diff-editor-bg: transparent;
+  --markstream-diff-unchanged-bg: rgba(255, 255, 255, 0.07);
+  border-color: var(--code-border) !important;
+}
+
 /* antd 输入控件跟随输入框透明度（hover 背景默认是实色，必须一并覆盖）；
    描边同样跟随玻璃描边变量，否则实色 #2a2b2c 在半透明卡片上显得偏亮。 */
 html[data-theme][data-wallpaper="on"] .ant-input,
