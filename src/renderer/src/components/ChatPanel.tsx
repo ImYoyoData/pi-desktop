@@ -1,5 +1,6 @@
 import {
   lazy,
+  memo,
   Suspense,
   useEffect,
   useRef,
@@ -140,4 +141,4 @@ export function ChatPanel({ visible }: Props): ReactNode {
   );
 }
 
-export default ChatPanel;
+export default memo(ChatPanel);

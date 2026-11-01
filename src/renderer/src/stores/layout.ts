@@ -4,8 +4,10 @@ import {
   clampPanelHeight,
   DEFAULT_LAYOUT,
   readLayout,
+  samePersistedLayout,
   writeLayout,
   type CenterView,
+  type PersistedLayout,
   type PreMaximizeState,
 } from "@renderer/stores/layout-utils";
 
@@ -59,10 +61,8 @@ export type LayoutState = LayoutBase & {
 };
 
 export const useLayoutStore = create<LayoutState>()((set, get) => {
-  function persist(): void {
-    const state = get();
-    if (!state.workspaceRoot) return;
-    writeLayout(state.workspaceRoot, {
+  function persistedOf(state: LayoutBase): PersistedLayout {
+    return {
       leftSize: state.leftSize,
       centerSize: state.centerSize,
       rightSize: state.rightSize,
@@ -74,11 +74,21 @@ export const useLayoutStore = create<LayoutState>()((set, get) => {
       customizeSection: state.customizeSection,
       editorMaximized: state.editorMaximized,
       preMaximize: state.preMaximize,
-    });
+    };
+  }
+
+  function persist(): void {
+    const state = get();
+    if (!state.workspaceRoot) return;
+    writeLayout(state.workspaceRoot, persistedOf(state));
   }
 
   function loadForWorkspace(root: string): void {
     const data = readLayout(root);
+    const state = get();
+    if (state.workspaceRoot === root && samePersistedLayout(persistedOf(state), data)) {
+      return;
+    }
     set({
       workspaceRoot: root,
       leftSize: data.leftSize,

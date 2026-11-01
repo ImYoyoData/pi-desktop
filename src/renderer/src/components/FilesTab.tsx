@@ -28,6 +28,12 @@ import { fileIcon } from "@renderer/utils/file-icon";
 import { matchesGitIgnorePatterns } from "../../../shared/git-ignore";
 import { ancestorChain } from "@renderer/utils/files-tree-expand";
 import {
+  collectFsRefreshPlan,
+  createGitRefreshCoalescer,
+  parentDirOf,
+} from "@renderer/utils/files-fs-events";
+import { refreshWorkspaceTree } from "@renderer/utils/files-refresh";
+import {
   encodeWorkspacePaths,
   PI_WORKSPACE_PATHS_MIME,
 } from "@renderer/utils/workspace-path-dnd";
@@ -65,12 +71,6 @@ type CtxState = {
   path: string;
   kind: CtxKind;
 };
-
-function parentDirOf(relPath: string): string {
-  const normalized = relPath.replace(/\\/g, "/");
-  const idx = normalized.lastIndexOf("/");
-  return idx < 0 ? "" : normalized.slice(0, idx);
-}
 
 /** Dest must be a folder path (or "" for root); never self / descendant / current parent. */
 function canMoveInto(srcPath: string, destDir: string): boolean {
@@ -244,6 +244,14 @@ export function FilesTab({ embedded = false, visible = true }: Props): ReactNode
   const ctxMenuRef = useRef<HTMLDivElement | null>(null);
   const visibleRef = useRef(visible);
   const pendingFsEventsRef = useRef(new Map<string, FsEvent["kind"]>());
+  const gitRefresh = useMemo(
+    () =>
+      createGitRefreshCoalescer({
+        delayMs: 200,
+        run: () => void refreshGit(),
+      }),
+    [],
+  );
   treeDataRef.current = treeData;
   expandedKeysRef.current = expandedKeys;
   loadedKeysRef.current = loadedKeys;
@@ -453,48 +461,51 @@ export function FilesTab({ embedded = false, visible = true }: Props): ReactNode
       setTreeData([]);
       setGitCodes({});
       setGitDirtyDirs(new Set());
+      ignoredPatternsRef.current = [];
       setIgnoredPatterns([]);
       return;
     }
     setLoading(true);
     try {
-      const expanded = [...expandedKeysRef.current];
-      const [ignored, git, freshRoot, batch] = await Promise.all([
-        readIgnored(),
-        readGit(),
-        loadChildren(""),
-        loadChildrenBatch(expanded),
-      ]);
-      setIgnoredPatterns(ignored);
-      applyGit(git);
-      batch.set("", freshRoot);
-      applyChildrenBatch(batch);
+      const { tree, background } = refreshWorkspaceTree(
+        {
+          readIgnored,
+          loadRoot: () => loadChildren(""),
+          readGit,
+          loadDirs: loadChildrenBatch,
+          applyIgnored: (patterns) => {
+            ignoredPatternsRef.current = patterns;
+            setIgnoredPatterns(patterns);
+          },
+          applyRoot: (children) => applyChildrenBatch(new Map([["", children]])),
+          applyGit,
+          applyDirs: applyChildrenBatch,
+        },
+        expandedKeysRef.current,
+      );
+      await tree;
+      setLoading(false);
+      await background;
     } finally {
       setLoading(false);
     }
   }
 
-  function isDirVisible(relativeDir: string): boolean {
-    if (!relativeDir) return true;
-    return expandedKeysRef.current.includes(relativeDir);
-  }
-
   async function silentRefreshFromEvents(events: FsEvent[]): Promise<void> {
     if (!useWorkspaceStore.getState().root) return;
-    void refreshGit();
-    const parents = new Set<string>();
-    for (const e of events) {
-      const rel = e.path.replace(/\\/g, "/");
-      if (e.kind === "unlink" && expandedKeysRef.current.includes(rel)) {
-        setExpandedKeys((current) =>
-          current.filter((k) => k !== rel && !k.startsWith(`${rel}/`)),
-        );
-      }
-      if (e.kind === "change") continue;
-      const parent = parentDirOf(rel);
-      if (isDirVisible(parent)) parents.add(parent);
+    gitRefresh.schedule();
+    const plan = collectFsRefreshPlan(events, expandedKeysRef.current);
+    if (plan.collapseDirs.length) {
+      const dropped = plan.collapseDirs;
+      setExpandedKeys((current) =>
+        current.filter(
+          (key) => !dropped.some((dir) => key === dir || key.startsWith(`${dir}/`)),
+        ),
+      );
     }
-    if (parents.size) applyChildrenBatch(await loadChildrenBatch([...parents]));
+    if (plan.reloadDirs.length) {
+      applyChildrenBatch(await loadChildrenBatch(plan.reloadDirs));
+    }
     await ensureExpandedNodesLoaded();
   }
 
@@ -899,6 +910,7 @@ export function FilesTab({ embedded = false, visible = true }: Props): ReactNode
     const stop = subscribeFsChanges(queueFsEvents);
     return () => {
       stop();
+      gitRefresh.cancel();
       clearDragState();
     };
   }, []);
