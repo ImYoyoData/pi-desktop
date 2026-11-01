@@ -248,12 +248,29 @@
   min-width: 0;
 }
 
+.optLabelRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .optLabel {
   font-size: var(--chat-font-s, 12px);
   font-weight: 500;
   line-height: 1.4;
   color: var(--fg);
   overflow-wrap: anywhere;
+}
+
+.optBadge {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: var(--chat-font-xs, 11px);
+  line-height: 1.6;
+  color: var(--accent, var(--fg));
+  background: var(--accent-soft, var(--bg-hover));
 }
 
 .optDesc {

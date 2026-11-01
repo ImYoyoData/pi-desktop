@@ -10,7 +10,9 @@ export type AskUserOption = {
 
 export type AskUserQuestion = {
   id: string;
-  /** 顶部 tab 的短标签；缺省显示“问题 N”。 */
+  /** 顶部 tab 的短标签（≤12 字符）；缺省显示题干截断。 */
+  header?: string;
+  /** 旧字段名，等价于 header，仅为兼容。 */
   title?: string;
   prompt: string;
   type: AskUserQuestionType;
@@ -20,7 +22,14 @@ export type AskUserQuestion = {
    * Set false for hard requirements (e.g. plan/task confirm/reject gates).
    */
   skippable?: boolean;
+  /** 敏感答案：界面遮蔽输入内容。 */
+  isSecret?: boolean;
 };
+
+export const ASK_USER_HEADER_MAX = 12;
+export const ASK_USER_MAX_QUESTIONS = 3;
+export const ASK_USER_MIN_OPTIONS = 2;
+export const ASK_USER_MAX_OPTIONS = 3;
 
 export type AskUserPrompt = {
   questions: AskUserQuestion[];
@@ -47,7 +56,7 @@ export type AskUserAnswerDraft = Record<
   }
 >;
 
-/** Injected when the model omitted a free-text option (single/multi). */
+/** 客户端始终追加的 free-form 行（界面显示为“以上都不是”）。 */
 export const ASK_USER_CUSTOM_OPTION_ID = "__custom__";
 
 /** Questions default to skippable; only explicit `skippable:false` forces an answer. */
@@ -72,8 +81,8 @@ export type AskUserAskRequest = AskUserAskPrompt | AskUserAskCancelled;
 
 export type AskUserAskReply = {
   requestId: string;
-  /** Formatted `[ask_user answers]` text returned to the tool. */
-  answersText: string;
+  /** `{"answers":{"<question id>":{"answers":[...]}}}` returned to the tool. */
+  answersJson: string;
   /** 随回答提交的图片（data URL），作为 image content 一并给模型。 */
   images?: string[];
 };
@@ -104,7 +113,7 @@ function parseOption(raw: unknown): AskUserOption | null {
   };
 }
 
-/** 每题都补一条“自定义输入”选项：选项清单里总有自定义入口。 */
+/** 每题都补一条“以上都不是”选项：客户端始终提供自由输入入口。 */
 export function withEnsuredCustomOption(q: AskUserQuestion): AskUserQuestion {
   if (q.options.some((o) => o.id === ASK_USER_CUSTOM_OPTION_ID)) return q;
   return {
@@ -113,11 +122,23 @@ export function withEnsuredCustomOption(q: AskUserQuestion): AskUserQuestion {
       ...q.options,
       {
         id: ASK_USER_CUSTOM_OPTION_ID,
-        label: "Custom",
+        label: "None of the above",
         allowCustom: true,
       },
     ],
   };
+}
+
+const RECOMMENDED_SUFFIX = /\s*\((?:recommended|推荐)\)\s*$/iu;
+
+/** 拆出 label 结尾的 “(Recommended)”，界面改用徽章展示。 */
+export function splitRecommendedLabel(label: string): {
+  text: string;
+  recommended: boolean;
+} {
+  const match = RECOMMENDED_SUFFIX.exec(label);
+  if (!match) return { text: label, recommended: false };
+  return { text: label.slice(0, match.index).trim() || label, recommended: true };
 }
 
 function parseQuestion(raw: unknown): AskUserQuestion | null {
@@ -138,28 +159,37 @@ function parseQuestion(raw: unknown): AskUserQuestion | null {
     seen.add(opt.id);
     options.push(opt);
   }
-  if (options.length === 0) return null;
-  const title = typeof q.title === "string" ? q.title.trim() : "";
+  if (options.length < ASK_USER_MIN_OPTIONS) return null;
+  if (options.length > ASK_USER_MAX_OPTIONS) return null;
+  const rawHeader =
+    typeof q.header === "string"
+      ? q.header
+      : typeof q.title === "string"
+        ? q.title
+        : "";
+  const header = rawHeader.trim().slice(0, ASK_USER_HEADER_MAX);
   return withEnsuredCustomOption({
     id,
-    ...(title ? { title } : {}),
+    ...(header ? { header } : {}),
     prompt,
     type,
     options,
     ...(q.skippable === false ? { skippable: false } : {}),
+    ...(q.isSecret === true ? { isSecret: true } : {}),
   });
 }
 
-/** Returns null if args are unusable for UI. */
+/** Returns null if args are unusable for UI (bad count, duplicate ids, invalid question). */
 export function parseAskUserArgs(args: unknown): AskUserPrompt | null {
   const root = asRecord(args);
   if (!root || !Array.isArray(root.questions) || root.questions.length === 0) return null;
+  if (root.questions.length > ASK_USER_MAX_QUESTIONS) return null;
   const questions: AskUserQuestion[] = [];
   const seenQ = new Set<string>();
   for (const item of root.questions) {
     const q = parseQuestion(item);
-    if (!q) continue;
-    if (seenQ.has(q.id)) continue;
+    if (!q) return null;
+    if (seenQ.has(q.id)) return null;
     seenQ.add(q.id);
     questions.push(q);
   }
@@ -219,31 +249,52 @@ export function validateAskUserQuestionAnswer(
   return validateAskUserAnswers({ questions: [q] }, draft);
 }
 
+/**
+ * Codex 风格的答案结构：`{"answers":{"<id>":{"answers":[...]}}}`。
+ * 空数组表示用户没有作答（跳过）该题。
+ */
 export function formatAskUserAnswers(
   prompt: AskUserPrompt,
   draft: AskUserAnswerDraft,
 ): string {
-  const lines = ["[ask_user answers]"];
-  prompt.questions.forEach((q, i) => {
+  const answers: Record<string, { answers: string[] }> = {};
+  for (const q of prompt.questions) {
     const ans = draft[q.id];
-    // Skipped questions are still listed so the model knows the user chose
-    // not to answer (option B) and must not silently re-ask.
     if (!ans || ans.skipped) {
-      lines.push(`${i + 1}. (id=${q.id}) ${q.prompt} → [skipped]`);
-      return;
+      answers[q.id] = { answers: [] };
+      continue;
     }
     const selected = q.options.filter(
       (o) => ans.optionIds.includes(o.id) && o.id !== ASK_USER_CUSTOM_OPTION_ID,
     );
-    const labels = selected.map((o) => o.label).join(", ");
+    const list = selected.map((o) => o.label);
     const custom = ans.customText.trim();
-    const answer = [labels, custom ? `custom: ${custom}` : ""].filter(Boolean).join("; ");
-    lines.push(`${i + 1}. (id=${q.id}) ${q.prompt} → ${answer || "[no answer]"}`);
-  });
-  return lines.join("\n");
+    if (custom) list.push(custom);
+    answers[q.id] = { answers: list };
+  }
+  return JSON.stringify({ answers });
 }
 
 export const ASK_USER_TOOL_NAME = "ask_user";
+
+/** ask_user 的唯一规则文案：工具定义与桌面 system prompt 共用同一份。 */
+export const ASK_USER_RULES: readonly string[] = [
+  "Use ask_user instead of only asking clarifying choices in prose when a discrete choice is needed.",
+  "Prefer one question; never send more than 3. Every question needs a unique id, a short header, a prompt, and 2-3 mutually exclusive options.",
+  "Give each question a short `header` (12 or fewer chars) — it is the tab label the user picks questions by. Put the full sentence in `prompt`.",
+  'Put the recommended option first and suffix its label with "(Recommended)" — the card renders it as a Recommended badge.',
+  'Do not add an "Other" option yourself; the client appends "None of the above" with a free-text box, and text typed there alone counts as the answer.',
+  "Use option `description` for a one-line explanation of what picking this option implies — it renders under the label.",
+  "Set `isSecret: true` when the answer is sensitive (password, token, key): the card masks the free-text input.",
+  "Put multiple related questions in one ask_user call; the UI collects all answers before continuing.",
+  "The UI blocks until the user answers and submits once.",
+  "Users can and often will skip questions — questions default to skippable. Expect skipped answers and never re-ask them on your own.",
+  "Set `skippable: false` only for hard requirements (e.g. a confirm/reject gate); in plan/task confirms mark the adjust/revise option `allowCustom: true` so the user can type instructions.",
+  "Option labels are plain text — no emoji, icons, or decorative symbols.",
+  "Do not invent answers — ask_user blocks until the user submits.",
+  'The tool result is JSON: `{"answers":{"<question id>":{"answers":["<selected option label>","<free text>"]}}}`. An empty `answers` array means the user skipped that question; proceed with what you have or state what is missing.',
+  "Users may paste screenshots into the card; attached images arrive as image content next to the JSON answer.",
+];
 
 /** 单张图片 data URL 上限：约 6MB 原图 base64 后的长度，超过直接拒绝。 */
 const IMAGE_DATA_URL_MAX_LENGTH = 8 * 1024 * 1024;

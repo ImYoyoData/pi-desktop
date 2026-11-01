@@ -1,6 +1,11 @@
 import { Type, type Static } from "typebox";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import {
+  ASK_USER_HEADER_MAX,
+  ASK_USER_MAX_OPTIONS,
+  ASK_USER_MAX_QUESTIONS,
+  ASK_USER_MIN_OPTIONS,
+  ASK_USER_RULES,
   ASK_USER_TOOL_NAME,
   parseAskUserArgs,
   type AskUserQuestion,
@@ -10,14 +15,17 @@ import { rpcToMain } from "./main-rpc";
 const askUserSchema = Type.Object({
   questions: Type.Array(
     Type.Object({
-      id: Type.String({ description: "Stable question id" }),
-      title: Type.Optional(
-        Type.String({
-          description:
-            "Short tab label, at most 4 characters, e.g. '目标', '范围'. The card truncates longer titles.",
-        }),
-      ),
-      prompt: Type.String({ description: "Question shown to the user" }),
+      id: Type.String({
+        description: "Stable identifier for mapping answers (snake_case).",
+      }),
+      header: Type.String({
+        maxLength: ASK_USER_HEADER_MAX,
+        description:
+          "Short header label shown in the UI (12 or fewer chars). It is the tab label users pick questions by.",
+      }),
+      prompt: Type.String({
+        description: "Single-sentence question shown to the user.",
+      }),
       type: Type.Union([
         Type.Literal("single"),
         Type.Literal("multi"),
@@ -29,27 +37,44 @@ const askUserSchema = Type.Object({
             "Whether the user may skip this question. Omitted = skippable. Set false only for hard requirements (e.g. a confirm/reject gate) — otherwise users can and often will skip.",
         }),
       ),
+      isSecret: Type.Optional(
+        Type.Boolean({
+          description:
+            "Mask this question's free-text answer in the UI (passwords, tokens, keys). The answer still reaches the tool result.",
+        }),
+      ),
       options: Type.Array(
         Type.Object({
           id: Type.String(),
-          label: Type.String(),
+          label: Type.String({
+            description: "User-facing label (1-5 words).",
+          }),
           description: Type.Optional(
             Type.String({
               description:
-                "Optional one-line explanation under the label (what picking this option implies).",
+                "One short sentence explaining impact/tradeoff if selected (renders under the label).",
             }),
           ),
           allowCustom: Type.Optional(
             Type.Boolean({
               description:
-                "If true, selecting this option lets the user add extra detail in the answer box. The card always shows a free-text answer box, so users can also answer without picking an option.",
+                "If true, selecting this option lets the user add extra detail in the answer box.",
             }),
           ),
         }),
-        { minItems: 1 },
+        {
+          minItems: ASK_USER_MIN_OPTIONS,
+          maxItems: ASK_USER_MAX_OPTIONS,
+          description:
+            'Provide 2-3 mutually exclusive choices. Put the recommended option first and suffix its label with "(Recommended)". Do not include an "Other" option in this list; the client adds a free-form "None of the above" option automatically.',
+        },
       ),
     }),
-    { minItems: 1 },
+    {
+      minItems: 1,
+      maxItems: ASK_USER_MAX_QUESTIONS,
+      description: "Questions to show the user. Prefer 1 and do not exceed 3.",
+    },
   ),
 });
 
@@ -109,26 +134,18 @@ export function createAskUserToolDefinition(deps?: {
     name: ASK_USER_TOOL_NAME,
     label: "Ask user",
     description:
-      "Show an interactive question wizard in Pi Desktop (single-select, multi-select, or buttons). The user may skip any skippable question. Blocks until the user submits. Prefer one call with multiple questions over many sequential calls.",
+      'Ask the user 1-3 short questions and wait for the response. Each question takes 2-3 mutually exclusive options; the client adds a free-form "None of the above" choice. The user may skip any skippable question.',
     promptSnippet:
-      "Ask the user structured single/multi/button questions and wait for all answers",
-    promptGuidelines: [
-      "Use ask_user instead of only asking clarifying choices in prose when a discrete choice is needed.",
-      "Put multiple related questions in one ask_user call; the UI collects all answers before continuing.",
-      "Users can and often will skip questions — questions default to skippable. Set skippable:false only when an answer is a hard requirement (e.g. a confirm/reject gate).",
-      "Desktop always appends a “custom input” option to every question (single/multi/buttons), even when an option already sets allowCustom; you may also set allowCustom on an option of any type to let the user add optional detail. In plan/task confirm dialogs, mark the adjust/revise option allowCustom so the user can type adjustment instructions.",
-      "Always give each question a short `title` (at most 4 characters, e.g. 'Goal', 'Scope') — it is the tab label the user picks questions by. Put the full question in `prompt`.",
-      "Use option `description` for a one-line explanation of what picking that option implies — it renders under the label.",
-      "Option labels are plain text — no emoji, icons, or decorative symbols.",
-      "Do not invent answers — ask_user blocks until the user submits.",
-      "Answers list every question; skipped ones are marked '[skipped]'. Never re-ask a skipped question on your own — proceed with what you have or state what is missing.",
-    ],
+      "Ask the user 1-3 short questions with 2-3 options each and wait for the answers",
+    promptGuidelines: [...ASK_USER_RULES],
     executionMode: "sequential",
     parameters: askUserSchema,
     async execute(_toolCallId, params, signal) {
       const parsed = parseAskUserArgs(params);
       if (!parsed) {
-        throw new Error("ask_user: invalid or empty questions");
+        throw new Error(
+          "ask_user: need 1-3 questions, each with a unique id, a header (<=12 chars), a prompt, and 2-3 options",
+        );
       }
       const answers = normalizeAnswers(await waitForAnswers(parsed.questions, signal));
       if (!answers.text) {
