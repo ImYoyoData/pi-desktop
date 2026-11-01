@@ -117,15 +117,6 @@ html[data-theme][data-wallpaper="on"] .ant-tree {
   --ant-color-bg-container: transparent !important;
 }
 
-/* 设置页之外的输入类控件同样要走输入表面 */
-html[data-theme][data-wallpaper="on"] .ant-input,
-html[data-theme][data-wallpaper="on"] .ant-input-affix-wrapper,
-html[data-theme][data-wallpaper="on"] .ant-input-number,
-html[data-theme][data-wallpaper="on"] .ant-input-number-input,
-html[data-theme][data-wallpaper="on"] .ant-select {
-  background-color: var(--w-input-surface) !important;
-}
-
 /* 独立渲染的右键菜单是浮层：底色固化在组件 token 上，要单独覆盖 */
 html[data-theme][data-wallpaper="on"] .ant-menu {
   --ant-menu-item-bg: var(--w-overlay-surface) !important;
@@ -207,11 +198,13 @@ html[data-theme][data-wallpaper="on"] .app-context-menu {
   backdrop-filter: blur(14px) saturate(1.15);
 }
 
-/* antd 输入控件跟随输入框透明度（hover 背景默认是实色，必须一并覆盖） */
+/* antd 输入控件跟随输入框透明度（hover 背景默认是实色，必须一并覆盖）；
+   描边同样跟随玻璃描边变量，否则实色 #2a2b2c 在半透明卡片上显得偏亮。 */
 html[data-theme][data-wallpaper="on"] .ant-input,
 html[data-theme][data-wallpaper="on"] .ant-input-affix-wrapper,
 html[data-theme][data-wallpaper="on"] .ant-input-number,
 html[data-theme][data-wallpaper="on"] .ant-input-number-input,
 html[data-theme][data-wallpaper="on"] .ant-select {
   background-color: var(--w-input-surface) !important;
+  border-color: var(--border-strong) !important;
 }
