@@ -234,7 +234,9 @@ function boot(): void {
 					if (msg.method === "desktop.askUser") {
 						const questions = questionsFromAskUserParams(msg.params ?? {});
 						if (!questions.length) {
-							throw new Error("desktop.askUser: invalid or empty questions");
+							throw new Error(
+								"desktop.askUser: need 1-3 questions, each with a unique id, a header (<=12 chars), a prompt, and 2-3 options",
+							);
 						}
 						result = await askRendererAskUser({
 							sessionId,

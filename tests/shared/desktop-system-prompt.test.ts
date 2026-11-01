@@ -7,8 +7,9 @@ import {
 describe("DESKTOP_ASK_USER_PROMPT", () => {
   it("documents ask_user usage", () => {
     expect(DESKTOP_ASK_USER_PROMPT).toContain("ask_user");
-    expect(DESKTOP_ASK_USER_PROMPT).toContain("[ask_user answers]");
-    expect(DESKTOP_ASK_USER_PROMPT).toContain("allowCustom");
+    expect(DESKTOP_ASK_USER_PROMPT).toContain('"answers"');
+    expect(DESKTOP_ASK_USER_PROMPT).toContain("(Recommended)");
+    expect(DESKTOP_ASK_USER_PROMPT).toContain("isSecret");
   });
 });
 

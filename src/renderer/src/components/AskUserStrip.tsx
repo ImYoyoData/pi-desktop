@@ -23,8 +23,10 @@ import type {
 } from "../../../shared/ask-user";
 import {
   ASK_USER_CUSTOM_OPTION_ID,
+  ASK_USER_HEADER_MAX,
   formatAskUserAnswers,
   questionSkippable,
+  splitRecommendedLabel,
   validateAskUserAnswers,
   validateAskUserQuestionAnswer,
 } from "../../../shared/ask-user";
@@ -50,12 +52,10 @@ function readFileAsDataUrl(file: File): Promise<string | null> {
     reader.readAsDataURL(file);
   });
 }
-/** tab 标签：最多 4 个字，过长或没给 title 时用题干截断。 */
-const TAB_LABEL_MAX = 4;
-
-function tabLabel(title: string | undefined, prompt: string): string {
-  const raw = (title ?? "").trim() || prompt.trim();
-  return raw.length > TAB_LABEL_MAX ? raw.slice(0, TAB_LABEL_MAX) : raw;
+/** tab 标签：header 最多 12 字符，过长或没给时用题干截断。 */
+function tabLabel(q: AskUserQuestion): string {
+  const raw = (q.header ?? q.title ?? "").trim() || q.prompt.trim();
+  return raw.length > ASK_USER_HEADER_MAX ? raw.slice(0, ASK_USER_HEADER_MAX) : raw;
 }
 
 export function AskUserStrip(): ReactNode {
@@ -123,7 +123,8 @@ export function AskUserStrip(): ReactNode {
     setValidationError(null);
     const store = useChatStore.getState();
     const p = store.activePendingAskUser;
-    if (p?.requestId) store.writeAskDraft(p.requestId, draft);
+    const secret = Boolean(p?.questions.some((q) => q.isSecret));
+    if (p?.requestId) store.writeAskDraft(p.requestId, draft, !secret);
   }, [draft]);
 
   const attachReady = useRef(false);
@@ -158,8 +159,25 @@ export function AskUserStrip(): ReactNode {
 
   const optionLabel = useCallback(
     (opt: { id: string; label: string }): string =>
-      opt.id === ASK_USER_CUSTOM_OPTION_ID ? t.askUserCustomOption : opt.label,
+      opt.id === ASK_USER_CUSTOM_OPTION_ID
+        ? t.askUserCustomOption
+        : splitRecommendedLabel(opt.label).text,
     [t],
+  );
+
+  const optionDescription = useCallback(
+    (opt: { id: string; description?: string }): string | undefined =>
+      opt.id === ASK_USER_CUSTOM_OPTION_ID
+        ? t.askUserCustomOptionDesc
+        : opt.description,
+    [t],
+  );
+
+  const isRecommendedOption = useCallback(
+    (opt: { id: string; label: string }): boolean =>
+      opt.id !== ASK_USER_CUSTOM_OPTION_ID &&
+      splitRecommendedLabel(opt.label).recommended,
+    [],
   );
 
   const isSelected = useCallback(
@@ -356,7 +374,7 @@ export function AskUserStrip(): ReactNode {
       const images = attachments.map((a) => a.dataUrl);
       await store.replyAskUser({
         requestId: p.requestId,
-        answersText: formatAskUserAnswers(p, draft),
+        answersJson: formatAskUserAnswers(p, draft),
         ...(images.length ? { images } : {}),
       });
     } catch (err) {
@@ -415,7 +433,7 @@ export function AskUserStrip(): ReactNode {
                   onClick={() => selectStep(index)}
                 >
                   <span className={styles.tabText}>
-                    {tabLabel(q.title, q.prompt)}
+                    {tabLabel(q)}
                   </span>
                   {isAnswered(q) ? (
                     <span className={styles.tabMark} aria-hidden="true" />
@@ -468,23 +486,39 @@ export function AskUserStrip(): ReactNode {
                       )}
                     </span>
                     <span className={styles.optText}>
-                      <span className={styles.optLabel}>{optionLabel(opt)}</span>
-                      {opt.description ? (
-                        <span className={styles.optDesc}>{opt.description}</span>
+                      <span className={styles.optLabelRow}>
+                        <span className={styles.optLabel}>{optionLabel(opt)}</span>
+                        {isRecommendedOption(opt) ? (
+                          <span className={styles.optBadge}>{t.askUserRecommended}</span>
+                        ) : null}
+                      </span>
+                      {optionDescription(opt) ? (
+                        <span className={styles.optDesc}>{optionDescription(opt)}</span>
                       ) : null}
                     </span>
                   </button>
                 ))}
               </div>
 
-              <Input.TextArea
-                className={styles.customInput}
-                value={customText}
-                placeholder={t.askUserCustomPlaceholder}
-                disabled={skipped || confirming}
-                autoSize={{ minRows: 1, maxRows: 5 }}
-                onChange={(event) => setCustom(currentQuestion, event.target.value)}
-              />
+              {currentQuestion.isSecret ? (
+                <Input.Password
+                  className={styles.customInput}
+                  value={customText}
+                  placeholder={t.askUserCustomPlaceholder}
+                  disabled={skipped || confirming}
+                  visibilityToggle={false}
+                  onChange={(event) => setCustom(currentQuestion, event.target.value)}
+                />
+              ) : (
+                <Input.TextArea
+                  className={styles.customInput}
+                  value={customText}
+                  placeholder={t.askUserCustomPlaceholder}
+                  disabled={skipped || confirming}
+                  autoSize={{ minRows: 1, maxRows: 5 }}
+                  onChange={(event) => setCustom(currentQuestion, event.target.value)}
+                />
+              )}
 
               {attachments.length ? (
                 <div className={styles.attachList}>

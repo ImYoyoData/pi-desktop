@@ -172,7 +172,11 @@ export type ChatStoreState = ChatBase &
 		clearPendingPermissionFor: (sessionId: string) => void;
 		replyPermission: (reply: PermissionAskReply) => Promise<void>;
 		readAskDraft: (requestId: string) => AskUserAnswerDraft | null;
-		writeAskDraft: (requestId: string, draft: AskUserAnswerDraft) => void;
+		writeAskDraft: (
+			requestId: string,
+			draft: AskUserAnswerDraft,
+			persist?: boolean,
+		) => void;
 		readAskStep: (requestId: string) => number | null;
 		writeAskStep: (requestId: string, step: number) => void;
 		readAskAttachments: (requestId: string) => AskUserAttachment[];
@@ -316,8 +320,13 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 		}
 	}
 
-	function writeAskDraft(requestId: string, draft: AskUserAnswerDraft): void {
+	function writeAskDraft(
+		requestId: string,
+		draft: AskUserAnswerDraft,
+		persist = true,
+	): void {
 		askUserDrafts.set(requestId, draft);
+		if (!persist) return;
 		try {
 			const raw = sessionStorage.getItem(ASK_DRAFT_KEY);
 			const parsed = (raw ? JSON.parse(raw) : {}) as Record<string, AskUserAnswerDraft>;
