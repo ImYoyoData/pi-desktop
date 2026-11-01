@@ -34,6 +34,7 @@ export function toolCardAutoExpandAllowed(kind: ToolCard["kind"]): boolean {
     case "todo":
       return true;
     case "read":
+    case "grep":
     case "generic":
     case "other":
       return false;

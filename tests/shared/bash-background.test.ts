@@ -4,33 +4,66 @@ import {
   stripBashBackgroundMarker,
 } from "../../src/shared/bash-background";
 
-describe("commandShouldStartBackground", () => {
-  it("flags common persistent servers", () => {
+describe("bash-background", () => {
+  it("strips the explicit marker and reports it", () => {
+    const result = stripBashBackgroundMarker("npm run dev # pi-desktop:background");
+    expect(result).toEqual({ command: "npm run dev", marked: true });
+  });
+
+  it("does not treat the marker string inside the command body as opt-in", () => {
+    const command = 'grep -rn "pi-desktop:background" src | head -20';
+    expect(stripBashBackgroundMarker(command)).toEqual({ command, marked: false });
+    expect(commandShouldStartBackground(command)).toBe(false);
+  });
+
+  it("does not strip a marker-shaped comment that is not at the end", () => {
+    const command = 'grep -rn " # pi-desktop:background" src';
+    expect(stripBashBackgroundMarker(command)).toEqual({ command, marked: false });
+  });
+
+  it("detects persistent launchers", () => {
     expect(commandShouldStartBackground("npm run dev")).toBe(true);
-    expect(commandShouldStartBackground("pnpm start")).toBe(true);
+    expect(commandShouldStartBackground("pnpm dev")).toBe(true);
+    expect(commandShouldStartBackground("yarn start")).toBe(true);
+    expect(commandShouldStartBackground("cd web && npm run dev")).toBe(true);
+    expect(commandShouldStartBackground("vite --port 3000")).toBe(true);
     expect(commandShouldStartBackground("npx vite")).toBe(true);
-    expect(commandShouldStartBackground("docker compose up")).toBe(true);
-    expect(commandShouldStartBackground("python -m http.server 8080")).toBe(true);
+    expect(commandShouldStartBackground("pnpm exec vite")).toBe(true);
+    expect(commandShouldStartBackground("next dev")).toBe(true);
+    expect(commandShouldStartBackground("tail -f app.log")).toBe(true);
+    expect(commandShouldStartBackground("tail -n 100 -f app.log")).toBe(true);
   });
 
-  it("does not flag one-shot commands", () => {
-    expect(commandShouldStartBackground("npm test")).toBe(false);
-    expect(commandShouldStartBackground("npm run build")).toBe(false);
-    expect(commandShouldStartBackground("ls -la")).toBe(false);
-    expect(commandShouldStartBackground("git status")).toBe(false);
+  it("looks inside a shell -c wrapper", () => {
+    expect(commandShouldStartBackground('sh -c "npm run dev"')).toBe(true);
+    expect(commandShouldStartBackground('bash -lc "npm run dev"')).toBe(true);
+    expect(commandShouldStartBackground('cd web && sh -c "npm run dev"')).toBe(true);
+    expect(commandShouldStartBackground('sh -c "npm run build"')).toBe(false);
   });
 
-  it("honors explicit marker and strips it", () => {
-    const raw = "my-long-server --port 3000 # pi-desktop:background";
-    expect(commandShouldStartBackground(raw)).toBe(true);
-    expect(stripBashBackgroundMarker(raw)).toEqual({
-      command: "my-long-server --port 3000",
-      marked: true,
-    });
+  it("does not split on separators inside quotes", () => {
+    expect(
+      commandShouldStartBackground('git commit -m "fix; npm run dev"'),
+    ).toBe(false);
+    expect(
+      commandShouldStartBackground(`node -e "console.log('a|b'); require('./s')"`),
+    ).toBe(false);
   });
 
-  it("flags shell-level backgrounding / detach", () => {
-    expect(commandShouldStartBackground("node server.js &")).toBe(true);
-    expect(commandShouldStartBackground("nohup ./serve.sh")).toBe(true);
+  it("ignores commands that merely mention a server name", () => {
+    expect(commandShouldStartBackground("grep -rn next src")).toBe(false);
+    expect(commandShouldStartBackground("cat vite.config.ts")).toBe(false);
+    expect(commandShouldStartBackground("git log --grep serve")).toBe(false);
+    expect(commandShouldStartBackground("npm install next")).toBe(false);
+  });
+
+  it("does not detach one-shot builds", () => {
+    expect(commandShouldStartBackground("next build")).toBe(false);
+    expect(commandShouldStartBackground("vite build")).toBe(false);
+  });
+
+  it("still honors shell backgrounding", () => {
+    expect(commandShouldStartBackground("sleep 30 &")).toBe(true);
+    expect(commandShouldStartBackground("nohup ./server.sh")).toBe(true);
   });
 });

@@ -12,12 +12,23 @@
 .nestedHead {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   width: 100%;
   min-width: 0;
   padding: 3px 6px 3px 0;
-  border: none;
   border-radius: 6px;
+}
+
+.nestedHead:hover { background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent)); }
+
+.nestedHeadMain {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 0;
+  border: none;
   background: transparent;
   color: inherit;
   font: inherit;
@@ -26,7 +37,25 @@
   cursor: pointer;
 }
 
-.nestedHead:hover { background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent)); }
+.nestedBgBtn:global(.ant-btn) {
+  flex-shrink: 0;
+  margin-left: auto;
+  align-self: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: var(--chat-font-xs, 11px);
+  background: transparent !important;
+  border-color: var(--chat-line, var(--border)) !important;
+  box-shadow: none !important;
+  color: var(--chat-desc-fg, var(--fg-muted)) !important;
+}
+
+.nestedBgBtn:global(.ant-btn):hover:not(:disabled) {
+  background: var(--chat-hover-bg, var(--bg-hover)) !important;
+  border-color: var(--border-strong, var(--fg-faint)) !important;
+  color: var(--fg-strong, var(--fg, inherit)) !important;
+}
 
 .nestedMark {
   flex-shrink: 0;

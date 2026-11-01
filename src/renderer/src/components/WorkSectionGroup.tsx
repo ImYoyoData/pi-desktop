@@ -60,7 +60,12 @@ export function WorkSectionGroup({
     for (const msg of items) {
       if (msg.role === "tool") {
         const card = toolCardFor(msg);
-        if (card.kind === "bash" || card.kind === "read" || card.kind === "generic") {
+        if (
+          card.kind === "bash" ||
+          card.kind === "read" ||
+          card.kind === "grep" ||
+          card.kind === "generic"
+        ) {
           chars += card.preview?.length ?? 0;
         } else if (card.kind === "edit" || card.kind === "write" || card.kind === "other") {
           chars += card.diff?.length ?? 0;
@@ -215,6 +220,7 @@ export function WorkSectionGroup({
         readCount: t.wsSummaryReadCount,
         bashCount: t.wsSummaryBashCount,
         todoCount: t.wsSummaryTodoCount,
+        grepCount: t.wsSummaryGrepCount,
         toolCount: t.wsSummaryToolCount,
         separator: t.wsSummarySeparator,
       }),

@@ -1,39 +1,62 @@
 /**
- * 让模型优先调用 pi 内置工具（grep / find / ls / read），而不是在 bash 里跑同名命令。
+ * 让模型优先调用 pi 内置工具（grep / find / ls / read），而不是在 shell 里跑同名命令。
  *
- * 内置工具的 promptGuidelines 默认是空的，模型没有理由放弃 shell 手感；这里在
- * before_agent_start 里给当前活跃工具补规则，由 pi 以 system prompt 增量下发，
- * 不替换整段提示，也不依赖项目里的 AGENTS.md。
+ * 规则按当前声明的工具动态生成：grep 未激活时不能提 grep，激活时要讲清它和 shell 的能力边界。
+ * 规则写进 promptGuidelines（不按 selectedTools 过滤），由 before_agent_start 每轮重新生成。
+ * bash 的 promptSnippet 由上游写成 "Execute bash commands (ls, grep, find, etc.)"，
+ * 桌面注册时换成 BASH_PROMPT_SNIPPET，避免工具清单把搜索直接派给 shell。
  */
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
+
+export const BASH_PROMPT_SNIPPET =
+	"Execute bash commands (builds, tests, git, pipelines, and other CLIs)";
 
 const SHELL_WORKDIR_GUIDELINE =
 	"Every shell call already starts in the session working directory (the <cwd> value); changing directory inside one call does not carry to the next. Do not prefix commands with `cd <project path>`, `Set-Location <project path>`, or `git -C <project path>`; use relative paths.";
 
-const TOOL_PREFERENCE_GUIDELINES: Record<string, readonly string[]> = {
-	grep: [
-		"Search file contents with this tool instead of shelling out to grep/rg/git grep: it caps matches (100 per call) and skips .gitignore'd paths. Pass an explicit `path` to search inside node_modules, dist, or out.",
-		"Write alternatives as one regex, e.g. `(a|b|c)`: there is no shell `\\|`, no `| head`, and no `2>/dev/null` here.",
-	],
-	find: ["Locate files with this tool instead of shell find/dir."],
-	ls: ["List a directory with this tool instead of shell ls."],
-	read: ["Read file contents with this tool instead of shell cat/head/tail/sed/awk."],
-	bash: [
-		"Reserve bash for what the other tools cannot do: pipelines (sort/uniq/xargs), asymmetric context (-A2 -B6), builds, tests, git, and other CLIs. Plain content search, file reads, and directory listings belong to grep/find/ls/read.",
-		SHELL_WORKDIR_GUIDELINE,
-	],
-	powershell: [SHELL_WORKDIR_GUIDELINE],
-};
+const GREP_IGNORE_NOTICE =
+	"grep skips .gitignore'd paths (node_modules, out, build, release). An explicit `path` does not override the ignore rules: use shell `rg --no-ignore` for those.";
+
+function preferenceGuidelines(declared: readonly string[]): string[] {
+	const has = (name: string) => declared.includes(name);
+	const shell = has("bash") ? "bash" : has("powershell") ? "powershell" : undefined;
+	const rules: string[] = [];
+	if (shell) {
+		rules.push(
+			has("grep")
+				? `Reserve ${shell} for builds, tests, git, post-processing pipelines (sort/uniq/xargs), and other CLIs.`
+				: `${shell} handles builds, tests, git, content search, post-processing pipelines (sort/uniq/xargs), and other CLIs.`,
+			SHELL_WORKDIR_GUIDELINE,
+		);
+	}
+	if (has("grep")) {
+		rules.push(
+			"Search file contents with `grep` instead of shelling out to grep/rg: write alternatives as one regex `(a|b|c)`; `context` covers -A/-B, `limit` covers `| head`, `glob` covers --include, `literal` covers -F.",
+			GREP_IGNORE_NOTICE,
+		);
+	} else if (shell) {
+		rules.push(`Search file contents with ${shell} \`rg\`; no grep tool is active.`);
+	}
+	if (has("find")) rules.push("Locate files with `find` instead of shell find/dir.");
+	if (has("ls")) rules.push("List a directory with `ls` instead of shell ls.");
+	if (has("read")) rules.push("Read file contents with `read` instead of shell cat/head/tail/sed/awk.");
+	return rules;
+}
 
 export function createToolPreferenceExtension(): ExtensionFactory {
 	return (pi) => {
 		pi.on("before_agent_start", (event) => {
 			const options = event.systemPromptOptions;
-			const guidelines = { ...options.toolGuidelines };
-			for (const [name, rules] of Object.entries(TOOL_PREFERENCE_GUIDELINES)) {
-				guidelines[name] = [...new Set([...(guidelines[name] ?? []), ...rules])];
-			}
-			options.toolGuidelines = guidelines;
+			const declared = options.selectedTools.filter((name) => !options.hiddenTools.includes(name));
+			options.promptGuidelines = [
+				...new Set([...options.promptGuidelines, ...preferenceGuidelines(declared)]),
+			];
+		});
+		pi.on("tool_result", (event) => {
+			if (event.toolName !== "grep" || event.isError) return;
+			const text = event.content.map((block) => (block.type === "text" ? block.text : "")).join("");
+			if (text !== "No matches found") return;
+			return { content: [{ type: "text", text: `${text}\n\n${GREP_IGNORE_NOTICE}` }] };
 		});
 	};
 }

@@ -33,6 +33,8 @@ export type SoftHangInput = {
   toolInFlight: boolean;
   outputSilenceMs: number;
   workerSilenceMs: number;
+  /** 上下文压缩中：没有输出事件是正常的，等它跑完。 */
+  compacting?: boolean;
 };
 
 export function canAutoRecover(count: number, max = AUTO_RECOVER_MAX): boolean {
@@ -49,6 +51,7 @@ export function nextAutoRecoverCount(count: number): number {
  */
 export function shouldSoftHangRecover(input: SoftHangInput): boolean {
   if (!input.running || input.waitingUser || input.toolInFlight) return false;
+  if (input.compacting) return false;
   if (input.outputSilenceMs < SOFT_HANG_SILENCE_MS) return false;
   if (!Number.isFinite(input.workerSilenceMs)) return false;
   return input.workerSilenceMs < SOFT_HANG_WORKER_ALIVE_MS;

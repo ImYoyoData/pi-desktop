@@ -11,20 +11,20 @@ export type BashTruncationReason = "auto" | "user";
 export type BashNoticeLabels = {
 	/** 命令转入后台、对话继续。 */
 	detached: (reason: BashTruncationReason) => string;
-	/** shell 已退出但仍有后台进程存活。 */
+	/** shell 已退出但仍有残留进程在运行。 */
 	shellSurvivors: (count: number) => string;
 };
 
 const ZH: BashNoticeLabels = {
 	detached: (reason) =>
 		`\n[pi-desktop] ${reason === "auto" ? "自动截断" : "用户截断"}：命令已转入后台运行，对话继续；输出见运行页。\n`,
-	shellSurvivors: (count) => `\n[pi-desktop] shell 已退出，仍在跟踪 ${count} 个后台进程…\n`,
+	shellSurvivors: (count) => `\n[pi-desktop] shell 已退出；${count} 个残留进程已交由运行面板跟踪，不影响本次命令。\n`,
 };
 
 const EN: BashNoticeLabels = {
 	detached: (reason) =>
 		`\n[pi-desktop] ${reason === "auto" ? "Auto-truncated" : "User-truncated"}: command moved to background; conversation continues; output is in the Running panel.\n`,
-	shellSurvivors: (count) => `\n[pi-desktop] shell exited; tracking ${count} background process(es)…\n`,
+	shellSurvivors: (count) => `\n[pi-desktop] shell exited; ${count} leftover process(es) are tracked in the Running panel and do not block this command.\n`,
 };
 
 export function bashNoticeLabels(locale: BashNoticeLocale): BashNoticeLabels {
@@ -34,13 +34,13 @@ export function bashNoticeLabels(locale: BashNoticeLocale): BashNoticeLabels {
 const ZH_TW: BashNoticeLabels = {
 	detached: (reason) =>
 		`\n[pi-desktop] ${reason === "auto" ? "自動截斷" : "使用者截斷"}：命令已轉入背景執行，對話繼續；輸出見執行頁。\n`,
-	shellSurvivors: (count) => `\n[pi-desktop] shell 已結束，仍在追蹤 ${count} 個背景程序…\n`,
+	shellSurvivors: (count) => `\n[pi-desktop] shell 已結束；${count} 個殘留程序已交由執行頁追蹤，不影響本次命令。\n`,
 };
 
 const JA: BashNoticeLabels = {
 	detached: (reason) =>
 		`\n[pi-desktop] ${reason === "auto" ? "自動切り詰め" : "ユーザーによる切り詰め"}: コマンドはバックグラウンドで実行を続けます。会話は続行され、出力は実行ページで確認できます。\n`,
-	shellSurvivors: (count) => `\n[pi-desktop] shell は終了しました。${count} 個のバックグラウンドプロセスを追跡中…\n`,
+	shellSurvivors: (count) => `\n[pi-desktop] shell は終了しました。残存プロセス ${count} 個は実行ページで追跡され、このコマンドの結果には影響しません。\n`,
 };
 
 const LABELS: Record<BashNoticeLocale, BashNoticeLabels> = {

@@ -59,12 +59,17 @@ type ActiveRun = {
 	/** Surviving descendant PIDs kept after the shell exits (background services). */
 	survivors: Set<number>;
 	backgrounded: boolean;
+	/** 最近一次输出时刻，用于判定残留进程是否已经安静下来。 */
+	lastOutputAt: number;
 	/** Forwards to the bash tool until backgrounded. */
 	toolOnData: ((data: Buffer) => void) | null;
 	resolveTool: ((result: { exitCode: number | null }) => void) | null;
 	rejectTool: ((err: Error) => void) | null;
 	removeOuterAbort: (() => void) | null;
 };
+
+/** 命令本身已结束（shell 退出）时，残留进程安静这么久就不再等它。 */
+const SURVIVOR_IDLE_MS = 30_000;
 
 /** setTimeout 的上限（毫秒），与 Pi SDK 的 MAX_TIMEOUT_MS 一致。 */
 const MAX_TIMEOUT_MS = 2_147_483_647;
@@ -124,7 +129,7 @@ function killProcessTree(pid: number): void {
 }
 
 /** Exposed for unit tests. */
-export const __test = { resolveTimeoutMs, resolveShellConfig };
+export const __test = { resolveTimeoutMs, resolveShellConfig, waitForSurvivorsExit };
 
 /** bash 命令前缀：与 pi 一致，前缀单独一行放在命令前；PowerShell 不使用。 */
 function withCommandPrefix(command: string, hooks: BashRunTrackerHooks): string {
@@ -271,9 +276,14 @@ function waitForChildExit(child: ChildProcess): Promise<number | null> {
 	});
 }
 
+/**
+ * 等 shell 的残留进程退出。带 `idleMs` 时，连续这么久没有输出也算结束：
+ * 命令已经跑完，剩下的只是孤儿进程或 pid 复用误判，不能让工具继续挂着。
+ */
 async function waitForSurvivorsExit(
 	survivors: Set<number>,
 	signal?: AbortSignal,
+	idle?: { idleMs: number; lastOutputAt: () => number },
 ): Promise<void> {
 	while (survivors.size > 0) {
 		if (signal?.aborted) return;
@@ -281,6 +291,7 @@ async function waitForSurvivorsExit(
 			if (!isPidAlive(pid)) survivors.delete(pid);
 		}
 		if (survivors.size === 0) return;
+		if (idle && Date.now() - idle.lastOutputAt() >= idle.idleMs) return;
 		await new Promise<void>((r) => setTimeout(r, 1_000));
 	}
 }
@@ -382,10 +393,12 @@ export function createTrackedBashOperations(
 				const startBg = Boolean(hooks.shouldStartBackground?.(command));
 				const id = randomUUID();
 				const local = new AbortController();
+				const startedAt = Date.now();
 				const row: ActiveRun = {
 					controller: local,
 					survivors: new Set(),
 					backgrounded: false,
+					lastOutputAt: startedAt,
 					toolOnData: options.onData,
 					resolveTool: null,
 					rejectTool: null,
@@ -394,7 +407,6 @@ export function createTrackedBashOperations(
 				active.set(id, row);
 				bindOuterAbort(row, options.signal);
 
-				const startedAt = Date.now();
 				hooks.onStarted({
 					id,
 					sessionId: hooks.sessionId,
@@ -414,7 +426,6 @@ export function createTrackedBashOperations(
 						row.rejectTool = reject;
 					},
 				);
-
 				void (async () => {
 					try {
 						const result = await base.exec(withCommandPrefix(spawnCommand, hooks), cwd, {
@@ -468,10 +479,12 @@ export function createTrackedBashOperations(
 			const startBg = Boolean(hooks.shouldStartBackground?.(command));
 			const id = randomUUID();
 			const local = new AbortController();
+			const startedAt = Date.now();
 			const row: ActiveRun = {
 				controller: local,
 				survivors: new Set(),
 				backgrounded: false,
+				lastOutputAt: startedAt,
 				toolOnData: options.onData,
 				resolveTool: null,
 				rejectTool: null,
@@ -480,7 +493,6 @@ export function createTrackedBashOperations(
 			active.set(id, row);
 			bindOuterAbort(row, options.signal);
 
-			const startedAt = Date.now();
 			hooks.onStarted({
 				id,
 				sessionId: hooks.sessionId,
@@ -564,6 +576,7 @@ export function createTrackedBashOperations(
 
 					const forward = (data: Buffer) => {
 						const chunk = data.toString("utf8");
+						row.lastOutputAt = Date.now();
 						hooks.onOutput(id, chunk);
 						// Keep draining after detach so background servers don't SIGPIPE.
 						row.toolOnData?.(data);
@@ -572,6 +585,11 @@ export function createTrackedBashOperations(
 					child.stderr?.on("data", forward);
 
 					const sample = setInterval(() => {
+						// 已退出的 pid 必须清掉：集合只增不减时，长时间运行的命令会累积大量
+						// 已被系统复用的 pid，终止时 taskkill 会误杀无关进程。
+						for (const pid of [...row.survivors]) {
+							if (!isPidAlive(pid)) row.survivors.delete(pid);
+						}
 						if (!child.pid) return;
 						void collectDescendants(child.pid).then((kids) => {
 							for (const kid of kids) row.survivors.add(kid);
@@ -627,8 +645,20 @@ export function createTrackedBashOperations(
 								row.survivors.size,
 							),
 						);
-						await waitForSurvivorsExit(row.survivors, local.signal);
-						if (local.signal.aborted) throw new Error("aborted");
+						// 命令本身已结束（shell 退出了）：先把工具放行，别让卡片一直挂在「运行中」。
+						// 残留进程转后台继续跟踪；标记 detached 后卡死看门狗不会再杀掉它们。
+						row.backgrounded = true;
+						row.toolOnData = null;
+						const settle = row.resolveTool;
+						row.resolveTool = null;
+						row.rejectTool = null;
+						settle?.({ exitCode });
+						hooks.onBackgrounded?.(id);
+						await waitForSurvivorsExit(row.survivors, local.signal, {
+							idleMs: SURVIVOR_IDLE_MS,
+							lastOutputAt: () => row.lastOutputAt,
+						});
+						return;
 					}
 
 					row.resolveTool?.({ exitCode });

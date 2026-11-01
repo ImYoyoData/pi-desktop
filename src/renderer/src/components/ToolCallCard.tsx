@@ -9,12 +9,17 @@ import { Button } from "antd";
 import {
   ChevronForwardOutline,
   CloseOutline,
+  CodeSlashOutline,
   CreateOutline,
   DocumentTextOutline,
   EditPencilOutline,
+  ExtensionPuzzleOutline,
   EyeOutline,
+  FileTrayFullOutline,
   FolderOutline,
+  GlobeOutline,
   ListOutline,
+  SearchOutline,
   SquareTerminalOutline,
   SyncOutline,
   type IoniconProps,
@@ -39,6 +44,12 @@ import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useMessage } from "@renderer/services/feedback";
+import {
+  toolFamily,
+  toolCountLabel,
+  toolResultCount,
+  type ToolFamily,
+} from "@renderer/utils/tool-family";
 import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
 import { CODEMODE_TOOL_NAME } from "../../../shared/codemode-tool";
 import styles from "./ToolCallCard.module.css";
@@ -80,6 +91,8 @@ function kindIconFor(kind: ToolCard["kind"]): KindIconComponent {
       return EditPencilOutline;
     case "bash":
       return SquareTerminalOutline;
+    case "grep":
+      return SearchOutline;
     case "todo":
       return ListOutline;
     case "generic":
@@ -87,6 +100,24 @@ function kindIconFor(kind: ToolCard["kind"]): KindIconComponent {
       return DocumentTextOutline;
     default:
       return DocumentTextOutline;
+  }
+}
+
+/** generic 兜底工具的图标族：浏览器、扩展、搜索、脚本、清单。 */
+function familyIconFor(family: ToolFamily): KindIconComponent | null {
+  switch (family) {
+    case "browser":
+      return GlobeOutline;
+    case "mcp":
+      return ExtensionPuzzleOutline;
+    case "toolSearch":
+      return SearchOutline;
+    case "codemode":
+      return CodeSlashOutline;
+    case "pathList":
+      return FileTrayFullOutline;
+    default:
+      return null;
   }
 }
 
@@ -121,7 +152,6 @@ export function ToolCallCard({
   const t = useI18n();
   const message = useMessage();
   const appearance = useAppearanceStore();
-  const agentRuns = useAgentRunsStore();
   const sessions = useSessionsStore();
   const workspaceRoot = useWorkspaceStore((state) => state.root);
 
@@ -163,13 +193,21 @@ export function ToolCallCard({
   const showCallCount =
     card.kind === "generic" && (toolName === CODEMODE_TOOL_NAME || callCount > 0);
 
-  const blockingRunId = useMemo(() => {
-    const current = card;
-    if (current.kind !== "bash" || !streaming) return null;
-    const command = current.command?.trim();
-    if (!sessionId || !command) return null;
-    return agentRuns.findBlockingRun(sessionId, command)?.id ?? null;
-  }, [agentRuns, card, sessionId, streaming]);
+  /** 只有还在跑的命令才有可操作对象：已结束的卡片不能绑到同名的新 run。 */
+  const command = card.kind === "bash" ? (card.command?.trim() ?? "") : "";
+  const blockingRunId = useAgentRunsStore((state) =>
+    streaming && sessionId && command
+      ? (state.findBlockingRun(sessionId, command)?.id ?? null)
+      : null,
+  );
+  const resyncRuns = useAgentRunsStore((state) => state.resync);
+  const backgroundRun = useAgentRunsStore((state) => state.background);
+
+  /** 卡片在跑却找不到 run（事件丢失、渲染进程重载）：补一次主进程快照，节流在 store 里。 */
+  useEffect(() => {
+    if (!streaming || blockingRunId || !command || !sessionId || !workspaceRoot) return;
+    void resyncRuns(workspaceRoot);
+  }, [blockingRunId, command, resyncRuns, sessionId, streaming, workspaceRoot]);
 
   const canBackground = Boolean(blockingRunId);
 
@@ -178,7 +216,7 @@ export function ToolCallCard({
     if (!runId || backgroundBusy) return;
     setBackgroundBusy(true);
     try {
-      await agentRuns.background(runId);
+      await backgroundRun(runId);
       message.success(t.toolBackgrounded);
     } catch (err) {
       message.error(err instanceof Error ? err.message : t.toolBackgroundFailed);
@@ -189,7 +227,12 @@ export function ToolCallCard({
 
   const fileName = useMemo(() => {
     const current = card;
-    if (current.kind === "bash" || current.kind === "generic" || current.kind === "todo") {
+    if (
+      current.kind === "bash" ||
+      current.kind === "grep" ||
+      current.kind === "generic" ||
+      current.kind === "todo"
+    ) {
       return null;
     }
     const p = current.path;
@@ -199,6 +242,16 @@ export function ToolCallCard({
   }, [card]);
 
   const actionLabel = shortToolName(toolName);
+
+  const family = toolFamily(toolName);
+  /** 结果量级：清单条目 / 浏览器元素 / tool_search 的工具数。 */
+  const resultCount = useMemo(
+    () =>
+      card.kind === "generic" && !streaming
+        ? toolResultCount(toolName, card.preview, card.structured)
+        : null,
+    [card, streaming, toolName],
+  );
 
   const KindIcon = kindIconFor(card.kind);
   const statusClass =
@@ -233,7 +286,7 @@ export function ToolCallCard({
   const resultParts = useMemo(() => {
     const parts: string[] = [];
     const dur =
-      (card.kind === "read" || card.kind === "bash") &&
+      (card.kind === "read" || card.kind === "bash" || card.kind === "grep") &&
       card.durationMs != null &&
       card.durationMs > 0
         ? formatDuration(card.durationMs)
@@ -263,12 +316,26 @@ export function ToolCallCard({
           t.todoProgress(card.items.filter((item) => item.done).length, card.items.length),
         );
       }
+    } else if (card.kind === "grep") {
+      if (statusType === "error") {
+        const line = firstLine(card.preview);
+        if (line) parts.push(line);
+      } else if (card.matchCount) {
+        parts.push(t.toolBodyGrepMatches(card.matchCount, card.hits.length));
+      } else if (card.noMatches) {
+        parts.push(t.toolBodyGrepNoMatches);
+      }
+      if (card.searchPath && card.searchPath !== ".") parts.push(card.searchPath);
+      if (card.glob) parts.push(card.glob);
+      if (card.notices.length) parts.push(t.toolTruncated);
     } else if (card.kind === "generic") {
       if (statusType === "error") {
         const line = firstLine(card.preview);
         if (line) parts.push(line);
       } else if (card.images.length) {
         parts.push(t.toolResultImages(card.images.length));
+      } else if (resultCount) {
+        parts.push(toolCountLabel(t, resultCount));
       } else {
         const out = card.preview?.trim() ?? "";
         parts.push(out ? t.toolResultLines(out.split("\n").length) : t.toolResultNoOutput);
@@ -279,11 +346,12 @@ export function ToolCallCard({
       parts.push(t.toolTruncated);
     }
     return parts;
-  }, [card, statusType, t, todoAction]);
+  }, [card, statusType, t, todoAction, resultCount]);
 
   const headline = useMemo(() => {
     if (isAskUserTool) return "";
     if (card.kind === "bash") return card.command || toolName;
+    if (card.kind === "grep") return card.pattern || toolName;
     if (card.kind === "generic") return card.summary || "";
     if (card.kind === "todo") {
       if (todoAction) return todoAction;
@@ -325,6 +393,9 @@ export function ToolCallCard({
     if (card.kind === "bash" && card.command) {
       return <code className={styles.cmdPill}>{card.command}</code>;
     }
+    if (card.kind === "grep" && card.pattern) {
+      return <code className={styles.cmdPill}>{card.pattern}</code>;
+    }
     return (
       <span className={`${styles.headline}${streaming ? " copilot-shimmer" : ""}`}>
         {headline}
@@ -338,7 +409,10 @@ export function ToolCallCard({
   );
 
   const pathTitle =
-    card.kind === "bash" || card.kind === "generic" || card.kind === "todo"
+    card.kind === "bash" ||
+    card.kind === "grep" ||
+    card.kind === "generic" ||
+    card.kind === "todo"
       ? undefined
       : (card.path ?? undefined);
 
@@ -354,6 +428,7 @@ export function ToolCallCard({
 
   /** 工具图标：运行中转圈，失败用叉（不带圆环），目录列举用文件夹。 */
   const spinning = Boolean(streaming) && statusType !== "error";
+  const FamilyIcon = familyIconFor(family);
   const ToolIcon =
     statusType === "error"
       ? CloseOutline
@@ -361,7 +436,7 @@ export function ToolCallCard({
         ? SyncOutline
         : isDirList
           ? FolderOutline
-          : KindIcon;
+          : (FamilyIcon ?? KindIcon);
   const iconClass = `${styles.kindIcon} ${iconTone}${spinning ? ` ${styles.spinIcon}` : ""}`;
   const stepIconClass = `${styles.stepIcon} ${iconTone}${spinning ? ` ${styles.spinIcon}` : ""}`;
 
@@ -405,6 +480,9 @@ export function ToolCallCard({
     if (card.kind === "bash" && card.command) {
       return <code className={styles.stepCmd}>{card.command}</code>;
     }
+    if (card.kind === "grep" && card.pattern) {
+      return <code className={styles.stepCmd}>{card.pattern}</code>;
+    }
     if (genericSummary.target) {
       if (genericSummary.isDir) {
         return <FileChip path={genericSummary.target} label={genericSummary.target} dir />;
@@ -418,7 +496,18 @@ export function ToolCallCard({
   }, [card, genericSummary, headline, onOpen, previewPath, previewText]);
 
   /** 摘要只做次要位；目标已经用它兜底时不再重复。 */
-  const stepPreview = genericSummary.target ? previewText : null;
+  const stepPreview =
+    card.kind === "grep"
+      ? card.matchCount
+        ? t.toolBodyGrepMatches(card.matchCount, card.hits.length)
+        : card.noMatches
+          ? t.toolBodyGrepNoMatches
+          : null
+      : resultCount
+        ? toolCountLabel(t, resultCount)
+        : genericSummary.target
+          ? previewText
+          : null;
 
   /** 时间线步骤右侧的度量：行数 / 改动数 / 退出码 / 耗时。 */
   const stepMeta = useMemo<ReactNode>(() => {
@@ -443,6 +532,9 @@ export function ToolCallCard({
           {t.toolBodyExitCode(card.exitCode)}
         </span>,
       );
+    }
+    if (card.kind === "grep" && card.notices.length) {
+      parts.push(<span key="truncated">{t.toolTruncated}</span>);
     }
     const durationMs = toolCardDurationMs(card);
     if (durationMs) parts.push(formatDuration(durationMs));

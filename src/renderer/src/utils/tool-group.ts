@@ -1,6 +1,7 @@
 import {
   isBashTool,
   isFileMutationTool,
+  isGrepTool,
   isReadTool,
   toolCommandFromArgs,
   toolPathFromArgs,
@@ -106,7 +107,7 @@ export function finalAnswerRowIds(rows: WorkSectionRow[]): Set<string> {
   return out;
 }
 
-export type WorkSectionToolKind = "edit" | "read" | "bash" | "todo" | "tool";
+export type WorkSectionToolKind = "edit" | "read" | "bash" | "todo" | "grep" | "tool";
 
 export type WorkSectionTool = {
   kind: WorkSectionToolKind;
@@ -121,6 +122,13 @@ function basename(p: string): string {
 
 function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/** grep 的搜索模式：section 标题里要说清楚搜了什么。 */
+function patternFromArgs(args: unknown): string | null {
+  if (!args || typeof args !== "object") return null;
+  const value = (args as Record<string, unknown>).pattern;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 /** Classify one tool call for section titles (Copilot icon/label families). */
@@ -139,6 +147,10 @@ export function categorizeToolCall(
   if (isBashTool(toolName)) {
     const command = toolCommandFromArgs(args);
     return { kind: "bash", target: command ? truncate(command, 48) : toolName };
+  }
+  if (isGrepTool(toolName)) {
+    const pattern = patternFromArgs(args);
+    return { kind: "grep", target: pattern ? truncate(pattern, 32) : "" };
   }
   if (isTodoToolName(toolName)) {
     return { kind: "todo", target: "" };
@@ -162,6 +174,7 @@ export type WorkSectionSummaryStrings = {
   readCount: (count: number) => string;
   bashCount: (count: number) => string;
   todoCount: (count: number) => string;
+  grepCount: (count: number) => string;
   toolCount: (count: number) => string;
   /** 段间分隔符（中文用逗号，英文用 ", "）。 */
   separator: string;
@@ -211,13 +224,14 @@ export function workSectionCountSummary(
   thinkingCount: number,
   s: WorkSectionSummaryStrings,
 ): string {
-  const counts = { edit: 0, read: 0, bash: 0, todo: 0, tool: 0 };
+  const counts = { edit: 0, read: 0, bash: 0, todo: 0, grep: 0, tool: 0 };
   for (const tool of tools) counts[tool.kind] += 1;
 
   const parts: string[] = [];
   if (counts.edit) parts.push(s.editCount(counts.edit));
   if (thinkingCount) parts.push(s.thinkingCount(thinkingCount));
   if (counts.read) parts.push(s.readCount(counts.read));
+  if (counts.grep) parts.push(s.grepCount(counts.grep));
   if (counts.bash) parts.push(s.bashCount(counts.bash));
   if (counts.todo) parts.push(s.todoCount(counts.todo));
   if (counts.tool) parts.push(s.toolCount(counts.tool));
