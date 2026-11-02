@@ -128,7 +128,6 @@ export const en = {
 	customizeGroupBuiltinHint: "Provided by pi",
 	customizeGroupDesktopHint: "Provided by Pi Desktop",
 	customizeGroupExtensionHint: "Provided by extension packages",
-	customizeTitle: "Agent Settings",
 	customizeNotifications: "Notifications",
 	customizeNotificationsDesc: "Completion sound and system notifications.",
 	customizeNetwork: "Network proxy",
