@@ -63,6 +63,7 @@ function requireSession(): AgentSession {
 
 async function openSessionManager(
 	cwd: string,
+	agentDir: string,
 	filePath?: string,
 ): Promise<SessionManager> {
 	const trimmed = filePath?.trim();
@@ -79,17 +80,26 @@ async function openSessionManager(
 			);
 		}
 	}
-	return SessionManager.create(cwd);
+	// 兜底新建时也落在主进程给的目录下，避免 SDK 自己按环境变量另算一份。
+	return SessionManager.create(
+		cwd,
+		SessionManager.getDefaultSessionDir(cwd, agentDir),
+	);
 }
 
-async function initSession(cwd: string, filePath?: string): Promise<void> {
+async function initSession(
+	cwd: string,
+	filePath?: string,
+	agentDirEnv?: string,
+): Promise<void> {
 	if (initStarted) {
 		return;
 	}
 	initStarted = true;
-	const agentDir = getAgentDir();
+	// 目录由主进程单点决定：worker 不再按自己的环境变量另算。
+	const agentDir = agentDirEnv?.trim() || getAgentDir();
 	setRpcWorkspaceRoot(cwd);
-	const sessionManager = await openSessionManager(cwd, filePath);
+	const sessionManager = await openSessionManager(cwd, agentDir, filePath);
 	const { session: created, modelFallbackMessage, setToolUIContext } =
 		await createAgentSession({
 			cwd,
@@ -265,7 +275,7 @@ export async function handleWorkerMessage(msg: OmpWorkerInbound): Promise<void> 
 		process.exit(0);
 	}
 	if (msg.kind === "init") {
-		await initSession(msg.cwd, msg.filePath);
+		await initSession(msg.cwd, msg.filePath, msg.agentDir);
 		return;
 	}
 	if (msg.kind === "reload_models") {

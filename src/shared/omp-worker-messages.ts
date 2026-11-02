@@ -7,7 +7,7 @@ import type { AgentCommand } from "./protocol";
  * 都不一样，共用一份会让任何一侧的改动同时压到另一侧。
  */
 export type OmpWorkerInbound =
-	| { kind: "init"; cwd: string; filePath?: string }
+	| { kind: "init"; cwd: string; filePath?: string; agentDir?: string }
 	| { kind: "command"; id: string; command: AgentCommand }
 	| { kind: "reload_models" }
 	| { kind: "shutdown" }

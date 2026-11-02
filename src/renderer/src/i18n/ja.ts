@@ -1334,6 +1334,7 @@ export const ja = {
 	customizeOmpModels: "モデルとプロバイダー",
 	customizeOmpModelsDesc: "OMP のモデルは ~/.omp/agent/models.yml に保存されます。",
 	ompSave: "保存",
+	ompSaveFailed: "変更は保存されていません。設定ファイルの値に戻しました: ",
 	ompSaved: "保存しました",
 	ompUnnamed: "名前のないプロバイダー",
 	ompNoProviders: "プロバイダーがありません。一覧の下から追加してください。",

@@ -144,9 +144,6 @@ export function OmpModels(): ReactNode {
 							<span className={modelsStyles.sidebarEmptyTitle}>
 								{t.ompNoProviders}
 							</span>
-							<span className={modelsStyles.sidebarEmptyHint}>
-								{snapshot.filePath}
-							</span>
 						</div>
 					) : (
 						<div className={modelsStyles.providerList}>
@@ -367,9 +364,6 @@ export function OmpModels(): ReactNode {
 
 					{selected ? (
 						<footer className={modelsStyles.detailFooter}>
-							<span className={modelsStyles.detailSubtitle}>
-								{snapshot.filePath}
-							</span>
 							<span className={modelsStyles.detailSpacer} />
 							<div className={modelsStyles.footerActions}>
 								<Button size="small" disabled={!dirty} onClick={reset}>

@@ -20,8 +20,7 @@ export function ompConfigPath(): string {
 
 /** 只回传 schema 里存在、且 config.yml 里已显式设置的值。 */
 export function readOmpSettings(): OmpSettingsSnapshot {
-	const filePath = ompConfigPath();
-	const doc = readYamlObject(filePath);
+	const doc = readYamlObject(ompConfigPath());
 	const values: Record<string, unknown> = {};
 	if (doc) {
 		for (const entry of OMP_SETTINGS) {
@@ -29,7 +28,7 @@ export function readOmpSettings(): OmpSettingsSnapshot {
 			if (value !== undefined) values[entry.id] = value;
 		}
 	}
-	return { filePath, exists: doc !== null, values };
+	return { values };
 }
 
 /**

@@ -1335,6 +1335,7 @@ export const zh = {
 	customizeOmpModels: "模型与供应商",
 	customizeOmpModelsDesc: "OMP 自己的模型配置，写入 ~/.omp/agent/models.yml。",
 	ompSave: "保存",
+	ompSaveFailed: "改动未保存，已恢复为配置文件里的值：",
 	ompSaved: "已保存",
 	ompUnnamed: "未命名供应商",
 	ompNoProviders: "还没有供应商，点左下角添加。",

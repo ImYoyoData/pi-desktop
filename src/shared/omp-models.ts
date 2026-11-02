@@ -27,8 +27,6 @@ export type OmpProviderRow = {
 };
 
 export type OmpModelsSnapshot = {
-	filePath: string;
-	exists: boolean;
 	providers: OmpProviderRow[];
 };
 

@@ -176,14 +176,15 @@ export function OmpSettings({ tab }: { tab: string }): ReactNode {
 			createOmpSettingsWriter(
 				(patch) => window.api.ompSettings.save(patch),
 				(err) => {
-					message.error(err instanceof Error ? err.message : String(err));
+					const reason = err instanceof Error ? err.message : String(err);
+					message.error(`${t.ompSaveFailed}${reason}`);
 					// 写失败：回到磁盘上的真实状态，不留与磁盘不一致的界面。
 					void load().catch(() => {
 						// 读也失败时只能保留当前界面值。
 					});
 				},
 			),
-		[load, message],
+		[load, message, t.ompSaveFailed],
 	);
 
 	// 切 tab 或卸载前把未写入的改动落盘。

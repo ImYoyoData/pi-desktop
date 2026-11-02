@@ -1372,6 +1372,7 @@ export const en = {
 	customizeOmpModels: "Models & providers",
 	customizeOmpModelsDesc: "OMP keeps its own models in ~/.omp/agent/models.yml.",
 	ompSave: "Save",
+	ompSaveFailed: "Change not saved — reverted to the value in the config file: ",
 	ompSaved: "Saved",
 	ompUnnamed: "Unnamed provider",
 	ompNoProviders: "No providers yet — add one from the list.",

@@ -10,6 +10,7 @@ import type {
 	OmpWorkerOutbound,
 } from "../shared/omp-worker-messages";
 import type { SpawnWorker, WorkerHandle } from "./backend-runtime";
+import { ompAgentDir } from "./omp-dir";
 import { resolveOmpRuntime } from "./omp-runtime-path";
 import { refreshSystemProxy, withAgentProxyEnv } from "./proxy-host";
 
@@ -60,7 +61,12 @@ function toBrokerMessage(msg: OmpWorkerOutbound): WorkerOutbound {
 function toOmpInbound(msg: WorkerInbound): OmpWorkerInbound | null {
 	switch (msg.kind) {
 		case "init":
-			return { kind: "init", cwd: msg.cwd, filePath: msg.filePath };
+			return {
+				kind: "init",
+				cwd: msg.cwd,
+				filePath: msg.filePath,
+				agentDir: ompAgentDir(),
+			};
 		case "command":
 			return { kind: "command", id: msg.id, command: msg.command };
 		case "reload_models":
@@ -169,7 +175,7 @@ export function createOmpSpawnWorker(): SpawnWorker {
 		);
 
 		child.stdin?.write(
-			`${JSON.stringify({ kind: "init", cwd, filePath } satisfies OmpWorkerInbound)}\n`,
+			`${JSON.stringify({ kind: "init", cwd, filePath, agentDir: ompAgentDir() } satisfies OmpWorkerInbound)}\n`,
 		);
 
 		return { worker: handle, ...(await ready) };

@@ -55,14 +55,10 @@ function providerRows(doc: unknown): OmpProviderRow[] {
 export function readOmpModels(): OmpModelsSnapshot {
 	const filePath = ompModelsPath();
 	if (!fs.existsSync(filePath)) {
-		return { filePath, exists: false, providers: [] };
+		return { providers: [] };
 	}
 	try {
-		return {
-			filePath,
-			exists: true,
-			providers: providerRows(loadYaml(fs.readFileSync(filePath, "utf8"))),
-		};
+		return { providers: providerRows(loadYaml(fs.readFileSync(filePath, "utf8"))) };
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		throw new Error(`failed to read ${filePath}: ${message}`);
