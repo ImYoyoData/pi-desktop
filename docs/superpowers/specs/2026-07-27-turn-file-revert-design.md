@@ -1,5 +1,7 @@
 # Turn file revert (checkpoint) — Design
 
+> **现状对照（2026-11）**：已落地并增强。`checkpoint-host.ts` 按 `(sessionId, userMessageId)` 记录 per-turn 文件快照，`fs-watch-host.ts` 提供事件，撤回入口在消息区该轮用户气泡的操作行；范围仍为工作区文件、不动聊天记录。超出 v1 设计：快照持久化到磁盘（本文档定为内存态）。
+
 **Date:** 2026-07-27  
 **Status:** Approved — implementing  
 **Product:** Pi Desktop

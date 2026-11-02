@@ -1,5 +1,7 @@
 # Changes Tab + 轻量 Git（方案 B）
 
+> **现状对照（2026-11）**：已落地且超出原范围。Changes 页（`ChangesPage` / `ChangesDiffView`）含提交 / 拉取 / 推送 / 分支 / 合并；diff 由 `stream-diffs` 按 patch 渲染、增删行数由主进程一次 `numstat` 得出；git 走 dugite。文档 Non-goals 中排除的 PR 界面后来也做了（`PullRequestsView` + TTL 缓存 + 按工作区切换）。偏离：渲染层为 React + zustand；冲突可视化解决器曾实现（后端 IPC 仍在 `git-host.ts`），UI 在右栏重做时被移除。
+
 **Date:** 2026-07-27  
 **Status:** Approved (user confirmed)  
 **Product context:** Pi Desktop 是本机 Pi 的桌面壳（内置 Pi SDK，复用 `~/.pi/agent`）。Changes 对齐 [agegr/pi-web](https://github.com/agegr/pi-web) 的「变更审阅」，并增加桌面端需要的轻量 Git 操作。不是 Cursor IDE Source Control。
