@@ -1,5 +1,7 @@
 # Desktop Security Settings Implementation Plan
 
+> **现状对照（2026-11）**：未按原文落地。`ProjectTrustStore` / `trust.json` / `TrustDialog` 路线已在 v0.3.6-rc.1 移除（权限确认交回 pi CLI）；现行四档审批（`desktopSecurity` 段，终端 + 写文件工具，`permission-gate.ts` 扩展 + `permissions-host.ts`）与本文档的「三类工具 + allowlist + worker `beforeToolCall` 拦截」设计不同。保留作决策考古。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Align Pi Desktop with SDK project trust (`trust.json` + `projectTrusted`), and add Security settings for per-category ask/allow (`bash` / `write` / `network`), bash allowlist, and an in-chat permission confirmation strip.

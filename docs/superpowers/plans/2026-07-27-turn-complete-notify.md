@@ -1,5 +1,7 @@
 # Turn-complete notify — Implementation Plan
 
+> **现状对照（2026-11）**：任务全部完成，现状与计划一致（渲染层后改为 React + zustand）。
+
 > **For agentic workers:** Implement task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** Play bundled chime and/or OS notification when a turn completes.

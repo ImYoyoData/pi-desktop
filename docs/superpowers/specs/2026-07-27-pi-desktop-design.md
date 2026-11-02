@@ -1,5 +1,7 @@
 # Pi Desktop — Design Spec
 
+> **现状对照（2026-11）**：核心架构决策仍成立——electron-vite、每会话一个 `utilityProcess` AgentWorker、Main 的 `SessionBroker` 路由 IPC、数据目录 `~/.pi/agent`、终端 / 浏览器 / 安全文件读取放 Main。已偏离：渲染层 Vue 3 + Pinia → **React 19 + zustand**；Pi SDK `0.82.1` → `^1.4.0`；v1 增加 Linux 打包；右栏由「终端 + 预览 + 浏览器 picker」拆为文件 / 更改 / 浏览器三个独立页面（`right-dock` view），终端与运行面板不再是右栏固定 Tab。文档未覆盖的后续能力：扩展 UI、AI 自定义、PR 浏览、自动更新、checkpoint 回滚、markstream/shiki 渲染栈。File map 仅作历史参考。
+
 **Date:** 2026-07-27  
 **Status:** Approved for planning  
 **Product:** Desktop Agent Workspace for [Pi](https://pi.dev/) coding agent

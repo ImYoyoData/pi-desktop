@@ -1,5 +1,7 @@
 # Browser Layout & Polish Design
 
+> **现状对照（2026-11）**：已落地并演进。三栏百分比布局（默认 20/30/50、15–70 clamp、`layout:v4` 持久化）在 `stores/layout-utils.ts` 实现；嵌入 DevTools + F12 只切换内嵌面板在 `browser-host.ts` 实现；历史 / 书签 localStorage 化在 `stores/browser-library.ts` 实现。偏离：渲染层换成 React；右栏后来重做为文件 / 更改 / 浏览器三页，浏览器标签体系（`BrowserTab` + `browser-automation-host`）远超本文档范围。
+
 **Date:** 2026-07-27  
 **Status:** Approved approach (方案 1) — awaiting user review of this spec  
 **Scope:** Three-pane layout ratios, settings modal padding, embedded DevTools resize + F12, browser history/bookmarks overlay

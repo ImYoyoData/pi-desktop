@@ -1,5 +1,7 @@
 # Browser Layout & Polish Implementation Plan
 
+> **现状对照（2026-11）**：任务已完成（React 重写后）：百分比布局 store（`layout:v4`）、嵌入 DevTools F12、历史 / 书签 overlay 均已落地。文件清单中的 `.vue` / Pinia / splitpanes 路径已变为 `.tsx` / zustand。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Percent-based 20/30/50 layout (min 15 / max 70), prettier settings modal padding, resizable embedded DevTools + F12, browser history/bookmarks overlay (方案 1).

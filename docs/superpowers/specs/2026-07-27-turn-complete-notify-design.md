@@ -1,5 +1,7 @@
 # Turn-complete notify — Design
 
+> **现状对照（2026-11）**：已按设计落地。`prompt_done` 触发（`stores/notify.ts`），内置 `qipao.mp3` 由 renderer `Audio` 播放，窗口未聚焦时走 Electron `Notification`、点击拉回前台（`notify-host.ts`），声音 / 通知两个独立开关默认开，偏好存 localStorage。现状与本文档一致。
+
 **Date:** 2026-07-27  
 **Status:** Approved  
 **Product:** Pi Desktop

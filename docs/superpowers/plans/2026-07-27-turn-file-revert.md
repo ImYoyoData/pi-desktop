@@ -1,5 +1,7 @@
 # Turn file revert — Implementation Plan
 
+> **现状对照（2026-11）**：任务全部完成：checkpoint 核心 / fs-watch 接入 / IPC / 消息区撤回按钮均落地；快照后来增加了磁盘持久化（计划 v1 为内存态）。渲染层后改为 React。
+
 > **For agentic workers:** Implement task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** After each agent turn, offer 撤回 to restore workspace files to pre-prompt state (chat unchanged).

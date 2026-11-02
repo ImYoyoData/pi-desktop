@@ -1,5 +1,7 @@
 # Pi Desktop Agent Workspace Implementation Plan
 
+> **现状对照（2026-11）**：计划早已完成且范围远超原文。渲染层为 React 19 + zustand（非 Vue 3 + Pinia），SDK 升到 `^1.4.0`，新增 Linux 打包、扩展 UI、PR 浏览、自动更新、checkpoint 回滚等本文档未覆盖的能力；File map 过半过时（`src/main` 下现有 150+ 文件）。保留作历史计划档案。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build an Electron + Vue3 Agent Workspace desktop app that runs Pi SDK in per-session workers, with Cursor-like chat, pi-web-like model settings, terminal, file preview, and browser element-select-to-chat.
