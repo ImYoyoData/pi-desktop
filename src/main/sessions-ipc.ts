@@ -208,7 +208,21 @@ export function registerSessionsIpc(broker: SessionBroker): void {
       }
       const trimmed = name.trim();
       if (resolvedBackend === "omp") {
-        await renameOmpSessionFile(target.filePath, trimmed);
+        // 有活 worker 时交给它改名：omp 的 SessionManager 内存里也记着标题，
+        // 直接改文件会在它下次整文件重写时被旧名字盖回去。
+        let sent: unknown;
+        try {
+          sent = await broker.trySend(sessionId, {
+            type: "set_session_name",
+            name: trimmed,
+          });
+        } catch {
+          // worker 报错或正好退出：回到写文件这条路径。
+          sent = undefined;
+        }
+        if (sent === undefined) {
+          await renameOmpSessionFile(target.filePath, trimmed);
+        }
       } else {
         await renameSessionFile(target.filePath, trimmed);
       }

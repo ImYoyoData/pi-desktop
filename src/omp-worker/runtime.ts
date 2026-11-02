@@ -11,6 +11,7 @@ import { createOmpAskUserTool } from "./ask-user-tool";
 import {
 	CONTEXT_USAGE_EVENT_TYPES,
 	emitContextUsage,
+	readOmpContextUsage,
 } from "./context-usage";
 import { handleOmpRpcResponse, setRpcWorkspaceRoot } from "./main-rpc";
 import { createOmpDesktopExtensionUIContext } from "./extension-ui-context";
@@ -173,6 +174,13 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			post({ kind: "result", id, data: { ok: true } });
 			return;
 		}
+		case "set_session_name": {
+			// 走 SDK 的改名：它同时更新内存里的标题与磁盘上的 title slot，
+			// 避免主进程直接改文件后，worker 的整文件重写把旧名字写回。
+			await requireSession().setSessionName(command.name, "user");
+			post({ kind: "result", id, data: { ok: true } });
+			return;
+		}
 		case "set_thinking_level": {
 			const active = requireSession();
 			active.setThinkingLevel(
@@ -229,7 +237,7 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 					sessionId: active.sessionId,
 					sessionName: active.sessionName,
 					messageCount: active.messages.length,
-					contextUsage: null,
+					contextUsage: readOmpContextUsage(active),
 				},
 			});
 			return;

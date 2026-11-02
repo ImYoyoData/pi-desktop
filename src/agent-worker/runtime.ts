@@ -1230,6 +1230,10 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			});
 			return;
 		}
+		case "set_session_name":
+			// pi 的改名直接改会话文件，worker 不参与；扣到这里说明调用方传错了。
+			post({ kind: "result", id, error: "unsupported command: set_session_name" });
+			return;
 		default: {
 			const _exhaustive: never = command;
 			void _exhaustive;
