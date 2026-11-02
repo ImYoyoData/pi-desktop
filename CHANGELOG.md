@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.3.7-rc.4 (2026-11-02)
+
+回填 rc.3 评审指出的问题，都是细节回归：带环境变量前缀的常驻命令不再被当成前台阻塞，后台残留进程不会再从运行面板消失，ask_user 待答时重编辑不再卡住。
+
+### 修复 Fixes
+
+- **修复后台跟踪与重编辑阻塞**：常驻判定重新支持 `PORT=3000 npm run dev` 这类环境变量前缀；shell 退出后的残留进程安静下来仍留在运行面板、能终止；ask_user 待答时重编辑先停当前轮再排队；运行面板不再把已结束的 run 复活；grep 空结果带说明时仍显示「无匹配」，无扩展名的单文件搜索点开不再拼错路径。
+
+- **Fixed background tracking and blocked re-edits**: persistent-command detection supports environment prefixes such as `PORT=3000 npm run dev` again; leftover processes stay in the Running panel, and stay terminable, after the shell exits and goes quiet; a re-edit submitted while ask_user waits stops the active turn before queuing; the Running panel no longer resurrects runs that already ended; grep reports "no matches" when an explanation is appended, and single-file searches without an extension no longer open a joined-up wrong path.
+
 ## v0.3.7-rc.3 (2026-11-02)
 
 本版给最后一条用户消息加上发送回执（已发送 / 已读），ask_user 对齐 Codex 的问答协议：短标签改为 header、支持密文题，并对题量与选项数做校验；工具卡片里 grep 结果按文件分组、可以直接点开文件，工具族补齐图标与结果摘要，等待指示器说清请求阶段与上下文压缩进度。同时修复消息区贴底抽搐、折叠展开把正在看的行顶走、展开右侧栏文件页卡顿数秒等问题。
@@ -27,7 +37,6 @@
 - **修复 ask_user 选项上限**：客户端补齐的自定义选项不再计入选项数量。
 - **修复壁纸模式下输入区两块玻璃**：输入框与吸附卡片合并成一块，输入控件描边跟随玻璃变量，主按钮尺寸收到 22px，菜单底色回到抬升表面。
 - **工具偏好**：grep / find 只列工具参数，不再教 shell 写法。
-- **修复后台跟踪与重编辑阻塞**：常驻判定重新支持 `PORT=3000 npm run dev` 这类环境变量前缀；shell 退出后的残留进程安静下来仍留在运行面板、能终止；ask_user 待答时重编辑先停当前轮再排队；运行面板不再把已结束的 run 复活；grep 空结果带说明时仍显示「无匹配」，无扩展名的单文件搜索点开不再拼错路径。
 
 - **Fixed the message area twitching while pinned to the bottom**: pinning ran inside rAF, before the frame's layout, so it read the previous frame's scrollHeight and fell one frame behind every time; it now observes the content height and writes synchronously in the ResizeObserver callback so the position and the height change land in the same frame, with the write itself pulled into one place and its guards gathered together.
 - **Fixed the files page stalling for seconds when opening the right pane**: directory listing uses `readdir` with `withFileTypes` instead of statting every entry (symlinks and unknown types on network drives still fall back); previews are no longer warmed while the pane is collapsed or another page is active, while the active, dirty or missing tabs stay mounted; layout writes short-circuit on equality so the preference stops echoing itself; the tree appears first and git status follows.
@@ -36,7 +45,6 @@
 - **Fixed the ask_user option limit**: the custom option the client appends no longer counts toward the number of options.
 - **Fixed the input area being two panes of glass under a wallpaper**: the composer and the pinned card merge into one, input outlines follow the glass variables, the primary button shrinks to 22px, and menus return to the raised surface colour.
 - **Tool preference**: grep and find list tool parameters only and no longer teach shell invocations.
-- **Fixed background tracking and blocked re-edits**: persistent-command detection supports environment prefixes such as `PORT=3000 npm run dev` again; leftover processes stay in the Running panel, and stay terminable, after the shell exits and goes quiet; a re-edit submitted while ask_user waits stops the active turn before queuing; the Running panel no longer resurrects runs that already ended; grep still reports "no matches" when an explanation is appended, and single-file searches without an extension no longer open a joined-up wrong path.
 
 ## v0.3.7-rc.2 (2026-10-31)
 
