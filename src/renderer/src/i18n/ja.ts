@@ -123,7 +123,6 @@ export const ja = {
 	customizeGroupBuiltinHint: "pi が提供",
 	customizeGroupDesktopHint: "Pi Desktop が提供",
 	customizeGroupExtensionHint: "拡張機能パッケージが提供",
-	customizeTitle: "エージェント設定",
 	customizeNotifications: "通知",
 	customizeNotificationsDesc: "完了サウンドとシステム通知。",
 	customizeNetwork: "ネットワークプロキシー",

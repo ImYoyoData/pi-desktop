@@ -119,6 +119,13 @@ const SECTION_IDS = [
 const LIST_KINDS = ["skills", "instructions", "mcp", "plugins"] as const;
 type ListKind = (typeof LIST_KINDS)[number];
 
+/** 配置管理下的次级来源：pi 是现有配置，omp 暂未实现。 */
+const CONFIG_SOURCES = [
+  { id: "pi", label: "Pi" },
+  { id: "omp", label: "OMP" },
+] as const;
+type ConfigSource = (typeof CONFIG_SOURCES)[number]["id"];
+
 /** VS Code 侧栏常量：默认 224px，可拖拽 190–380。 */
 const SIDEBAR_DEFAULT_WIDTH = 224;
 const SIDEBAR_MIN_WIDTH = 190;
@@ -152,6 +159,7 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
   const scopedWorkspaces = useScopedWorkspaces();
 
   const [active, setActive] = useState<string>(() => resolveSection(section));
+  const [configSource, setConfigSource] = useState<ConfigSource>("pi");
   const [modal, setModal] = useState<string | null>(null);
   const [width, setWidth] = useState<number>(readWidth);
   const [editing, setEditing] = useState<EditingTarget | null>(null);
@@ -234,6 +242,7 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
   const current = sections.find((entry) => entry.id === active) ?? sections[0];
   const activeGroup = groupOf(current.id);
   const groupSections = sections.filter((entry) => groupOf(entry.id) === activeGroup);
+  const configEmpty = activeGroup === "config" && configSource === "omp";
 
   const listKind: ListKind = (LIST_KINDS as readonly string[]).includes(active)
     ? (active as ListKind)
@@ -374,8 +383,19 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
     if (active !== "mcp") setMcpForm(null);
   }, [active]);
 
+  /** 切换配置来源：有未保存改动时先询问，离开编辑器与内嵌表单。 */
+  function switchSource(id: ConfigSource): void {
+    if (id === configSource) return;
+    leaveEditor(() => {
+      setMcpForm(null);
+      setConfigSource(id);
+    });
+  }
+
   function selectSection(id: string): void {
     leaveEditor(() => {
+      // omp 暂无自己的分类，点左侧条目时先切回 pi，避免点击无反应。
+      if (configSource === "omp") setConfigSource("pi");
       setActive(id);
       layout.setCustomizeSection(id);
     });
@@ -755,6 +775,26 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
               </button>
             ))}
           </div>
+          {activeGroup === "config" ? (
+            <div className={styles.sourceTabs} role="tablist">
+              {CONFIG_SOURCES.map((source) => (
+                <button
+                  key={source.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={source.id === configSource}
+                  className={
+                    source.id === configSource
+                      ? `${styles.sourceTab} ${styles.sourceTabActive}`
+                      : styles.sourceTab
+                  }
+                  onClick={() => switchSource(source.id)}
+                >
+                  {source.label} {t.customizeGroupConfig}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <div className={styles.sidebarSectionsList} role="tablist">
             {groupSections.map((entry) => (
               <button
@@ -795,7 +835,9 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
       />
 
       <section className={styles.managementContent}>
-        {mcpForm && active === "mcp" ? (
+        {configEmpty ? (
+          <div key="config-empty" className={`${styles.contentInner} view-layer-enter`} />
+        ) : mcpForm && active === "mcp" ? (
           <div key="mcp-form" className={`${styles.contentInner} view-layer-enter`}>
             <McpServerForm
               workspaces={scopedWorkspaces.paths}

@@ -123,7 +123,6 @@ export const zh = {
 	customizeGroupBuiltinHint: "由 pi 提供",
 	customizeGroupDesktopHint: "由 Pi Desktop 提供",
 	customizeGroupExtensionHint: "由扩展包提供",
-	customizeTitle: "智能体设置",
 	customizeNotifications: "通知",
 	customizeNotificationsDesc: "完成提示音与系统通知。",
 	customizeNetwork: "网络代理",

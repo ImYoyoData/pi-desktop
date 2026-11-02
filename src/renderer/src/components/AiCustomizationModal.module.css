@@ -7,6 +7,7 @@
 }
 
 .modalEditorPanel {
+  --customize-header-height: 40px;
   position: absolute;
   display: grid;
   grid-template-rows: auto 1fr;
@@ -23,8 +24,8 @@
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
-  height: 40px;
-  min-height: 40px;
+  height: var(--customize-header-height);
+  min-height: var(--customize-header-height);
   padding: 0 8px 0 10px;
   background: var(--bg);
   color: var(--fg);
@@ -33,16 +34,6 @@
 
 .dragging {
   cursor: grabbing;
-}
-
-.modalEditorTitle {
-  grid-column: 1;
-  overflow: hidden;
-  color: var(--fg);
-  font-size: 0.9231rem;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .modalEditorActions {
@@ -90,7 +81,7 @@
   display: flex;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .modalEditorContent > div {

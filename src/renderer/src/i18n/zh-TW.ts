@@ -123,7 +123,6 @@ export const zhTW = {
 	customizeGroupBuiltinHint: "由 pi 提供",
 	customizeGroupDesktopHint: "由 Pi Desktop 提供",
 	customizeGroupExtensionHint: "由擴充套件提供",
-	customizeTitle: "智慧代理設定",
 	customizeNotifications: "通知",
 	customizeNotificationsDesc: "完成提示音與系統通知。",
 	customizeNetwork: "網路代理",
