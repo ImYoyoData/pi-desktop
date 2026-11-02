@@ -8,11 +8,17 @@ import {
 import { testOmpMcpServer } from "./omp-mcp-test";
 import { getWorkspace } from "./workspace-ipc";
 import type { SessionBroker } from "./session-broker";
+import { createWorkerRestartScheduler } from "./worker-restart-scheduler";
 
 /** 同时测试的服务器个数：串行太慢，全量并发会瞬间拉起过多子进程。 */
 const MCP_TEST_CONCURRENCY = 4;
 
 export function registerOmpResourcesIpc(broker: SessionBroker): void {
+	// OMP 的 disabledExtensions / mcp.json 变更要 worker 重读；连点开关合并成一次。
+	const restartWorkers = createWorkerRestartScheduler(() =>
+		broker.restartWorkersForBackend("omp"),
+	);
+
 	ipcMain.handle(IpcChannels.ompResources.list, (_event, root?: string) =>
 		listOmpResources(root ?? getWorkspace() ?? undefined),
 	);
@@ -21,8 +27,7 @@ export function registerOmpResourcesIpc(broker: SessionBroker): void {
 		IpcChannels.ompResources.setEnabled,
 		(_event, item: OmpResourceItem, enabled: boolean) => {
 			setOmpResourceEnabled(item, enabled);
-			// OMP 的 disabledExtensions / mcp.json 改动要 worker 重读。
-			void broker.restartWorkersForBackend("omp");
+			restartWorkers();
 		},
 	);
 

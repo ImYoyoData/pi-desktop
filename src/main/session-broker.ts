@@ -1242,6 +1242,29 @@ export function createSessionBroker(deps: {
     setStatus(sessionId, "idle");
   }
 
+  /**
+   * 让 worker 重新读配置（技能、模型、设置变更）。
+   *
+   * 正在跑的回合不能打断：忙的那几个等回合结束再回收，下次启动自然读到
+   * 新配置；有命令在等结果的也不能现在断。只有真正空闲的才立即重建。
+   */
+  async function restartWorkerWhenIdle(sessionId: string): Promise<void> {
+    const rec = sessions.get(sessionId);
+    if (!rec?.worker) {
+      return;
+    }
+    if (rec.summary.status === "running" || rec.summary.status === "stuck") {
+      rec.restartOnIdle = true;
+      return;
+    }
+    if (rec.pendingCommands.size > 0 || deps.hasActiveRuns?.(sessionId)) {
+      // 空闲回收器会等到这些跑完再动手。
+      scheduleIdleDestroy(sessionId);
+      return;
+    }
+    await restartWorker(sessionId);
+  }
+
   /** 环境变量变更（代理设置）需要重建 worker：空闲的立即销毁，忙碌的等本轮结束。 */
   function recycleWorkers(): void {
     for (const [id, rec] of sessions) {
@@ -1262,7 +1285,7 @@ export function createSessionBroker(deps: {
       )
       .map(([id]) => id);
     for (const id of ids) {
-      await restartWorker(id);
+      await restartWorkerWhenIdle(id);
     }
   }
 
@@ -1273,7 +1296,7 @@ export function createSessionBroker(deps: {
       .filter(([, rec]) => rec.backend === backend && rec.worker !== null)
       .map(([id]) => id);
     for (const id of ids) {
-      await restartWorker(id);
+      await restartWorkerWhenIdle(id);
     }
   }
 
@@ -1364,7 +1387,7 @@ export function createSessionBroker(deps: {
       if (rec.backend === "omp") {
         await sendRawIfAlive(id, { kind: "reload_models" });
       } else {
-        await restartWorker(id);
+        await restartWorkerWhenIdle(id);
       }
     }
   }

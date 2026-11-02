@@ -807,3 +807,85 @@ describe("session-broker", () => {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   });
 });
+
+/** 可控 worker：记录重启/退出，并能把事件打回 broker。 */
+function spawnControlled() {
+  const killed: string[] = [];
+  let spawns = 0;
+  let listener: ((msg: WorkerOutbound) => void) | null = null;
+  const spawnWorker: SpawnWorker = async (cwd, filePath) => {
+    spawns += 1;
+    const id = idFromPath(filePath);
+    return {
+      id,
+      cwd,
+      filePath: filePath ?? `/tmp/${id}.jsonl`,
+      worker: {
+        send: async () => null,
+        kill: () => {
+          killed.push(id);
+        },
+        onMessage: (cb) => {
+          listener = cb;
+          return () => {
+            listener = null;
+          };
+        },
+      },
+    };
+  };
+  return {
+    spawnWorker,
+    killed,
+    emit: (msg: WorkerOutbound) => listener?.(msg),
+    spawnCount: () => spawns,
+  };
+}
+
+describe("配置变更时的 worker 重建", () => {
+  it("正在跑的回合不打断：等回合结束再回收", async () => {
+    const ctl = spawnControlled();
+    const broker = createSessionBroker({
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: ctl.spawnWorker,
+    });
+    await broker.createSession("/tmp/a");
+    await vi.waitFor(() => expect(ctl.spawnCount()).toBe(1));
+
+    ctl.emit({ kind: "event", event: { type: "agent_start" } });
+    await broker.restartWorkersForBackend("pi");
+    expect(ctl.killed).toEqual([]);
+    expect(ctl.spawnCount()).toBe(1);
+
+    ctl.emit({ kind: "event", event: { type: "agent_end" } });
+    expect(ctl.killed).toEqual(["session-a"]);
+  });
+
+  it("空闲的 worker 立即重建，读到新配置", async () => {
+    const ctl = spawnControlled();
+    const broker = createSessionBroker({
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: ctl.spawnWorker,
+    });
+    await broker.createSession("/tmp/a");
+    await vi.waitFor(() => expect(ctl.spawnCount()).toBe(1));
+
+    await broker.restartWorkersForBackend("pi");
+    expect(ctl.killed).toEqual(["session-a"]);
+    expect(ctl.spawnCount()).toBe(2);
+  });
+
+  it("改工作区配置只动该工作区的会话", async () => {
+    const ctl = spawnControlled();
+    const broker = createSessionBroker({
+      allocateSession: allocateSeq(["session-a", "session-b"]),
+      spawnWorker: ctl.spawnWorker,
+    });
+    await broker.createSession("/tmp/a");
+    await broker.createSession("/tmp/b");
+    await vi.waitFor(() => expect(ctl.spawnCount()).toBe(2));
+
+    await broker.restartWorkersForCwd("/tmp/a");
+    expect(ctl.killed).toEqual(["session-a"]);
+  });
+});
