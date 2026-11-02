@@ -247,9 +247,6 @@ export function OmpSettings({ tab }: { tab: string }): ReactNode {
 				<div className={styles.headerText}>
 					<h2 className={styles.title}>{ompTabTitle(t, tab)}</h2>
 					{lead ? <p className={styles.hint}>{lead}</p> : null}
-					{snapshot.filePath ? (
-						<code className={styles.path}>{snapshot.filePath}</code>
-					) : null}
 				</div>
 				<div className={styles.headerActions}>
 					<Input
