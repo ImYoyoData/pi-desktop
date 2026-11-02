@@ -46,6 +46,13 @@ function toBrokerMessage(msg: OmpWorkerOutbound): WorkerOutbound {
 			return { kind: "pong" };
 		case "fatal":
 			return { kind: "fatal", error: msg.error };
+		case "rpc_request":
+			return {
+				kind: "rpc_request",
+				id: msg.id,
+				method: msg.method,
+				params: msg.params,
+			};
 	}
 }
 
@@ -57,11 +64,17 @@ function toOmpInbound(msg: WorkerInbound): OmpWorkerInbound | null {
 		case "command":
 			return { kind: "command", id: msg.id, command: msg.command };
 		case "reload_models":
-			return { kind: "reload_models" };
-		case "shutdown":
+			return { kind: "reload_models" };		case "shutdown":
 			return { kind: "shutdown" };
 		case "ping":
 			return { kind: "ping" };
+		case "rpc_response":
+			return {
+				kind: "rpc_response",
+				id: msg.id,
+				result: msg.result,
+				error: msg.error,
+			};
 		default:
 			return null;
 	}

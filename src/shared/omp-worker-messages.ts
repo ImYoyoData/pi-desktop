@@ -11,7 +11,8 @@ export type OmpWorkerInbound =
 	| { kind: "command"; id: string; command: AgentCommand }
 	| { kind: "reload_models" }
 	| { kind: "shutdown" }
-	| { kind: "ping" };
+	| { kind: "ping" }
+	| { kind: "rpc_response"; id: string; result?: unknown; error?: string };
 
 export type OmpWorkerOutbound =
 	| {
@@ -25,4 +26,11 @@ export type OmpWorkerOutbound =
 	| { kind: "result"; id: string; data?: unknown; error?: string }
 	| { kind: "event"; event: Record<string, unknown> }
 	| { kind: "pong" }
-	| { kind: "fatal"; error: string };
+	| { kind: "fatal"; error: string }
+	/** worker 向主进程发起的 RPC（如 ask_user 提问）。 */
+	| {
+			kind: "rpc_request";
+			id: string;
+			method: string;
+			params: Record<string, unknown>;
+	  };

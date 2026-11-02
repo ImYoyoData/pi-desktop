@@ -7,6 +7,18 @@ import {
 import type { OmpWorkerInbound } from "../shared/omp-worker-messages";
 import type { AgentCommand } from "../shared/protocol";
 import { toPromptImages } from "../shared/protocol";
+import { createOmpAskUserTool } from "./ask-user-tool";
+import {
+	CONTEXT_USAGE_EVENT_TYPES,
+	emitContextUsage,
+} from "./context-usage";
+import { handleOmpRpcResponse, setRpcWorkspaceRoot } from "./main-rpc";
+import { createOmpDesktopExtensionUIContext } from "./extension-ui-context";
+import {
+	fillOmpCancelledToolResults,
+	rollbackOmpTurnEnd,
+	rollbackOmpUserTurn,
+} from "./rollback";
 import { post } from "./transport";
 
 let session: AgentSession | null = null;
@@ -75,18 +87,32 @@ async function initSession(cwd: string, filePath?: string): Promise<void> {
 	}
 	initStarted = true;
 	const agentDir = getAgentDir();
+	setRpcWorkspaceRoot(cwd);
 	const sessionManager = await openSessionManager(cwd, filePath);
-	const { session: created, modelFallbackMessage } = await createAgentSession({
-		cwd,
-		agentDir,
-		sessionManager,
-	});
+	const { session: created, modelFallbackMessage, setToolUIContext } =
+		await createAgentSession({
+			cwd,
+			agentDir,
+			sessionManager,
+			customTools: [createOmpAskUserTool()],
+		});
+	// 扩展与工具审批的对话都走桌面卡片。
+	setToolUIContext(createOmpDesktopExtensionUIContext(), true);
 	if (modelFallbackMessage) {
 		process.stderr.write(`[omp-worker] ${modelFallbackMessage}\n`);
 	}
 	created.subscribe(
 		createEventThrottle() as Parameters<AgentSession["subscribe"]>[0],
 	);
+	created.subscribe((event: { type?: unknown }) => {
+		if (typeof event.type !== "string") return;
+		if (!CONTEXT_USAGE_EVENT_TYPES.has(event.type)) return;
+		try {
+			emitContextUsage(created);
+		} catch {
+			// 用量上报是尽力而为。
+		}
+	});
 	session = created;
 	post({
 		kind: "ready",
@@ -126,6 +152,7 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			return;
 		case "abort":
 			await requireSession().abort();
+			fillOmpCancelledToolResults(requireSession());
 			post({ kind: "result", id, data: { ok: true } });
 			return;
 		case "clear_queue":
@@ -163,6 +190,32 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			await requireSession().compact(command.customInstructions);
 			post({ kind: "result", id, data: { ok: true } });
 			return;
+		case "rollback_user": {
+			const active = requireSession();
+			const ok = await rollbackOmpUserTurn(
+				active,
+				command.userIndex,
+				command.expectText,
+			);
+			post({ kind: "result", id, data: { ok } });
+			return;
+		}
+		case "rollback_turn_end": {
+			const active = requireSession();
+			// 运行中先停下当前轮：会话树正在追加，直接回退会与流式输出争用。
+			if (active.isStreaming) {
+				await active.abort();
+			}
+			const ok = await rollbackOmpTurnEnd(
+				active,
+				command.userIndex,
+				command.expectText,
+			);
+			// 停在一半的工具调用仍留在保留的链上，就地补齐。
+			if (ok) fillOmpCancelledToolResults(active);
+			post({ kind: "result", id, data: { ok } });
+			return;
+		}
 		case "get_state": {
 			const active = requireSession();
 			post({
@@ -193,6 +246,10 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 export async function handleWorkerMessage(msg: OmpWorkerInbound): Promise<void> {
 	if (msg.kind === "ping") {
 		post({ kind: "pong" });
+		return;
+	}
+	if (msg.kind === "rpc_response") {
+		handleOmpRpcResponse(msg);
 		return;
 	}
 	if (msg.kind === "shutdown") {
