@@ -258,13 +258,13 @@ export function registerWorkspaceIpc(nextDeps: WorkspaceIpcDeps = {}): void {
 			getStore().setArchivedSessions(Array.isArray(ids) ? ids : []),
 	);
 
-	ipcMain.handle(IpcChannels.workspace.listBackends, () =>
-		getStore().listBackends(),
+	ipcMain.handle(IpcChannels.workspace.getBackend, () =>
+		getStore().getBackend(),
 	);
 
 	ipcMain.handle(
 		IpcChannels.workspace.setBackend,
-		(_event, root: string, backend: AgentBackend) =>
-			getStore().setBackend(root, agentBackendOf(backend)),
+		(_event, backend: AgentBackend) =>
+			getStore().setBackend(agentBackendOf(backend)),
 	);
 }

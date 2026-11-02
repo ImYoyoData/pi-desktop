@@ -118,8 +118,8 @@ export const IpcChannels = {
 		/** 已归档会话 id 列表：读取与覆写。 */
 		listArchivedSessions: "workspace:listArchivedSessions",
 		setArchivedSessions: "workspace:setArchivedSessions",
-		/** 工作区使用的智能体后端：pi 或 omp。 */
-		listBackends: "workspace:listBackends",
+		/** 全局智能体后端：pi 或 omp，所有工作区共用。 */
+		getBackend: "workspace:getBackend",
 		setBackend: "workspace:setBackend",
 	},
 	sessions: {

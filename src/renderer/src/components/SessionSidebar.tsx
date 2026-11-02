@@ -23,6 +23,8 @@ import {
 import type { MenuProps } from "antd";
 import { NO_OVERLAY_MOTION } from "@renderer/components/overlay-motion";
 import { PullRequestIcon } from "@renderer/components/icons/PullRequestIcon";
+import PiMarkIcon from "@renderer/components/icons/PiMarkIcon";
+import OmpLogoIcon from "@renderer/components/icons/OmpLogoIcon";
 import {
   AddOutline,
   ChatboxOutline,
@@ -49,7 +51,16 @@ import {
   AGENT_BACKEND_LABELS,
   type AgentBackend,
 } from "../../../shared/agent-backend";
-import { workspaceBackend } from "@renderer/utils/workspace-backend";
+
+/** 两套后端各自的品牌图标。 */
+const BACKEND_ICONS: Record<
+  AgentBackend,
+  (props: { size?: number }) => ReactNode
+> = {
+  pi: PiMarkIcon,
+  omp: OmpLogoIcon,
+};
+import { currentBackend } from "@renderer/utils/current-backend";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useSessionWidgetsStore } from "@renderer/stores/session-widgets";
 import { useChatStore } from "@renderer/stores/chat";
@@ -334,8 +345,7 @@ export function SessionSidebar(): ReactNode {
     [workspace],
   );
   const workspacePathsKey = workspacePaths.join("\0");
-  const activeRoot = workspace.root;
-  const activeBackend = activeRoot ? workspaceBackend(activeRoot) : "pi";
+  const activeBackend = currentBackend();
 
   const localRef = useRef<SidebarLocal>({
     sessionsByRoot,
@@ -617,7 +627,7 @@ export function SessionSidebar(): ReactNode {
 
   async function loadSessions(root: string): Promise<SessionSummary[]> {
     markRendererStartup("renderer:sessions-request");
-    const list = await window.api.sessions.list(root, workspaceBackend(root));
+    const list = await window.api.sessions.list(root, currentBackend());
     setSessionsByRoot((prev) => ({ ...prev, [root]: list }));
     pruneSessionRanks(root, new Set(list.map((s) => s.id)));
     useSessionsStore.getState().replaceList(root, list);
@@ -727,16 +737,21 @@ export function SessionSidebar(): ReactNode {
     await loadSessions(root);
   }
 
-  /** 切换工作区使用的智能体后端：旧会话保留在各自目录，列表重新加载。 */
-  async function switchWorkspaceBackend(
-    backend: AgentBackend,
-  ): Promise<void> {
+  /**
+   * 切换全局智能体后端：所有工作区一起换引擎。
+   * pi 与 omp 的会话目录不同，换后端后每个工作区的列表都得重载。
+   */
+  async function switchBackend(backend: AgentBackend): Promise<void> {
+    if (currentBackend() === backend) return;
     const root = useWorkspaceStore.getState().root;
-    if (!root || workspaceBackend(root) === backend) return;
-    await discardActiveUnstartedForRoot(root);
-    await useWorkspaceStore.getState().setWorkspaceBackend(root, backend);
-    await loadSessions(root);
-    useSessionsStore.getState().beginDraft(root);
+    if (root) await discardActiveUnstartedForRoot(root);
+    await useWorkspaceStore.getState().setBackend(backend);
+    const roots = new Set([
+      ...Object.keys(localRef.current.sessionsByRoot),
+      ...(root ? [root] : []),
+    ]);
+    await Promise.all([...roots].map((r) => loadSessions(r)));
+    if (root) useSessionsStore.getState().beginDraft(root);
   }
 
   /** Discard the active session (of a root) when the user leaves it unstarted. */
@@ -2185,48 +2200,47 @@ export function SessionSidebar(): ReactNode {
   return (
     <aside className="sidebar">
       <div className={styles.topActions}>
-        {activeRoot ? (
-          <Dropdown
-            {...NO_OVERLAY_MOTION}
-            trigger={["click"]}
-            menu={{
-              selectable: true,
-              selectedKeys: [activeBackend],
-              items: AGENT_BACKENDS.map((backend) => ({
-                key: backend,
-                label: (
-                  <span className={styles.backendMenuLabel}>
-                    <span>{AGENT_BACKEND_LABELS[backend]}</span>
-                    {backend === activeBackend ? (
-                      <CheckmarkOutline size={14} />
-                    ) : null}
-                  </span>
-                ),
-                // 选中态用项目自己的中性灰底，避免 antd 默认的深蓝高亮与整体配色打架。
-                style:
-                  backend === activeBackend
-                    ? { backgroundColor: "var(--bg-selected)", fontWeight: 600 }
-                    : undefined,
-              })),
-              onClick: ({ key }) =>
-                void switchWorkspaceBackend(key as AgentBackend),
-            }}
-          >
-            <Button
-              type="text"
-              size="small"
-              className={`pi-interactive ${styles.topBtn}`}
-              styles={{ root: { justifyContent: "flex-start" } }}
-              title={t.workspaceBackend}
-            >
-              <span className={styles.btnContent}>
-                <span className={styles.btnLabel}>
-                  {AGENT_BACKEND_LABELS[activeBackend]}
+        <Dropdown
+          {...NO_OVERLAY_MOTION}
+          trigger={["click"]}
+          menu={{
+            selectable: true,
+            selectedKeys: [activeBackend],
+            items: AGENT_BACKENDS.map((backend) => ({
+              key: backend,
+              label: (
+                <span className={styles.backendMenuLabel}>
+                  {BACKEND_ICONS[backend]({ size: 14 })}
+                  <span>{AGENT_BACKEND_LABELS[backend]}</span>
+                  {backend === activeBackend ? (
+                    <CheckmarkOutline size={14} />
+                  ) : null}
                 </span>
+              ),
+              // 选中态用项目自己的中性灰底，避免 antd 默认的深蓝高亮与整体配色打架。
+              style:
+                backend === activeBackend
+                  ? { backgroundColor: "var(--bg-selected)", fontWeight: 600 }
+                  : undefined,
+            })),
+            onClick: ({ key }) => void switchBackend(key as AgentBackend),
+          }}
+        >
+          <Button
+            type="text"
+            size="small"
+            className={`pi-interactive ${styles.topBtn}`}
+            styles={{ root: { justifyContent: "flex-start" } }}
+            title={t.workspaceBackend}
+          >
+            <span className={styles.btnContent}>
+              {BACKEND_ICONS[activeBackend]({ size: 14 })}
+              <span className={styles.btnLabel}>
+                {AGENT_BACKEND_LABELS[activeBackend]}
               </span>
-            </Button>
-          </Dropdown>
-        ) : null}
+            </span>
+          </Button>
+        </Dropdown>
         <Button
           type="text"
           size="small"

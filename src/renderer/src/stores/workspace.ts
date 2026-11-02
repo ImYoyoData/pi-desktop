@@ -23,8 +23,8 @@ type WorkspaceBase = {
 	aliases: Record<string, string>;
 	/** 已归档的会话 id（从侧栏隐藏，可恢复）。 */
 	archivedSessions: string[];
-	/** 绝对路径 → 该工作区选定的智能体后端（缺省 pi）。 */
-	backends: Record<string, AgentBackend>;
+	/** 全局智能体后端（缺省 pi）：所有工作区共用同一个引擎。 */
+	backend: AgentBackend;
 	/**
 	 * True once the current `root` is ready for session hydrate / worker spawn.
 	 */
@@ -48,10 +48,7 @@ export type WorkspaceState = WorkspaceBase & {
 	refreshArchivedSessions: () => Promise<void>;
 	setArchivedSessions: (ids: string[]) => Promise<void>;
 	refreshBackends: () => Promise<void>;
-	setWorkspaceBackend: (
-		workspaceRoot: string,
-		backend: AgentBackend,
-	) => Promise<AgentBackend>;
+	setBackend: (backend: AgentBackend) => Promise<AgentBackend>;
 };
 
 export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
@@ -193,17 +190,12 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
 	}
 
 	async function refreshBackends(): Promise<void> {
-		set({ backends: await window.api.workspace.listBackends() });
+		set({ backend: await window.api.workspace.getBackend() });
 	}
 
-	async function setWorkspaceBackend(
-		workspaceRoot: string,
-		backend: AgentBackend,
-	): Promise<AgentBackend> {
-		const next = agentBackendOf(
-			await window.api.workspace.setBackend(workspaceRoot, backend),
-		);
-		set({ backends: await window.api.workspace.listBackends() });
+	async function setBackend(backend: AgentBackend): Promise<AgentBackend> {
+		const next = agentBackendOf(await window.api.workspace.setBackend(backend));
+		set({ backend: next });
 		return next;
 	}
 
@@ -213,7 +205,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
 		recent: [],
 		aliases: {},
 		archivedSessions: [],
-		backends: {},
+		backend: "pi",
 		sessionsReady: false,
 		getWorkspace,
 		openWorkspace,
@@ -231,7 +223,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
 		refreshArchivedSessions,
 		setArchivedSessions,
 		refreshBackends,
-		setWorkspaceBackend,
+		setBackend,
 	};
 });
 
