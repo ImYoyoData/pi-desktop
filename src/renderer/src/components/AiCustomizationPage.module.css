@@ -122,11 +122,12 @@
 }
 
 .sidebarSectionsList {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  overflow: hidden;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .sectionListItem {

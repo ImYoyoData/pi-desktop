@@ -25,6 +25,8 @@ type ParsedEntry = {
   provider?: string;
   /** model_change entries. */
   modelId?: string;
+  /** model_change entries：omp 把 `provider/modelId` 存成一个字符串。 */
+  modelString?: string;
   /** thinking_level_change entries. */
   thinkingLevel?: string;
   /** compaction / branch_summary entries. */
@@ -311,6 +313,7 @@ function parseEntryLine(
     message,
     ...(typeof parsed.provider === "string" ? { provider: parsed.provider } : {}),
     ...(typeof parsed.modelId === "string" ? { modelId: parsed.modelId } : {}),
+    ...(typeof parsed.model === "string" ? { modelString: parsed.model } : {}),
     ...(typeof parsed.thinkingLevel === "string"
       ? { thinkingLevel: parsed.thinkingLevel }
       : {}),
@@ -366,6 +369,15 @@ function buildMessagesFromEntries(
     if (entry.type === "model_change") {
       if (entry.provider && entry.modelId) {
         currentModel = { provider: entry.provider, id: entry.modelId };
+      } else if (entry.modelString) {
+        // omp 写 `provider/modelId`；模型 id 自身可以带斜杠，只切第一段。
+        const slash = entry.modelString.indexOf("/");
+        if (slash > 0) {
+          currentModel = {
+            provider: entry.modelString.slice(0, slash),
+            id: entry.modelString.slice(slash + 1),
+          };
+        }
       }
       continue;
     }

@@ -4,7 +4,7 @@ import type {
   WorkerInbound,
   WorkerOutbound,
 } from "../shared/agent-worker-messages";
-import type { SpawnWorker, WorkerHandle } from "./session-broker";
+import type { SpawnWorker, WorkerHandle } from "./backend-runtime";
 import { getStreamRenderSettings } from "./stream-render-host";
 import { getUiLocale } from "./ui-locale";
 import { buildAgentWorkerEnv } from "./pi-path-env";

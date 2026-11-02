@@ -118,6 +118,9 @@ export const IpcChannels = {
 		/** 已归档会话 id 列表：读取与覆写。 */
 		listArchivedSessions: "workspace:listArchivedSessions",
 		setArchivedSessions: "workspace:setArchivedSessions",
+		/** 工作区使用的智能体后端：pi 或 omp。 */
+		listBackends: "workspace:listBackends",
+		setBackend: "workspace:setBackend",
 	},
 	sessions: {
 		list: "sessions:list",
@@ -274,6 +277,22 @@ export const IpcChannels = {
 		oauthPrompt: "models:oauthPrompt",
 		oauthCancel: "models:oauthCancel",
 		oauthEvent: "models:oauthEvent",
+	},
+	/** OMP 自己的模型配置（~/.omp/agent/models.yml），与 pi 的 models.json 无关。 */
+	ompModels: {
+		get: "ompModels:get",
+		save: "ompModels:save",
+	},
+	/** OMP 自己的通用设置（~/.omp/agent/config.yml）。 */
+	ompSettings: {
+		get: "ompSettings:get",
+		save: "ompSettings:save",
+	},
+	/** OMP 自己的资源：技能 / 指令 / MCP / 扩展。 */
+	ompResources: {
+		list: "ompResources:list",
+		setEnabled: "ompResources:setEnabled",
+		testMcp: "ompResources:testMcp",
 	},
 	terminal: {
 		create: "terminal:create",
@@ -679,6 +698,8 @@ export type SessionSummary = {
 	id: string;
 	filePath: string;
 	cwd: string;
+	/** 会话属于哪个智能体后端；旧数据缺省按 pi。 */
+	backend?: import("./agent-backend").AgentBackend;
 	name?: string;
 	modified: string;
 	/** 会话文件 header 的创建时间（缺失时回退 modified）。 */

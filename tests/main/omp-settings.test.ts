@@ -1,0 +1,102 @@
+import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import {
+	readOmpSetting,
+	writeOmpSetting,
+} from "../../src/shared/omp-settings";
+
+describe("omp settings 路径读写", () => {
+	let doc: Record<string, unknown>;
+
+	beforeEach(() => {
+		doc = { theme: { light: "light" }, topLevel: 1 };
+	});
+
+	it("按点分路径读到嵌套值", () => {
+		expect(readOmpSetting(doc, "theme.light")).toBe("light");
+		expect(readOmpSetting(doc, "theme.dark")).toBeUndefined();
+		expect(readOmpSetting(doc, "missing.deep.key")).toBeUndefined();
+	});
+
+	it("写入嵌套值并保留兄弟字段", () => {
+		writeOmpSetting(doc, "theme.dark", "dark");
+		expect(doc).toEqual({
+			theme: { light: "light", dark: "dark" },
+			topLevel: 1,
+		});
+	});
+
+	it("删除值时清掉变空的父节点", () => {
+		writeOmpSetting(doc, "theme.light", null);
+		expect(doc).toEqual({ topLevel: 1 });
+	});
+
+	it("删除不存在的键不改动文档", () => {
+		writeOmpSetting(doc, "absent.key", null);
+		expect(doc).toEqual({ theme: { light: "light" }, topLevel: 1 });
+	});
+});
+
+describe("omp models.yml 合并", () => {
+	let dir: string;
+
+	beforeEach(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-desk-omp-models-"));
+		process.env.OMP_AGENT_DIR = dir;
+	});
+
+	afterEach(() => {
+		delete process.env.OMP_AGENT_DIR;
+		fs.rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("保存时保留 models.yml 里未知的字段", async () => {
+		const { saveOmpModels, readOmpModels } = await import(
+			"../../src/main/omp-models-config"
+		);
+		fs.writeFileSync(
+			path.join(dir, "models.yml"),
+			[
+				"providers:",
+				"  magpie:",
+				"    api: openai-completions",
+				"    compat:",
+				"      promptCacheSessionHeader: x-session-affinity",
+				"    models:",
+				"      - id: model-a",
+				"        cost:",
+				"          input: 0.15",
+				"",
+			].join("\n"),
+			"utf8",
+		);
+
+		const snapshot = saveOmpModels([
+			{
+				id: "magpie",
+				api: "openai-completions",
+				baseUrl: "",
+				apiKey: "",
+				models: [
+					{
+						id: "model-a",
+						name: "Model A",
+						api: "",
+						contextWindow: null,
+						maxTokens: null,
+						reasoning: false,
+						vision: false,
+					},
+				],
+			},
+		]);
+
+		expect(snapshot.providers[0]?.models[0]?.id).toBe("model-a");
+		const raw = fs.readFileSync(path.join(dir, "models.yml"), "utf8");
+		expect(raw).toContain("promptCacheSessionHeader");
+		expect(raw).toContain("input: 0.15");
+		expect(readOmpModels().providers).toHaveLength(1);
+	});
+});

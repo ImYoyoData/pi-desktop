@@ -18,10 +18,14 @@ import { join } from "path";
 import { existsSync } from "fs";
 import { IpcChannels } from "../shared/protocol";
 import { createUtilityProcessSpawnWorker } from "./agent-worker-host";
+import { createAgentBackends } from "./agent-backends";
 import { createAgentRunRegistry } from "./agent-run-registry";
 import { broadcastRunsEvent, registerAgentRunsIpc } from "./agent-runs-ipc";
 import { createSessionBroker } from "./session-broker";
 import { registerModelsIpc } from "./models-ipc";
+import { registerOmpModelsIpc } from "./omp-models-ipc";
+import { registerOmpSettingsIpc } from "./omp-settings-ipc";
+import { registerOmpResourcesIpc } from "./omp-resources-ipc";
 import { registerSessionsIpc } from "./sessions-ipc";
 import { allowForceClose, createMainWindow } from "./window";
 import { cleanupUpdateTempDir } from "./update-temp";
@@ -225,6 +229,7 @@ function boot(): void {
 
 	const broker = createSessionBroker({
 		spawnWorker: createUtilityProcessSpawnWorker(),
+		backends: createAgentBackends(),
 		onWorkerMessage: (sessionId, msg: WorkerOutbound) => {
 			registryHolder.current?.handleWorkerMessage(sessionId, msg);
 			if (msg.kind !== "rpc_request") return;
@@ -371,6 +376,9 @@ function boot(): void {
 		registerSessionsIpc(broker);
 		registerAgentRunsIpc(registryHolder.current!);
 		registerModelsIpc(broker);
+		registerOmpModelsIpc(broker);
+		registerOmpSettingsIpc(broker);
+		registerOmpResourcesIpc(broker);
 		registerAskUserIpc();
 		registerPermissionsIpc();
 		registerExtensionUiIpc();

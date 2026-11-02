@@ -12,6 +12,15 @@ import type {
 	TerminalShellOption,
 } from "./protocol";
 import { IpcChannels } from "./protocol";
+import type { AgentBackend } from "./agent-backend";
+import type { OmpModelsSnapshot, OmpProviderRow } from "./omp-models";
+import type {
+	OmpMcpTestResult,
+	OmpMcpTestTarget,
+	OmpResourceItem,
+	OmpResourcesSnapshot,
+} from "./omp-resources";
+import type { OmpSettingsSnapshot } from "./omp-settings";
 import type { StateChange } from "./state-sync";
 import type { EditContextMenuAction, EditContextMenuPayload } from "./context-menu";
 import type { EditMenuLocale } from "./edit-menu-i18n";
@@ -327,6 +336,16 @@ export function createApi(
 				IpcChannels.workspace.setArchivedSessions,
 				ids,
 			) as Promise<string[]>,
+		listBackends: () =>
+			ipcRenderer.invoke(IpcChannels.workspace.listBackends) as Promise<
+				Record<string, AgentBackend>
+			>,
+		setBackend: (root: string, backend: AgentBackend) =>
+			ipcRenderer.invoke(
+				IpcChannels.workspace.setBackend,
+				root,
+				backend,
+			) as Promise<AgentBackend>,
 		revealInFolder: (root: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.workspace.revealInFolder,
@@ -334,21 +353,28 @@ export function createApi(
 			) as Promise<void>,
 	},
 	sessions: {
-		list: (cwd: string) =>
-			ipcRenderer.invoke(IpcChannels.sessions.list, cwd) as Promise<
+		list: (cwd: string, backend?: AgentBackend) =>
+			ipcRenderer.invoke(IpcChannels.sessions.list, cwd, backend) as Promise<
 				SessionSummary[]
 			>,
-		create: (cwd: string) =>
+		create: (cwd: string, backend?: AgentBackend) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.create,
 				cwd,
+				backend,
 			) as Promise<SessionSummary>,
-		open: (sessionId: string, cwd: string, filePath?: string) =>
+		open: (
+			sessionId: string,
+			cwd: string,
+			filePath?: string,
+			backend?: AgentBackend,
+		) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.open,
 				sessionId,
 				cwd,
 				filePath,
+				backend,
 			) as Promise<SessionSummary | null>,
 		close: (sessionId: string) =>
 			ipcRenderer.invoke(IpcChannels.sessions.close, sessionId) as Promise<void>,
@@ -374,18 +400,25 @@ export function createApi(
 				IpcChannels.sessions.restartWorker,
 				sessionId,
 			) as Promise<void>,
-		delete: (sessionId: string, cwd: string) =>
+		delete: (sessionId: string, cwd: string, backend?: AgentBackend) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.delete,
 				sessionId,
 				cwd,
+				backend,
 			) as Promise<void>,
-		rename: (sessionId: string, cwd: string, name: string) =>
+		rename: (
+			sessionId: string,
+			cwd: string,
+			name: string,
+			backend?: AgentBackend,
+		) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.rename,
 				sessionId,
 				cwd,
 				name,
+				backend,
 			) as Promise<SessionSummary | null>,
 		history: (filePath: string, query?: SessionHistoryQuery) =>
 			ipcRenderer.invoke(
@@ -393,13 +426,20 @@ export function createApi(
 				filePath,
 				query,
 			) as Promise<SessionHistoryPage>,
-		fork: (sessionId: string, cwd: string, userIndex: number, expectText?: string) =>
+		fork: (
+			sessionId: string,
+			cwd: string,
+			userIndex: number,
+			expectText?: string,
+			backend?: AgentBackend,
+		) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.fork,
 				sessionId,
 				cwd,
 				userIndex,
 				expectText,
+				backend,
 			) as Promise<SessionForkResult>,
 		setUserMessageMeta: (sessionId: string, text: string, tags: unknown[]) =>
 			ipcRenderer.invoke(
@@ -420,17 +460,19 @@ export function createApi(
 				sessionId,
 				cachePath,
 			),
-		clearContext: (sessionId: string, cwd: string) =>
+		clearContext: (sessionId: string, cwd: string, backend?: AgentBackend) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.clearContext,
 				sessionId,
 				cwd,
+				backend,
 			) as Promise<void>,
-		status: (sessionId: string, cwd: string) =>
+		status: (sessionId: string, cwd: string, backend?: AgentBackend) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.status,
 				sessionId,
 				cwd,
+				backend,
 			) as Promise<SessionStatus | null>,
 		onEvent: (callback: (event: AgentEvent) => void) => {
 			const listener = (_event: Electron.IpcRendererEvent, payload: AgentEvent) =>
@@ -1093,6 +1135,44 @@ export function createApi(
 				ipcRenderer.removeListener(IpcChannels.plugins.updateProgress, listener);
 			};
 		},
+	},
+	ompSettings: {
+		get: () =>
+			ipcRenderer.invoke(
+				IpcChannels.ompSettings.get,
+			) as Promise<OmpSettingsSnapshot>,
+		save: (patch: Record<string, unknown>) =>
+			ipcRenderer.invoke(
+				IpcChannels.ompSettings.save,
+				patch,
+			) as Promise<OmpSettingsSnapshot>,
+	},
+	ompResources: {
+		list: (root?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.ompResources.list,
+				root,
+			) as Promise<OmpResourcesSnapshot>,
+		setEnabled: (item: OmpResourceItem, enabled: boolean) =>
+			ipcRenderer.invoke(
+				IpcChannels.ompResources.setEnabled,
+				item,
+				enabled,
+			) as Promise<void>,
+		testMcp: (targets: OmpMcpTestTarget[]) =>
+			ipcRenderer.invoke(
+				IpcChannels.ompResources.testMcp,
+				targets,
+			) as Promise<OmpMcpTestResult[]>,
+	},
+	ompModels: {
+		get: () =>
+			ipcRenderer.invoke(IpcChannels.ompModels.get) as Promise<OmpModelsSnapshot>,
+		save: (providers: OmpProviderRow[]) =>
+			ipcRenderer.invoke(
+				IpcChannels.ompModels.save,
+				providers,
+			) as Promise<OmpModelsSnapshot>,
 	},
 	models: {
 		get: (payload?: { refreshCatalog?: boolean }) =>

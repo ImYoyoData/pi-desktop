@@ -1,6 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import path from "node:path";
 import { IpcChannels } from "../shared/protocol";
+import type { AgentBackend } from "../shared/agent-backend";
+import { agentBackendOf } from "../shared/agent-backend";
 import { createWorkspaceStore, type WorkspaceStore } from "./workspace-store";
 import { startWorkspaceWatch, stopWorkspaceWatch } from "./fs-watch-host";
 import {
@@ -254,5 +256,15 @@ export function registerWorkspaceIpc(nextDeps: WorkspaceIpcDeps = {}): void {
 		IpcChannels.workspace.setArchivedSessions,
 		(_event, ids: string[]) =>
 			getStore().setArchivedSessions(Array.isArray(ids) ? ids : []),
+	);
+
+	ipcMain.handle(IpcChannels.workspace.listBackends, () =>
+		getStore().listBackends(),
+	);
+
+	ipcMain.handle(
+		IpcChannels.workspace.setBackend,
+		(_event, root: string, backend: AgentBackend) =>
+			getStore().setBackend(root, agentBackendOf(backend)),
 	);
 }

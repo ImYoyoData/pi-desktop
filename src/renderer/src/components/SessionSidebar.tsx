@@ -44,6 +44,12 @@ import {
 import Sortable from "sortablejs";
 import type { SessionStatus, SessionSummary } from "../../../shared/protocol";
 import { SESSION_HISTORY_INITIAL_LIMIT } from "../../../shared/protocol";
+import {
+  AGENT_BACKENDS,
+  AGENT_BACKEND_LABELS,
+  type AgentBackend,
+} from "../../../shared/agent-backend";
+import { workspaceBackend } from "@renderer/utils/workspace-backend";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useSessionWidgetsStore } from "@renderer/stores/session-widgets";
 import { useChatStore } from "@renderer/stores/chat";
@@ -328,6 +334,8 @@ export function SessionSidebar(): ReactNode {
     [workspace],
   );
   const workspacePathsKey = workspacePaths.join("\0");
+  const activeRoot = workspace.root;
+  const activeBackend = activeRoot ? workspaceBackend(activeRoot) : "pi";
 
   const localRef = useRef<SidebarLocal>({
     sessionsByRoot,
@@ -609,7 +617,7 @@ export function SessionSidebar(): ReactNode {
 
   async function loadSessions(root: string): Promise<SessionSummary[]> {
     markRendererStartup("renderer:sessions-request");
-    const list = await window.api.sessions.list(root);
+    const list = await window.api.sessions.list(root, workspaceBackend(root));
     setSessionsByRoot((prev) => ({ ...prev, [root]: list }));
     pruneSessionRanks(root, new Set(list.map((s) => s.id)));
     useSessionsStore.getState().replaceList(root, list);
@@ -717,6 +725,18 @@ export function SessionSidebar(): ReactNode {
     if (!root) return;
     setExpanded((prev) => ({ ...prev, [root]: true }));
     await loadSessions(root);
+  }
+
+  /** 切换工作区使用的智能体后端：旧会话保留在各自目录，列表重新加载。 */
+  async function switchWorkspaceBackend(
+    backend: AgentBackend,
+  ): Promise<void> {
+    const root = useWorkspaceStore.getState().root;
+    if (!root || workspaceBackend(root) === backend) return;
+    await discardActiveUnstartedForRoot(root);
+    await useWorkspaceStore.getState().setWorkspaceBackend(root, backend);
+    await loadSessions(root);
+    useSessionsStore.getState().beginDraft(root);
   }
 
   /** Discard the active session (of a root) when the user leaves it unstarted. */
@@ -2190,6 +2210,36 @@ export function SessionSidebar(): ReactNode {
             <span className={styles.btnLabel}>{t.pullRequests}</span>
           </span>
         </Button>
+        {activeRoot ? (
+          <Dropdown
+            {...NO_OVERLAY_MOTION}
+            trigger={["click"]}
+            menu={{
+              selectable: true,
+              selectedKeys: [activeBackend],
+              items: AGENT_BACKENDS.map((backend) => ({
+                key: backend,
+                label: AGENT_BACKEND_LABELS[backend],
+              })),
+              onClick: ({ key }) =>
+                void switchWorkspaceBackend(key as AgentBackend),
+            }}
+          >
+            <Button
+              type="text"
+              size="small"
+              className={`pi-interactive ${styles.topBtn}`}
+              styles={{ root: { justifyContent: "flex-start" } }}
+              title={t.workspaceBackend}
+            >
+              <span className={styles.btnContent}>
+                <span className={styles.btnLabel}>
+                  {AGENT_BACKEND_LABELS[activeBackend]}
+                </span>
+              </span>
+            </Button>
+          </Dropdown>
+        ) : null}
       </div>
 
       {showStuckRecovery ? (

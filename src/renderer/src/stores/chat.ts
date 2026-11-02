@@ -1243,7 +1243,11 @@ softHangReported.delete(sessionId);
 		const state = get().bySession[sessionId];
 		if (!state?.running && !state?.autoRecovering) return;
 
-		const status = await window.api.sessions.status(sessionId, row.cwd);
+		const status = await window.api.sessions.status(
+			sessionId,
+			row.cwd,
+			row.backend,
+		);
 		if (status === null || status === "running" || status === "stuck") return;
 
 		sessions.applyStatus(sessionId, status);
@@ -1786,6 +1790,8 @@ softHangReported.delete(sessionId);
 			root,
 			located.userIndex,
 			located.message.text,
+			useSessionsStore.getState().sessions.find((s) => s.id === sessionId)
+				?.backend,
 		);
 		const sessions = useSessionsStore.getState();
 		await sessions.refresh(root);

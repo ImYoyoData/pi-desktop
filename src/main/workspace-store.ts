@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { isAgentBackend, type AgentBackend } from "../shared/agent-backend";
 
 export type WorkspacePersistedState = {
   root: string | null;
@@ -10,6 +11,8 @@ export type WorkspacePersistedState = {
   aliases: Record<string, string>;
   /** 已归档的会话 id：从侧栏隐藏，可恢复。 */
   archivedSessions: string[];
+  /** 绝对路径 → 该工作区使用的智能体后端（缺省 pi）。 */
+  backends: Record<string, AgentBackend>;
 };
 
 const DEFAULT_STATE: WorkspacePersistedState = {
@@ -18,6 +21,7 @@ const DEFAULT_STATE: WorkspacePersistedState = {
   dismissedPi: [],
   aliases: {},
   archivedSessions: [],
+  backends: {},
 };
 
 /**
@@ -58,6 +62,15 @@ function readIdList(input: unknown): string[] {
   return out;
 }
 
+function readBackends(input: unknown): Record<string, AgentBackend> {
+  if (!input || typeof input !== "object") return {};
+  const out: Record<string, AgentBackend> = {};
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (key.trim() && isAgentBackend(value)) out[key] = value;
+  }
+  return out;
+}
+
 function readState(statePath: string): WorkspacePersistedState {
   try {
     const raw = fs.readFileSync(statePath, "utf8");
@@ -78,6 +91,7 @@ function readState(statePath: string): WorkspacePersistedState {
         : [],
       aliases: readAliases(parsed.aliases),
       archivedSessions: readIdList(parsed.archivedSessions),
+      backends: readBackends(parsed.backends),
     };
   } catch {
     return { ...DEFAULT_STATE };
@@ -176,6 +190,24 @@ export function createWorkspaceStore(statePath: string) {
       persist();
     },
 
+    listBackends(): Record<string, AgentBackend> {
+      return { ...state.backends };
+    },
+
+    getBackend(root: string): AgentBackend {
+      return state.backends[aliasKey(root)] ?? "pi";
+    },
+
+    setBackend(root: string, backend: AgentBackend): AgentBackend {
+      const key = aliasKey(root);
+      const backends = { ...state.backends };
+      if (backend === "pi") delete backends[key];
+      else backends[key] = backend;
+      state = { ...state, backends };
+      persist();
+      return backend;
+    },
+
     /** 重新定位：旧路径的整体记录（root / recent / dismissedPi / 别名）换成新路径。 */
     replacePath(from: string, to: string): void {
       const fromKey = pathKey(from);
@@ -198,11 +230,16 @@ export function createWorkspaceStore(statePath: string) {
       for (const [key, name] of Object.entries(state.aliases)) {
         aliases[pathKey(key) === fromKey ? aliasKey(stored) : key] = name;
       }
+      const backends: Record<string, AgentBackend> = {};
+      for (const [key, backend] of Object.entries(state.backends)) {
+        backends[pathKey(key) === fromKey ? aliasKey(stored) : key] = backend;
+      }
       state = {
         ...state,
         recent,
         dismissedPi,
         aliases,
+        backends,
         root:
           state.root && pathKey(state.root) === fromKey ? stored : state.root,
       };
@@ -249,8 +286,10 @@ export function createWorkspaceStore(statePath: string) {
       const dismissedPi = state.dismissedPi.filter((entry) => pathKey(entry) !== key);
       const aliases = { ...state.aliases };
       for (const k of Object.keys(aliases)) if (pathKey(k) === key) delete aliases[k];
+      const backends = { ...state.backends };
+      for (const k of Object.keys(backends)) if (pathKey(k) === key) delete backends[k];
       const nextRoot = state.root && pathKey(state.root) === key ? (recent[0] ?? null) : state.root;
-      state = { ...state, recent, dismissedPi, aliases, root: nextRoot };
+      state = { ...state, recent, dismissedPi, aliases, backends, root: nextRoot };
       persist();
     },
   };
