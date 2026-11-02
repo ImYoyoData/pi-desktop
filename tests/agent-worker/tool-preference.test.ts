@@ -42,20 +42,31 @@ describe("tool-preference extension", () => {
 		expect(has("tool_result")).toBe(true);
 	});
 
-	it("points content search at grep and maps shell flags to its parameters", () => {
+	it("points content search at grep and lists its parameters", () => {
 		const rules = rulesFor(ALL_TOOLS);
 		expect(rules).toContain("Search file contents with `grep`");
-		expect(rules).toContain("`context` covers -A/-B");
-		expect(rules).toContain("`limit` covers `| head`");
-		expect(rules).toContain("`glob` covers --include");
+		expect(rules).toContain("pattern, path, glob, ignoreCase, literal, context and limit");
 		expect(rules).toContain("Reserve bash for builds");
+	});
+
+	it("keeps shell search syntax out of the prompt", () => {
+		// 规则里一念 -A/-B、| head、--include，模型就会回到 shell 写法。
+		const rules = rulesFor(ALL_TOOLS);
+		expect(rules).not.toContain("-A/-B");
+		expect(rules).not.toContain("--include");
+		expect(rules).not.toContain("| head`");
+	});
+
+	it("keeps the shell boundary on the search tools", () => {
+		const rules = rulesFor(ALL_TOOLS);
+		expect(rules).toContain("Searching file contents, reading files, and listing directories belong to grep / read / ls");
 	});
 
 	it("tells the model that an explicit path does not reach ignored directories", () => {
 		const rules = rulesFor(ALL_TOOLS);
-		expect(rules).toContain("does not override the ignore rules");
+		expect(rules).toContain("even when `path` points at them");
 		expect(rules).toContain("rg --no-ignore");
-		expect(rules).not.toContain("Pass an explicit `path` to search inside node_modules");
+		expect(rules).toContain("every normal search stays on this tool");
 	});
 
 	it("falls back to shell rg when grep is not active", () => {
