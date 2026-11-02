@@ -64,7 +64,8 @@ function toOmpInbound(msg: WorkerInbound): OmpWorkerInbound | null {
 		case "command":
 			return { kind: "command", id: msg.id, command: msg.command };
 		case "reload_models":
-			return { kind: "reload_models" };		case "shutdown":
+			return { kind: "reload_models" };
+		case "shutdown":
 			return { kind: "shutdown" };
 		case "ping":
 			return { kind: "ping" };

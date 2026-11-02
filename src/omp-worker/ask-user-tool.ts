@@ -153,9 +153,9 @@ export function createOmpAskUserTool(deps?: {
 		async execute(
 			_toolCallId: string,
 			params: unknown,
+			signal: AbortSignal | undefined,
 			_onUpdate: unknown,
 			_ctx: unknown,
-			signal: AbortSignal | undefined,
 		): Promise<AgentToolResult<unknown>> {
 			const parsed = parseAskUserArgs(params);
 			if (!parsed) {
