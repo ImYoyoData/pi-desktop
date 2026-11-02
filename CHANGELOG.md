@@ -6,9 +6,27 @@
 
 ### 修复 Fixes
 
-- **修复后台跟踪与重编辑阻塞**：常驻判定重新支持 `PORT=3000 npm run dev` 这类环境变量前缀；shell 退出后的残留进程安静下来仍留在运行面板、能终止；ask_user 待答时重编辑先停当前轮再排队；运行面板不再把已结束的 run 复活；grep 空结果带说明时仍显示「无匹配」，无扩展名的单文件搜索点开不再拼错路径。
+- **修复后台跟踪与重编辑阻塞**：常驻判定重新支持 `PORT=3000 npm run dev` 这类环境变量前缀；shell 退出后的残留进程安静下来仍留在运行面板、能终止；ask_user 待答时重编辑先停当前轮再排队；grep 空结果带说明时仍显示「无匹配」，无扩展名的单文件搜索点开不再拼错路径。
+- **修复运行面板复活已结束的 run**：刷新请求飞行期间结束的 run 会从回来的快照里滤掉，刷新完成时让在途的 resync 失效；`snapshot` 事件同样过滤已结束的 run。
+- **修复重编辑被排队消息抢走**：重编辑意图在进入提示队列之前同步认领，运行中才提前发 abort；自动排空的队列消息不会再拿到它、把被编辑的气泡换成排队文本，空闲时也不会留下会把待办误标成暂停的停止意图。
+- **grep 卡片**：目录名与单文件根完全相同时无法区分，按单文件处理，并在代码里记下这个界限。
 
-- **Fixed background tracking and blocked re-edits**: persistent-command detection supports environment prefixes such as `PORT=3000 npm run dev` again; leftover processes stay in the Running panel, and stay terminable, after the shell exits and goes quiet; a re-edit submitted while ask_user waits stops the active turn before queuing; the Running panel no longer resurrects runs that already ended; grep reports "no matches" when an explanation is appended, and single-file searches without an extension no longer open a joined-up wrong path.
+### 测试 Tests
+
+- 修正两处假阳性：残留进程轮询用例现在真的越过 idle 窗口，resync 用例把时钟推出节流窗口并断言快照确实被请求。
+- 新增重编辑认领顺序（运行中 / 空闲）、刷新期间结束的 run 的回归用例。
+
+### Fixes
+
+- **Fixed background tracking and blocked re-edits**: persistent-command detection supports environment prefixes such as `PORT=3000 npm run dev` again; leftover processes stay in the Running panel, and stay terminable, after the shell exits and goes quiet; a re-edit submitted while ask_user waits stops the active turn before queuing; grep reports "no matches" when an explanation is appended, and single-file searches without an extension no longer open a joined-up wrong path.
+- **Fixed the Running panel resurrecting ended runs**: a run that ends while a refresh is in flight is filtered out of the returned snapshot, the refresh invalidates in-flight resyncs, and `snapshot` events filter ended runs too.
+- **Fixed an edited prompt losing to a drained queue**: the re-edit intent is claimed synchronously before entering the prompt chain and only a still-running turn is aborted early, so auto-drained queue items can no longer take it and replace the edited bubble with their own text, and an idle session no longer keeps a stop flag that would mark unfinished todos as paused.
+- **grep card**: a directory that shares its name with a single-file root cannot be told apart; it is treated as a file and the boundary is recorded in the code.
+
+### Tests
+
+- Two false positives fixed — the survivor polling case now really crosses the idle window, and the resync case pushes the clock past the throttle window and asserts the snapshot was requested.
+- New regression cases cover the re-edit claim order while running and idle, and a run ending during a refresh.
 
 ## v0.3.7-rc.3 (2026-11-02)
 

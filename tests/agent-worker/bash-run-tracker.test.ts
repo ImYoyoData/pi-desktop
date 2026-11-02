@@ -221,17 +221,19 @@ describe("shell 退出后的残留进程跟踪", () => {
   // 否则用户既看不到它、也终止不了它（端口一直被占）。
   it("残留进程安静超过 idle 窗口仍继续跟踪，直到它退出", async () => {
     const survivors = new Set([process.pid]);
-    const started = Date.now();
+    // 一上来就已过 idle 窗口，直接走安静分支；否则首轮会先睡 1s，
+    // 「达到 idle 就返回」的旧实现也能通过。
+    const quietSince = Date.now() - 600;
     const waiting = __test.waitForSurvivorsExit(survivors, undefined, {
       idleMs: 300,
-      lastOutputAt: () => started,
+      lastOutputAt: () => quietSince,
       pollMs: 50,
     });
     let settled = false;
     void waiting.then(() => {
       settled = true;
     });
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    await new Promise((resolve) => setTimeout(resolve, 200));
     expect(settled).toBe(false);
     expect(survivors.has(process.pid)).toBe(true);
 
