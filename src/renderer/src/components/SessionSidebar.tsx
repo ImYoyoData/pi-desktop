@@ -1,4 +1,5 @@
 import {
+  memo,
   startTransition,
   useEffect,
   useMemo,
@@ -2603,4 +2604,4 @@ export function SessionSidebar(): ReactNode {
   );
 }
 
-export default SessionSidebar;
+export default memo(SessionSidebar);

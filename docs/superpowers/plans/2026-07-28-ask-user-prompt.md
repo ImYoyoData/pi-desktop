@@ -1,5 +1,7 @@
 # Ask-user interactive prompt Implementation Plan
 
+> **现状对照（2026-11）**：已实现：worker `ask-user-tool.ts`、`pendingAskUser` 状态、`AskUserStrip` 组件均在。偏离——卡片内嵌消息流而非 composer 上方条，协议对齐 Codex（`header` / `isSecret`、JSON 答案），支持图片附件。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a non-blocking `ask_user` agent tool and a composer-top Q&A strip so the model can ask single/multi/button questions; user answers become a normal user message and start a new turn.

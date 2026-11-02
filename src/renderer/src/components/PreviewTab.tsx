@@ -24,6 +24,7 @@ import {
   subscribeFsChanges,
 } from "@renderer/utils/fs-changed-bus";
 import { parentDir } from "@renderer/utils/fs-path";
+import { previewWantsContent } from "@renderer/utils/preview-gate";
 import type { MarkdownAssetBase } from "@renderer/utils/markdown-assets";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
@@ -103,6 +104,10 @@ export const PreviewTab = memo(forwardRef<PreviewTabHandle, Props>(function Prev
   const [internalViewMode, setInternalViewMode] = useState<MdViewMode>("preview");
   /** 从隐藏变为可见时重建内容区：在 0 尺寸容器里挂载的编辑器不会自己重绘。 */
   const [contentEpoch, setContentEpoch] = useState(0);
+  /** 内容区真正挂载的时刻比面板晚一帧：先把面板画出来，再付渲染大文件的代价。 */
+  const [contentReady, setContentReady] = useState(false);
+  const wantsContent = previewWantsContent({ active: Boolean(active), dirty, missing });
+  const showContent = wantsContent && contentReady;
   const mdViewMode = viewMode ?? internalViewMode;
   const setMdViewMode = useCallback(
     (mode: MdViewMode): void => {
@@ -513,6 +518,20 @@ export const PreviewTab = memo(forwardRef<PreviewTabHandle, Props>(function Prev
   }, [active]);
 
   useEffect(() => {
+    if (!wantsContent) {
+      setContentReady(false);
+      return;
+    }
+    let alive = true;
+    void nextFrame().then(() => {
+      if (alive) setContentReady(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [wantsContent]);
+
+  useEffect(() => {
     if (active && currentPathRef.current) {
       reloadIfEmpty();
       void refreshGitForFile(currentPathRef.current);
@@ -546,7 +565,7 @@ export const PreviewTab = memo(forwardRef<PreviewTabHandle, Props>(function Prev
 
   useEffect(() => {
     syncMediaRegistration();
-  }, [result?.kind, tabId]);
+  }, [result?.kind, tabId, showContent]);
 
   useEffect(() => {
     syncExternalFileWatch();
@@ -681,7 +700,7 @@ export const PreviewTab = memo(forwardRef<PreviewTabHandle, Props>(function Prev
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t.previewHint} />
         ) : (
           <Spin spinning={loading} className={styles.spin}>
-            {result ? (
+            {showContent && result ? (
               <>
                 {missing || result.kind === "error" ? (
                   <Alert

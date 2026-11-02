@@ -3,6 +3,7 @@ import { SplitPane, SplitPanes } from "@renderer/components/SplitPanes";
 import ViewPresence from "@renderer/components/ViewPresence";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { splitPaneSizes } from "@renderer/utils/split-layout";
 
 const SessionSidebar = lazy(() => import("@renderer/components/SessionSidebar"));
 const ChatPanel = lazy(() => import("@renderer/components/ChatPanel"));
@@ -33,43 +34,10 @@ export function SplitRoot(): React.ReactNode {
   }, [workspaceRoot]);
 
   /** Outer: left % of window (rest is main). */
-  const outerLeftSize = layout.leftSize;
-  const outerMainSize = 100 - layout.leftSize;
-
-  /** Inner sizes as % of main (chat + right). */
-  const center = layout.centerSize;
-  const right = layout.rightSize;
-  const sum = center + right;
-  const innerPair =
-    sum <= 0 ? { chat: 37.5, right: 62.5 } : { chat: (center / sum) * 100, right: (right / sum) * 100 };
-
-  /** 聊天列（消息区）是否可见：最大化时整列让给编辑器区域。 */
-  const chatVisible = !layout.editorMaximized;
-
-  /** 最大化时整列让给编辑器区域，左侧会话列表保持原样。 */
-  const chatPaneSize = layout.editorMaximized
-    ? 0
-    : layout.rightCollapsed
-      ? 100
-      : innerPair.chat;
-  const rightPaneSize = 100 - chatPaneSize;
-  const chatTopSize = layout.editorMaximized
-    ? layout.bottomCollapsed
-      ? 100
-      : 0
-    : layout.bottomCollapsed
-      ? 100
-      : 100 - layout.bottomSize;
-  const bottomPanelSize = layout.editorMaximized
-    ? layout.bottomCollapsed
-      ? 0
-      : 100
-    : layout.bottomCollapsed
-      ? 0
-      : layout.bottomSize;
+  const sizes = splitPaneSizes(layout);
 
   function onOuterResized(payload: { panes: { size: number }[] }): void {
-    if (leftHidden || payload.panes.length < 2) return;
+    if (layout.leftCollapsed || payload.panes.length < 2) return;
     const leftPct = payload.panes[0].size;
     const mainPct = 100 - leftPct;
     const ratio =
@@ -100,13 +68,13 @@ export function SplitRoot(): React.ReactNode {
 
   /** 拉取请求页是主区全屏视图，会盖住聊天列与右侧面板。 */
   const prOpen = layout.centerView === "pull-requests";
-  const leftHidden = layout.leftCollapsed;
+  const leftHidden = sizes.leftHidden;
 
   return (
     <div className="split-root">
       <SplitPanes className="panes outer" onResized={onOuterResized}>
         <SplitPane
-          size={leftHidden ? 0 : outerLeftSize}
+          size={sizes.outerLeft}
           minSize={leftHidden ? 0 : PANE_MIN}
           maxSize={leftHidden ? 0 : PANE_MAX}
           className={leftHidden ? "pane-collapsed" : undefined}
@@ -117,7 +85,7 @@ export function SplitRoot(): React.ReactNode {
         </SplitPane>
 
         <SplitPane
-          size={leftHidden ? 100 : outerMainSize}
+          size={sizes.outerMain}
           minSize={leftHidden ? 100 : 100 - PANE_MAX}
         >
           <SplitPanes
@@ -125,7 +93,7 @@ export function SplitRoot(): React.ReactNode {
             onResized={onInnerResized}
           >
             <SplitPane
-              size={chatPaneSize}
+              size={sizes.chat}
               minSize={layout.editorMaximized ? 0 : CHAT_MIN}
               maxSize={layout.editorMaximized || layout.rightCollapsed ? 100 : PANE_MAX}
               className={
@@ -140,7 +108,7 @@ export function SplitRoot(): React.ReactNode {
                 onResized={onChatResized}
               >
                 <SplitPane
-                  size={chatTopSize}
+                  size={sizes.chatTop}
                   minSize={layout.editorMaximized ? 0 : CHAT_TOP_MIN}
                   maxSize={
                     layout.editorMaximized || layout.bottomCollapsed ? 100 : 100 - PANEL_MIN
@@ -148,11 +116,11 @@ export function SplitRoot(): React.ReactNode {
                   className={layout.editorMaximized ? "pane-collapsed" : undefined}
                 >
                   <Suspense fallback={null}>
-                    <ChatPanel visible={chatVisible} />
+                    <ChatPanel visible={sizes.chatVisible} />
                   </Suspense>
                 </SplitPane>
                 <SplitPane
-                  size={bottomPanelSize}
+                  size={sizes.bottomPanel}
                   minSize={layout.editorMaximized || layout.bottomCollapsed ? 0 : PANEL_MIN}
                   maxSize={layout.editorMaximized ? 100 : layout.bottomCollapsed ? 0 : PANEL_MAX}
                   className={layout.bottomCollapsed ? "pane-collapsed" : undefined}
@@ -166,7 +134,7 @@ export function SplitRoot(): React.ReactNode {
               </SplitPanes>
             </SplitPane>
             <SplitPane
-              size={layout.rightCollapsed && !layout.editorMaximized ? 0 : rightPaneSize}
+              size={layout.rightCollapsed && !layout.editorMaximized ? 0 : sizes.rightPane}
               minSize={layout.rightCollapsed || layout.editorMaximized ? 0 : PANE_MIN}
               maxSize={
                 layout.rightCollapsed && !layout.editorMaximized

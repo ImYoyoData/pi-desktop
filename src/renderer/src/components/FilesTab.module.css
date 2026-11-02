@@ -117,8 +117,10 @@
   opacity: 0.45;
 }
 
+/* antd 的 draggable 类给整行 grab 光标，会波及行间 4px 间隙；行内容自带 pointer，这里只还原容器 */
 .body :global(.ant-tree-treenode) {
   padding: 0;
+  cursor: default;
 }
 
 /* 箭头画在文件夹名前面，antd 的独立箭头列整列隐藏 */

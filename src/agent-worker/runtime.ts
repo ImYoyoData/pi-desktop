@@ -61,7 +61,7 @@ import type { BashNoticeLocale } from "../shared/bash-notice-i18n";
 import { createAskUserToolDefinition } from "./ask-user-tool";
 import { createTodoWriteToolDefinition, clearLatestTodoWriteRows } from "./todo-tool";
 import { createTodoReminderExtension } from "./todo-reminder";
-import { createToolPreferenceExtension } from "./tool-preference";
+import { BASH_PROMPT_SNIPPET, createToolPreferenceExtension } from "./tool-preference";
 import { createPermissionGateExtension } from "./permission-gate";
 import { commandShouldStartBackground } from "../shared/bash-background";
 import { createTrackedBashOperations } from "./bash-run-tracker";
@@ -91,7 +91,19 @@ import {
 	summarizeSessionResources,
 } from "./resource-summary";
 
+import {
+	configureLlmProgress,
+	installLlmProgressProbe,
+} from "./llm-progress";
+
 type ImageContent = NonNullable<PromptOptions["images"]>[number];
+
+// 必须在 SDK 构造 HTTP client 之前包好 fetch。
+installLlmProgressProbe();
+configureLlmProgress({
+	sink: (event) => post({ kind: "event", event }),
+	baseUrl: () => session?.model?.baseUrl ?? null,
+});
 
 function post(msg: WorkerOutbound): void {
 	process.parentPort?.postMessage(msg);
@@ -555,17 +567,49 @@ const CONTEXT_USAGE_EVENT_TYPES = new Set([
 function withCompactionSummary(event: Record<string, unknown>): Record<string, unknown> {
 	if (event.type !== "compaction_end") return event;
 	const { result, ...rest } = event;
-	const row = result as { summary?: unknown; tokensBefore?: unknown } | undefined;
+	const row = result as
+		| { summary?: unknown; tokensBefore?: unknown; usage?: unknown }
+		| undefined;
 	const summary = typeof row?.summary === "string" ? row.summary.trim() : "";
 	// result 还带着 details.readFiles 之类的清单，界面用不上，不走 IPC。
 	if (!summary) return rest;
 	const tokensBefore = row?.tokensBefore;
+	const usage = row?.usage as { output?: unknown } | undefined;
+	// 摘要调用花了多少输出 token —— 卡片上展示“摘要代价”。
+	const summaryTokens =
+		typeof usage?.output === "number" && usage.output > 0 ? usage.output : undefined;
 	return {
 		...rest,
 		summary,
 		...(typeof tokensBefore === "number" && Number.isFinite(tokensBefore) && tokensBefore > 0
 			? { tokensBefore }
 			: {}),
+		...(summaryTokens != null ? { summaryTokens } : {}),
+	};
+}
+
+/**
+ * 压缩开始时附上当前上下文占用：界面要说明「压缩前占多少」，
+ * 而渲染层读不到会话用量，只能由 worker 补齐。
+ */
+function withCompactionContext(
+	event: Record<string, unknown>,
+	active: AgentSession,
+): Record<string, unknown> {
+	if (event.type !== "compaction_start") return event;
+	let tokens: number | null = null;
+	let contextWindow: number | null = null;
+	try {
+		const usage = readContextUsage(active);
+		tokens = usage?.tokens ?? null;
+		contextWindow = usage?.contextWindow ?? null;
+	} catch {
+		// usage 只用于展示，读不到就不带
+	}
+	return {
+		...event,
+		...(tokens != null ? { tokens } : {}),
+		...(contextWindow != null && contextWindow > 0 ? { contextWindow } : {}),
 	};
 }
 
@@ -705,12 +749,15 @@ async function initSession(
 							}),
 						)
 					: defineTool(
-							createBashToolDefinition(cwd, {
-								operations: runTracker.operations,
-								...(commandShell.kind === "bash"
-									? { shellPath: commandShell.shellPath }
-									: {}),
-							}),
+							Object.assign(
+								createBashToolDefinition(cwd, {
+									operations: runTracker.operations,
+									...(commandShell.kind === "bash"
+										? { shellPath: commandShell.shellPath }
+										: {}),
+								}),
+								{ promptSnippet: BASH_PROMPT_SNIPPET },
+							),
 						),
 				createAskUserToolDefinition(),
 				createTodoWriteToolDefinition(),
@@ -755,8 +802,11 @@ async function initSession(
 		timingTracker.observe(event);
 		let payload: Record<string, unknown>;
 		try {
-			payload = withCompactionSummary(
-				sanitizeAgentEvent(withEffectiveThinkingLevel(raw, created)),
+			payload = withCompactionContext(
+				withCompactionSummary(
+					sanitizeAgentEvent(withEffectiveThinkingLevel(raw, created)),
+				),
+				created,
 			);
 		} catch {
 			payload = { type: typeof raw.type === "string" ? raw.type : "unknown" };

@@ -53,6 +53,16 @@ export function isPathListTool(toolName: string): boolean {
   return PATH_LIST_TOOLS.has(tail);
 }
 
+/**
+ * 剥掉 pi 追加在输出尾部的 `\n\n[...]` 提示块（匹配上限 / 字节截断），原文返回。
+ */
+export function splitTrailingNotice(text: string): { text: string; notices: string[] } {
+  const normalized = text.replace(/\r\n/g, "\n");
+  const match = /\n\n\[([^\]]*)\]$/.exec(normalized);
+  if (!match) return { text: normalized, notices: [] };
+  return { text: normalized.slice(0, match.index), notices: [match[1]!] };
+}
+
 /** 逐行拆分路径清单，顺带去掉 ls 的截断提示与空目录占位。 */
 export function pathListEntries(text: string): string[] {
   return text

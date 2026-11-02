@@ -967,8 +967,9 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     const snap = snapshotComposerPayload();
 
     // While agent is running, a plain send becomes guidance for the running turn
-    // (steer) instead of waiting for the next turn.
-    if (isRunning() && mode === "prompt") {
+    // (steer) instead of waiting for the next turn. A pending re-edit is not
+    // guidance: it truncates the turn, so it must go through the normal send.
+    if (isRunning() && mode === "prompt" && !isEditingPublished) {
       await steerFromComposer();
       return;
     }

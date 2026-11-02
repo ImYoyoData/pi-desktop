@@ -78,9 +78,35 @@ html[data-theme][data-wallpaper="on"] .right-pane {
   backdrop-filter: blur(24px) saturate(1.3);
 }
 
-/* 输入框上方的待办 / 更改文件列表与聊天区同底，不再叠加抬升表面 */
-html[data-theme][data-wallpaper="on"] .stack-above {
+/* 输入框与上方的待办 / 更改文件列表合并成一块玻璃：玻璃只画在 .input-surface 上，
+   两边各自不画底色与模糊。分两块各自 blur 时，边界两侧取到的底不同，
+   看起来就是两种颜色（输入框透明度为 0 时尤其明显）。
+   玻璃必须落在伪元素上：元素自身的 backdrop-filter 会成为 backdrop root，
+   内部浮层（斜杠 / @ 菜单）就取不到壁纸，菜单会直接透出后景文字。 */
+html[data-theme][data-wallpaper="on"] .input-surface {
+  position: relative;
+  isolation: isolate;
+}
+
+html[data-theme][data-wallpaper="on"] .input-surface::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background: var(--bg-input);
+  backdrop-filter: blur(24px) saturate(1.3);
+}
+
+html[data-theme][data-wallpaper="on"] .input-surface > * {
+  position: relative;
+  z-index: 1;
+}
+
+html[data-theme][data-wallpaper="on"] .stack-above,
+html[data-theme][data-wallpaper="on"] .composer-card {
   background: transparent;
+  backdrop-filter: none;
 }
 
 /* 原本用 --bg-panel 的小元素需要自己的背景（“回到最新”已改用 --bg-elevated） */
@@ -89,14 +115,9 @@ html[data-theme][data-wallpaper="on"] .img-chip {
   background: var(--w-elevated-surface);
 }
 
-/* 输入框叠自己的磨砂层，浮层与右键菜单已统一带 backdrop-filter */
-html[data-theme][data-wallpaper="on"] .composer-card {
-  backdrop-filter: blur(24px) saturate(1.3);
-}
-
 /* 斜杠菜单与 @ 文件菜单是自绘浮层，且从输入框上方越界弹出：
-   壁纸模式下必须自带玻璃层，配方与设置页一致（抬升表面底色 + 24px 模糊），
-   否则菜单会直接透出壁纸。 */
+   壁纸模式下必须自带玻璃层，否则菜单会直接透出壁纸与后景消息文字。
+   底色跟抬升表面走（不跟输入框透明度）：输入框透明度调 0 时菜单会变得无底可读。 */
 html[data-theme][data-wallpaper="on"] .composer-slash-menu,
 html[data-theme][data-wallpaper="on"] .composer-at-file-menu {
   background-color: var(--w-overlay-surface);
@@ -115,15 +136,6 @@ html[data-theme][data-wallpaper="on"] [class*="css-var-"] {
 /* 面板内的容器（文件树）跟随面板透明：不再叠一层实色底 */
 html[data-theme][data-wallpaper="on"] .ant-tree {
   --ant-color-bg-container: transparent !important;
-}
-
-/* 设置页之外的输入类控件同样要走输入表面 */
-html[data-theme][data-wallpaper="on"] .ant-input,
-html[data-theme][data-wallpaper="on"] .ant-input-affix-wrapper,
-html[data-theme][data-wallpaper="on"] .ant-input-number,
-html[data-theme][data-wallpaper="on"] .ant-input-number-input,
-html[data-theme][data-wallpaper="on"] .ant-select {
-  background-color: var(--w-input-surface) !important;
 }
 
 /* 独立渲染的右键菜单是浮层：底色固化在组件 token 上，要单独覆盖 */
@@ -207,11 +219,25 @@ html[data-theme][data-wallpaper="on"] .app-context-menu {
   backdrop-filter: blur(14px) saturate(1.15);
 }
 
-/* antd 输入控件跟随输入框透明度（hover 背景默认是实色，必须一并覆盖） */
+/* diff 代码块默认铺 @pierre/diffs 的深色壳（dark 下 --diffs-dark-bg 是纯黑），
+   markstream 又在 shell / stage / editor 三层各画一档近黑底，壁纸模式下
+   这部分与普通代码块不一致：渲染完就整块压暗，与透明的首帧之间明显跳变。
+   这里统一让位给壁纸，只保留改动行的语义底色与描边。 */
+html[data-theme][data-wallpaper="on"] .code-block-container.is-diff {
+  --markstream-diff-shell-bg: transparent;
+  --markstream-diff-stage-bg: transparent;
+  --markstream-diff-editor-bg: transparent;
+  --markstream-diff-unchanged-bg: rgba(255, 255, 255, 0.07);
+  border-color: var(--code-border) !important;
+}
+
+/* antd 输入控件跟随输入框透明度（hover 背景默认是实色，必须一并覆盖）；
+   描边同样跟随玻璃描边变量，否则实色 #2a2b2c 在半透明卡片上显得偏亮。 */
 html[data-theme][data-wallpaper="on"] .ant-input,
 html[data-theme][data-wallpaper="on"] .ant-input-affix-wrapper,
 html[data-theme][data-wallpaper="on"] .ant-input-number,
 html[data-theme][data-wallpaper="on"] .ant-input-number-input,
 html[data-theme][data-wallpaper="on"] .ant-select {
   background-color: var(--w-input-surface) !important;
+  border-color: var(--border-strong) !important;
 }

@@ -123,8 +123,8 @@ export function registerAskUserIpc(): void {
         throw new Error("askUserReply: body required");
       }
       const requestId = typeof body.requestId === "string" ? body.requestId : "";
-      const answersText =
-        typeof body.answersText === "string" ? body.answersText.trim() : "";
+      const answersJson =
+        typeof body.answersJson === "string" ? body.answersJson.trim() : "";
       if (!requestId) {
         throw new Error("askUserReply: requestId required");
       }
@@ -133,7 +133,7 @@ export function registerAskUserIpc(): void {
         return { ok: false, reason: "unknown_or_expired" as const };
       }
       pendingAsks.delete(requestId);
-      if (!answersText) {
+      if (!answersJson) {
         row.reject(new Error("ask_user: empty answers"));
         return { ok: false, reason: "empty_answers" as const };
       }
@@ -142,7 +142,7 @@ export function registerAskUserIpc(): void {
           typeof dataUrl === "string" ? imageDataFromDataUrl(dataUrl) : null,
         )
         .filter((img): img is { data: string; mimeType: string } => img != null);
-      row.resolve({ text: answersText, images });
+      row.resolve({ text: answersJson, images });
       return { ok: true };
     },
   );

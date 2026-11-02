@@ -1,5 +1,7 @@
 # Pi Desktop — Security Settings Design
 
+> **现状对照（2026-11）**：部分过时。项目信任部分（`trust.json` / `ProjectTrustStore` / `TrustDialog`）已在 v0.3.6-rc.1 随权限网关一并移除，权限确认交回 pi CLI 自身；现行实现是 v0.3.6-rc.7 的四档审批（一律询问 / 仅编辑放行 / 自动放行 / 全部放行，作用于终端与写文件工具），由 worker 的 pi 扩展（`permission-gate.ts` 监听 `tool_call`）询问 main，main 等渲染层答复、超时 fail closed；存储仍为 `settings.json` 的 `desktopSecurity` 段。本文的「三类工具（含 network）+ bash allowlist + TrustDialog」设计不再对应代码。
+
 **Date:** 2026-07-28  
 **Status:** Approved for planning  
 **Product:** Desktop Agent Workspace security (project trust + tool approval)

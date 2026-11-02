@@ -32,6 +32,16 @@ function toRel(relative: string, name: string): string {
 	return rel.replace(/\\/g, "/");
 }
 
+/**
+ * 目录项类型。readdir 的 Dirent 在多数文件系统已经给出类型，不必逐项 stat；
+ * 符号链接与未知类型（部分网络盘返回 DT_UNKNOWN）仍然回退到 stat。
+ */
+function direntKind(dirAbs: string, dirent: fs.Dirent): "file" | "dir" | "none" {
+	if (dirent.isDirectory()) return "dir";
+	if (dirent.isFile()) return "file";
+	return workspaceEntryKind(path.join(dirAbs, dirent.name));
+}
+
 export function listWorkspaceDir(
 	root: string,
 	relative = "",
@@ -42,12 +52,14 @@ export function listWorkspaceDir(
 	if (workspaceEntryKind(abs) !== "dir") {
 		return [];
 	}
-	const names = fs.readdirSync(abs);
+	const dirents = withoutAsar(() =>
+		fs.readdirSync(abs, { withFileTypes: true }),
+	);
 	const entries: WorkspaceDirEntry[] = [];
-	for (const name of names) {
+	for (const dirent of dirents) {
+		const name = dirent.name;
 		if (SKIP.has(name) || name === "." || name === "..") continue;
-		const childAbs = path.join(abs, name);
-		const kind = workspaceEntryKind(childAbs);
+		const kind = direntKind(abs, dirent);
 		if (kind === "none") continue;
 		entries.push({ name, path: toRel(relative, name), kind });
 	}

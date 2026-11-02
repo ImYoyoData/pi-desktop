@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.3.7-rc.3 (2026-11-02)
+
+本版给最后一条用户消息加上发送回执（已发送 / 已读），ask_user 对齐 Codex 的问答协议：短标签改为 header、支持密文题，并对题量与选项数做校验；工具卡片里 grep 结果按文件分组、可以直接点开文件，工具族补齐图标与结果摘要，等待指示器说清请求阶段与上下文压缩进度。同时修复消息区贴底抽搐、折叠展开把正在看的行顶走、展开右侧栏文件页卡顿数秒等问题。
+
+### 新功能 Features
+
+- **已读回执**：最新一条用户消息右侧显示回执，模型开始回应（其后出现回答 / 工具 / 报错行）即从「已发送」变成「已读」（单勾 / 双勾）；回合运行中也会保留复制与编辑按钮。
+- **ask_user 对齐 Codex 问答协议**：题目标签改用 `header`（12 字符内，旧的 `title` 仍能读出）并截断超长标题；新增 `isSecret`，界面遮蔽自由输入内容但答案照常回传；每题 2-3 个选项、单次 1-3 题，题数超限、重复 id、选项数不对一律判为非法；客户端追加的自由输入行显示为「以上都不是」，补齐的这条不计入选项上限；label 末尾的 `(Recommended)` / `(推荐)` 拆成徽章；工具结果改回 `{"answers":{"<id>":{"answers":[...]}}}` 的 JSON 格式。
+- **grep 卡片与工具族视图**：grep 结果按文件分组渲染命中行与 context 行，点行直接打开对应文件，尾部的匹配上限 / 截断提示单独展示；`browser_*`、`mcp__*`、`tool_search`、`codemode` 与路径清单补上图标和结果量级摘要，browser 结果带当前页 URL。
+- **等待指示器与上下文压缩**：包装 provider 请求并上报 sent / response / failed，失败原因进等待指示器与重试行（压成单行截断）；上下文压缩显示起止状态、压缩前占用、摘要耗时与输出 token（当拍与历史还原保持同一口径），压缩期间不触发软挂恢复。
+- **bash 后台判定与运行面板**：后台判定改为段首锚定并跳过引号内部，能识别 `sh -c` 包装；命令结束后残留的进程只转后台跟踪，不再阻塞工具卡片；运行面板在卡片缺 run 时按节流补快照，嵌套 bash 调用也可转后台。
+
+- **Read receipts**: the latest user message shows a receipt that turns from Sent to Read (single to double check) once the model starts replying, meaning an answer, tool or error row follows it; the copy and edit buttons stay available while a turn is running.
+- **ask_user aligned with the Codex question protocol**: the tab label becomes `header` (12 characters at most, the old `title` is still read) and long headers are truncated; the new `isSecret` masks the free-text answer in the UI while still returning it to the tool; each question takes 2-3 options and a call carries 1-3 questions, with too many questions, duplicate ids or a wrong option count now rejected; the client-appended free-form row reads "None of the above" and no longer counts toward the option limit; a trailing `(Recommended)` in a label becomes a badge; the tool result is the JSON shape `{"answers":{"<id>":{"answers":[...]}}}` again.
+- **grep card and tool family view**: grep results are grouped by file with match and context lines that open the file on click, and the trailing match-limit or truncation notice is shown separately; `browser_*`, `mcp__*`, `tool_search`, `codemode` and path lists gain icons and result-size summaries, and browser results carry the current page URL.
+- **Wait indicator and context compaction**: provider requests are wrapped to report sent / response / failed, and the failure reason lands in the wait indicator and the retry row on a single truncated line; compaction shows its start and end state, the occupancy before compacting, the summary duration and output tokens (measured the same way in the live turn and in restored history), and no soft-stall recovery is triggered while compacting.
+- **bash background detection and the Running panel**: detection anchors at the start of a segment and skips quoted text, and recognises `sh -c` wrappers; processes left over after a command finishes are only tracked in the background instead of blocking the tool card; the Running panel fills in a throttled snapshot when a card has no run, and nested bash calls can be backgrounded too.
+
+### 修复 Fixes
+
+- **修复消息区贴底抽搐**：贴底原来跑在 rAF 里，早于本帧 layout，读到的是上一帧的 scrollHeight，于是每帧落后一步、视觉上一直来回扯；现在改为观察内容高度，在 ResizeObserver 回调里同步写入，位置与高度变化同帧生效，写入本体抽成一处并集中守卫。
+- **修复展开右侧栏文件页卡顿数秒**：目录读取改用 `readdir` 的 `withFileTypes`，不再对每一项 stat（符号链接与网络盘未知类型仍回退）；折叠或切到别的页面时不再预热预览内容，选中、有未保存改动或已丢失的标签继续挂着；布局偏好回写做等值短路，不再自我回声；文件树先出再补 git 状态。
+- **修复折叠展开把正在看的行顶走**：展开与折叠锚定被点中的那一行，内容只向下生长，超出视口才让位。
+- **修复 antd 提示盖住标题栏按钮**：提示列表的内容盒改为不接收点击，只有卡片本身可命中。
+- **修复 ask_user 选项上限**：客户端补齐的自定义选项不再计入选项数量。
+- **修复壁纸模式下输入区两块玻璃**：输入框与吸附卡片合并成一块，输入控件描边跟随玻璃变量，主按钮尺寸收到 22px，菜单底色回到抬升表面。
+- **工具偏好**：grep / find 只列工具参数，不再教 shell 写法。
+
+- **Fixed the message area twitching while pinned to the bottom**: pinning ran inside rAF, before the frame's layout, so it read the previous frame's scrollHeight and fell one frame behind every time; it now observes the content height and writes synchronously in the ResizeObserver callback so the position and the height change land in the same frame, with the write itself pulled into one place and its guards gathered together.
+- **Fixed the files page stalling for seconds when opening the right pane**: directory listing uses `readdir` with `withFileTypes` instead of statting every entry (symlinks and unknown types on network drives still fall back); previews are no longer warmed while the pane is collapsed or another page is active, while the active, dirty or missing tabs stay mounted; layout writes short-circuit on equality so the preference stops echoing itself; the tree appears first and git status follows.
+- **Fixed folding and unfolding pushing the line being read away**: toggling anchors the clicked row, content only grows downwards, and the viewport only gives way once the row leaves it.
+- **Fixed antd toasts covering title-bar buttons**: the notice list content box no longer accepts clicks and only the card itself is hit-testable.
+- **Fixed the ask_user option limit**: the custom option the client appends no longer counts toward the number of options.
+- **Fixed the input area being two panes of glass under a wallpaper**: the composer and the pinned card merge into one, input outlines follow the glass variables, the primary button shrinks to 22px, and menus return to the raised surface colour.
+- **Tool preference**: grep and find list tool parameters only and no longer teach shell invocations.
+
 ## v0.3.7-rc.2 (2026-10-31)
 
 本版修复笔记本休眠唤醒后把整段睡眠当成 worker 静默：空闲会话会被判成卡死，界面随即重启 worker 并重发最近的消息。心跳与看门狗改为按定时器实际间隔识别暂停，唤醒后不再误判；空闲会话也不再触发自动恢复。

@@ -60,6 +60,18 @@ describe("agent-auto-recover", () => {
       }),
     ).toBe(false);
 
+    // 压缩期间没有输出是正常的，不能当软挂打断。
+    expect(
+      shouldSoftHangRecover({
+        running: true,
+        waitingUser: false,
+        toolInFlight: false,
+        outputSilenceMs: SOFT_HANG_SILENCE_MS * 2,
+        workerSilenceMs: 5_000,
+        compacting: true,
+      }),
+    ).toBe(false);
+
     expect(
       shouldSoftHangRecover({
         running: true,

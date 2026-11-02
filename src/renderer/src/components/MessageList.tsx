@@ -27,7 +27,7 @@ import {
   RefreshOutline,
   BrainOutline,
 } from "@renderer/components/icons/ionicons";
-import type { ChatMessage, ChatRetryHint } from "@renderer/stores/chat";
+import type { ChatLlmProgress, ChatMessage, ChatRetryHint } from "@renderer/stores/chat";
 import { useChatStore } from "@renderer/stores/chat";
 import { useCheckpointStore } from "@renderer/stores/checkpoint";
 import { useComposerStore } from "@renderer/stores/composer";
@@ -48,10 +48,16 @@ import {
   buildRoundUserByRow,
   buildSettledRowIds,
   buildWorkSectionMembership,
+  isLatestUserRead,
   lastIdPerRound,
   type UserMessage,
 } from "@renderer/utils/message-rows";
-import { agentOutputSilenceMs } from "@renderer/utils/agent-wait";
+import {
+  agentOutputSilenceMs,
+  clipRequestError,
+  formatElapsedShort,
+  formatTokenCount,
+} from "@renderer/utils/agent-wait";
 import type { ChatState } from "@renderer/stores/chat-reducer";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
@@ -72,6 +78,7 @@ import {
   innerScrollCanSwallow,
   type InnerScrollMetrics,
 } from "@renderer/utils/inner-scroll";
+import { foldAnchorScrollDelta } from "@renderer/utils/fold-anchor";
 import {
   assistantModelDetail as assistantModelDetailOf,
   assistantStats as assistantStatsOf,
@@ -118,7 +125,10 @@ const OVERSCAN_PX = 200;
 const NEAR_BOTTOM_PX = 120;
 /**
  * 用户展开/折叠是一次局部重排：这段时间内的贴底会把视口拽到新的末尾，
- * 看起来就是“内容往上开”。窗口内保持视口不动，等下一次真实内容增长再恢复跟随。
+ * 看起来就是“内容往上开”。窗口内改为锚定被点的行，内容只向下推。
+ *
+ * shortcut: 窗口固定 400ms 不续期（续期会让流式输出永远不跟随）；
+ * 更慢的异步渲染会晚于窗口落地，那一次长高仍会贴底。
  */
 const FOLD_HOLD_MS = 400;
 
@@ -133,6 +143,78 @@ type Props = {
 };
 
 type ImagePreview = { dataUrl: string; mimeType: string };
+
+/** 自动重试行：重试倒计时 + 重试请求已发出时的网络阶段。 */
+function RetryHintRow({
+  hint,
+  progress,
+}: {
+  hint: ChatRetryHint;
+  progress: ChatLlmProgress | null;
+}): ReactElement {
+  const t = useI18n();
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(timer);
+  }, []);
+
+  const sent = progress != null && progress.startedAt >= hint.at;
+  const remaining = Math.max(
+    0,
+    Math.ceil((hint.delayMs - (now - hint.at)) / 1000),
+  );
+  const detail = (() => {
+    if (sent && progress) {
+      if (progress.stage === "failed")
+        return t.agentWaitRequestFailed(
+          progress.host,
+          progress.error ? clipRequestError(progress.error) : undefined,
+        );
+      if (progress.stage === "response") {
+        return progress.status != null
+          ? t.agentWaitResponseHeaders(progress.status)
+          : t.agentWaitResponseNoStatus;
+      }
+      return t.agentWaitRequestSent(progress.host);
+    }
+    return remaining > 0 ? t.agentWaitRetryCountdown(remaining) : "";
+  })();
+
+  return (
+    <div className={styles.runningIndicator}>
+      <span className={`${styles.dot} ${styles.warn}`} />
+      <Typography.Text type="secondary" style={{ fontSize: fontSizeRem(12) }}>
+        {t.retrying(hint.attempt, hint.maxAttempts)}
+        {detail ? <span className={styles.retryDetail}> · {detail}</span> : null}
+        {hint.message ? (
+          <span className={styles.retryDetail}> · {hint.message}</span>
+        ) : null}
+      </Typography.Text>
+    </div>
+  );
+}
+
+function SendReceipt({ read }: { read: boolean }): ReactElement {
+  const paths = read
+    ? ["M1 6.6 4.1 9.8 9.5 2.6", "M6.2 6.6 9.3 9.8 14.7 2.6"]
+    : ["M3.5 6.6 6.6 9.8 12 2.6"];
+  return (
+    <svg viewBox="0 0 16 12" width={16} height={12} fill="none" aria-hidden="true">
+      {paths.map((d) => (
+        <path
+          key={d}
+          d={d}
+          stroke="currentColor"
+          strokeWidth={1.6}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      ))}
+    </svg>
+  );
+}
 
 function rowRoleClass(role: ChatMessage["role"]): string {
   switch (role) {
@@ -185,8 +267,8 @@ export function MessageList({
   const lastJumpedUserId = useRef<string | null>(null);
   /** Avoid follow-bottom immediately undoing the post-send card-bottom scroll. */
   const suppressFollowBottomUntil = useRef(0);
-  /** 折叠/展开窗口：期内不贴底，避免把用户正在看的位置顶走。 */
-  const foldHoldUntil = useRef(0);
+  /** 折叠/展开窗口：期内钉住被点行的视口位置，避免贴底把它顶走。 */
+  const foldAnchor = useRef<{ el: Element; top: number; until: number } | null>(null);
   /** virtua 容器元素，用于实测其在滚动内容中的起始偏移。 */
   const virtualHostRef = useRef<HTMLDivElement | null>(null);
   /**
@@ -271,6 +353,8 @@ export function MessageList({
     }
     return null;
   }, [allMessages]);
+
+  const latestUserRead = useMemo(() => isLatestUserRead(allMessages), [allMessages]);
 
   const rowsRef = useRef({
     allMessages,
@@ -382,38 +466,82 @@ export function MessageList({
     sc.scrollTop = sc.scrollHeight;
   }
 
-  /** 已经贴在底部就不必再写 scrollTop：virtua 的补偿可能刚刚写完。 */
+  /** 已经贴在底部就不必再写：写入会打断平滑滚动，还会派发多余的 scroll 事件。 */
   function atBottom(sc: HTMLElement): boolean {
     return sc.scrollHeight - sc.scrollTop - sc.clientHeight < 1;
   }
 
   /**
-   * 贴底的唯一写入口。
+   * 贴底写入本体，只读 refs，任何帧内阶段都可调用。
    *
-   * 不再从 scroll 事件里回写 scrollTop：virtua 本身会在行高变化时做锤定补偿
-   * （保持视口内容不动），两者同时写同一个 scrollTop 会互相覆盖，贴在底部的时候
-   * 就变成每帧来回扯 —— 也就是“消息区抽搐”。
-   * 这里只由内容/尺寸变化驱动，一帧最多写一次。
+   * 必须由 ResizeObserver 同步驱动：RO 回调在本帧 paint 之前，写进去的位置当场生效。
+   * 放进 rAF 会读到上一帧布局的 scrollHeight，等行高修正落地后底部又低了一截，
+   * 下一帧才补上 —— 贴底永远差一步，就是“消息区抽搐”。
    */
+  function commitBottomScroll(): void {
+    // A reader must never be yanked, even if followBottom is still momentarily
+    // true in a state snapshot taken mid-wheel.
+    if (!followBottom.current || selectDrag.current) return;
+    // Minimized / hidden: no layout work until the window is restored.
+    if (document.hidden || paneHidden()) return;
+    const sc = scrollerRef.current;
+    if (!sc) return;
+    if (holdFoldAnchor(sc)) return;
+    if (atBottom(sc)) return;
+    scrollToBottom();
+  }
+
+  /**
+   * 展开/折叠期间把被点行的视口位置钉住，超出视口时再向下让位。
+   * 块边界取整条消息行：展开体不一定在被点行的直接父级里。
+   */
+  function holdFoldAnchor(sc: HTMLElement): boolean {
+    const anchor = foldAnchor.current;
+    if (!anchor) return false;
+    if (Date.now() > anchor.until || !anchor.el.isConnected) {
+      foldAnchor.current = null;
+      return false;
+    }
+    const block = anchor.el.closest("[data-msg-id]") ?? anchor.el.parentElement ?? anchor.el;
+    const scBox = sc.getBoundingClientRect();
+    const delta = foldAnchorScrollDelta({
+      anchorTop: anchor.top,
+      headTop: anchor.el.getBoundingClientRect().top,
+      blockBottom: block.getBoundingClientRect().bottom,
+      viewTop: scBox.top,
+      viewBottom: scBox.bottom,
+    });
+    if (Math.abs(delta) >= 1) sc.scrollTop += delta;
+    return true;
+  }
+
+  const commitScrollRef = useRef(commitBottomScroll);
+  commitScrollRef.current = commitBottomScroll;
+
+  /** 非尺寸变化触发的兜底贴底（新消息、尾部提示），一帧最多写一次。 */
   const bottomScrollRaf = useRef(0);
   function scheduleBottomScroll(): void {
-    // Hard latch first: a reader must never be yanked, even if followBottom is
-    // still momentarily true in a state snapshot taken mid-wheel.
     if (!followBottom.current) return;
-    // Minimized / hidden: no layout work until the window is restored.
     if (document.hidden || paneHidden()) return;
     if (bottomScrollRaf.current) return;
     bottomScrollRaf.current = requestAnimationFrame(() => {
       bottomScrollRaf.current = 0;
-      const sc = scrollerRef.current;
-      if (!sc || document.hidden || paneHidden()) return;
-      // 重新检查：排队期间用户可能已经上滑，或者正在拖选文本。
-      if (!followBottom.current || selectDrag.current) return;
-      if (Date.now() < foldHoldUntil.current) return;
-      if (atBottom(sc)) return;
-      scrollToBottom();
+      commitBottomScroll();
     });
   }
+
+  /**
+   * 内容真正长高/变矮都体现在 .inner 高度上（virtua 容器高度即总尺寸）。
+   * 在 RO 里同步贴底，视口位置与内容在同一帧完成，看不到中间态。
+   */
+  const innerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const inner = innerRef.current;
+    if (!inner) return;
+    const observer = new ResizeObserver(() => commitScrollRef.current());
+    observer.observe(inner);
+    return () => observer.disconnect();
+  }, []);
 
   /**
    * 虚拟列表之前的头部高度：virtua 以此为基准换算可见区间，填错会让视口整体偏移。
@@ -452,6 +580,8 @@ export function MessageList({
     // Jump control / settle are the only callers; anything else must not move
     // the viewport while the user is reading history.
     if (!followBottom.current || paneHidden()) return;
+    // 贴底是显式意图，展开窗口的锚定不能再把它拉回去。
+    foldAnchor.current = null;
     const sc = scrollerRef.current;
     if (!sc) return;
     const token = ++instantSnapToken.current;
@@ -597,6 +727,8 @@ export function MessageList({
    */
   function applyFollowIntent(intent: FollowIntent): void {
     intentToken.current++;
+    // 用户接管视口，展开窗口的锚定立即让位。
+    foldAnchor.current = null;
     const sc = scrollerRef.current;
     if (!sc) return;
     // 内容装得下时没有历史可看，保持贴底。
@@ -742,13 +874,18 @@ export function MessageList({
   }
 
   /**
-   * 折叠/展开是用户主动的局部重排：这一下不跟着贴底，
+   * 折叠/展开是用户主动的局部重排：钉住这一行而不是贴底，
    * 否则视口被拽到新的末尾，正在看的那一行会“往上开”。
    */
   function onScrollerClickCapture(event: MouseEvent): void {
     const target = event.target instanceof Element ? event.target : null;
-    if (!target?.closest("[aria-expanded]")) return;
-    foldHoldUntil.current = Date.now() + FOLD_HOLD_MS;
+    const toggle = target?.closest("[aria-expanded], [data-fold-toggle]");
+    if (!toggle) return;
+    foldAnchor.current = {
+      el: toggle,
+      top: toggle.getBoundingClientRect().top,
+      until: Date.now() + FOLD_HOLD_MS,
+    };
   }
 
   function engageHistoryReading(): void {
@@ -1170,7 +1307,7 @@ export function MessageList({
 
   function onEditUser(msg: Extract<ChatMessage, { role: "user" }>): void {
     const id = sessionId;
-    if (!id || running) return;
+    if (!id) return;
     const edited = chat.beginEditUser(id, msg.id);
     if (!edited) return;
     if (sendQueue.editingId) sendQueue.setEditing(id, null);
@@ -1527,24 +1664,31 @@ export function MessageList({
                 </button>
               ) : null}
             </div>
-            {!running ? (
-              <div className={`${styles.actions} ${styles.userActions}`}>
-                <Button
-                  type="text"
-                  shape="circle"
-                  size="small"
-                  icon={<CopyOutline />}
-                  onClick={() => copyText(view.text)}
-                />
-                <Button
-                  type="text"
-                  shape="circle"
-                  size="small"
-                  icon={<CreateOutline />}
-                  onClick={() => onEditUser(msg)}
-                />
-              </div>
-            ) : null}
+            <div className={`${styles.actions} ${styles.userActions}`}>
+              {msg.id === latestUserMessageId ? (
+                <span
+                  className={styles.userReceipt}
+                  title={latestUserRead ? t.receiptRead : t.receiptSent}
+                  aria-label={latestUserRead ? t.receiptRead : t.receiptSent}
+                >
+                  <SendReceipt read={latestUserRead} />
+                </span>
+              ) : null}
+              <Button
+                type="text"
+                shape="circle"
+                size="small"
+                icon={<CopyOutline />}
+                onClick={() => copyText(view.text)}
+              />
+              <Button
+                type="text"
+                shape="circle"
+                size="small"
+                icon={<CreateOutline />}
+                onClick={() => onEditUser(msg)}
+              />
+            </div>
           </div>
         </article>
       );
@@ -1682,6 +1826,13 @@ export function MessageList({
     }
     if (msg.role === "summary") {
       const open = isSummaryOpen(msg.id);
+      const meta = [
+        msg.tokensBefore ? t.summaryTokens(msg.tokensBefore) : "",
+        msg.durationMs ? t.summaryDuration(formatElapsedShort(msg.durationMs)) : "",
+        msg.summaryTokens ? t.summaryCost(formatTokenCount(msg.summaryTokens)) : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
       return (
         <article key={msg.id} className={rowClass} data-msg-id={msg.id}>
           <div className={styles.summaryCard}>
@@ -1695,11 +1846,7 @@ export function MessageList({
               <span className={styles.summaryTitle}>
                 {msg.kind === "compaction" ? t.summaryCompaction : t.summaryBranch}
               </span>
-              {msg.tokensBefore ? (
-                <span className={styles.summaryMeta}>
-                  {t.summaryTokens(msg.tokensBefore)}
-                </span>
-              ) : null}
+              {meta ? <span className={styles.summaryMeta}>{meta}</span> : null}
             </button>
             {open ? <div className={styles.summaryBody}>{msg.text}</div> : null}
           </div>
@@ -1740,7 +1887,7 @@ export function MessageList({
         ref={scrollerRef}
         className={`${styles.messageList}${settlingUi ? ` ${styles.isSettling}` : ""}`}
       >
-        <div className={styles.inner}>
+        <div ref={innerRef} className={styles.inner}>
           {olderState?.hasMore ? (
             <div className={styles.loadOlder}>
               <Button type="text" loading={olderState.loading} onClick={onLoadOlder}>
@@ -1756,7 +1903,7 @@ export function MessageList({
             shift={shift}
             startMargin={startMargin}
             bufferSize={OVERSCAN_PX}
-            onResize={scheduleBottomScroll}
+            onResize={commitBottomScroll}
           >
             {(msg, index) => renderMessageRow(msg, index)}
           </Virtualizer>
@@ -1766,15 +1913,7 @@ export function MessageList({
           {showJumpLatest ? null : (
             <>
               {retryHint ? (
-                <div className={styles.runningIndicator}>
-                  <span className={`${styles.dot} ${styles.warn}`} />
-                  <Typography.Text type="secondary" style={{ fontSize: fontSizeRem(12) }}>
-                    {t.retrying(retryHint.attempt, retryHint.maxAttempts)}
-                    {retryHint.message ? (
-                      <span className={styles.retryDetail}> · {retryHint.message}</span>
-                    ) : null}
-                  </Typography.Text>
-                </div>
+                <RetryHintRow hint={retryHint} progress={waitState?.llmProgress ?? null} />
               ) : waitState && (showWaitWhileStreaming || !streaming) ? (
                 <AgentWaitIndicator state={waitState} />
               ) : null}

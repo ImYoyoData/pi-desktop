@@ -7,10 +7,15 @@ import {
 } from "../../src/renderer/src/stores/chat-reducer";
 import {
   agentOutputSilenceMs,
+  agentWaitNetwork,
   agentWaitPhase,
   agentWaitPhaseId,
+  agentWaitRound,
   agentWorkerSilenceMs,
+  clipRequestError,
   formatElapsedShort,
+  formatTokenCount,
+  httpStatusKind,
   syncPhaseClock,
 } from "../../src/renderer/src/utils/agent-wait";
 
@@ -161,6 +166,85 @@ describe("syncPhaseClock", () => {
   });
 });
 
+describe("agentWaitNetwork", () => {
+  function runningState() {
+    return appendUserMessage(createChatState(), "hello");
+  }
+
+  it("reports the request stage from llm_progress events", () => {
+    let state = runningState();
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: { type: "llm_progress", stage: "sent", host: "api.test", at: 1_000 },
+    });
+    expect(agentWaitNetwork(state, 4_000)).toEqual({
+      stage: "sent",
+      host: "api.test",
+      elapsedMs: 3_000,
+    });
+
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "llm_progress",
+        stage: "response",
+        host: "api.test",
+        status: 200,
+        at: 2_000,
+      },
+    });
+    expect(agentWaitNetwork(state, 5_000)).toEqual({
+      stage: "response",
+      host: "api.test",
+      status: 200,
+      elapsedMs: 3_000,
+    });
+  });
+
+  it("reports the failure reason as one clipped line", () => {
+    let state = runningState();
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "llm_progress",
+        stage: "failed",
+        host: "api.test",
+        at: 1_000,
+        error: `connect\n  refused\n${"x".repeat(200)}`,
+      },
+    });
+    const network = agentWaitNetwork(state, 2_000);
+    expect(network?.stage).toBe("failed");
+    expect(network?.error?.startsWith("connect refused xx")).toBe(true);
+    expect(network?.error?.includes("\n")).toBe(false);
+    expect(network?.error?.length).toBeLessThanOrEqual(120);
+  });
+
+  it("clips a long error string to a single line", () => {
+    expect(clipRequestError("a\n  b")).toBe("a b");
+    expect(clipRequestError("x".repeat(300)).length).toBe(120);
+  });
+
+  it("keeps the silence clock untouched and clears on turn end", () => {
+    let state = runningState();
+    const activityBefore = state.lastActivityAt;
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: { type: "llm_progress", stage: "sent", host: "api.test", at: 1_000 },
+    });
+    expect(state.lastActivityAt).toBe(activityBefore);
+    expect(state.llmProgress?.host).toBe("api.test");
+
+    state = reduceChatEvent(state, { type: "prompt_done", sessionId: "s" });
+    expect(state.llmProgress).toBeNull();
+    expect(agentWaitNetwork(state, 9_000)).toBeNull();
+  });
+});
+
 describe("agent wait silence helpers", () => {
   it("formats elapsed time", () => {
     expect(formatElapsedShort(5_000)).toBe("5s");
@@ -232,5 +316,145 @@ describe("stampThinkingClock", () => {
     );
     expect(done.thinkingStartedAt).toBeUndefined();
     expect(done.thinkingDurationMs).toBeUndefined();
+  });
+});
+
+describe("httpStatusKind", () => {
+  it("classifies status codes the UI distinguishes", () => {
+    expect(httpStatusKind(200)).toBe("ok");
+    expect(httpStatusKind(429)).toBe("limited");
+    expect(httpStatusKind(503)).toBe("server");
+    expect(httpStatusKind(401)).toBe("rejected");
+    expect(httpStatusKind(undefined)).toBeNull();
+  });
+});
+
+describe("agentWaitRound", () => {
+  it("reports the round and tool count only while running", () => {
+    const base = appendUserMessage(createChatState(), "hi");
+    expect(agentWaitRound(base)).toBeNull();
+    expect(agentWaitRound({ ...base, llmRound: 3, nextToolOrder: 3 })).toEqual({
+      round: 3,
+      tools: 2,
+    });
+    expect(agentWaitRound({ ...base, running: false, llmRound: 3 })).toBeNull();
+  });
+});
+
+describe("formatTokenCount", () => {
+  it("shortens token counts", () => {
+    expect(formatTokenCount(999)).toBe("999");
+    expect(formatTokenCount(12_300)).toBe("12.3k");
+    expect(formatTokenCount(1_500_000)).toBe("1.5M");
+  });
+});
+
+describe("compaction state", () => {
+  it("tracks compaction_start/end and exposes the compacting phase", () => {
+    let state = appendUserMessage(createChatState(), "hi");
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "compaction_start",
+        reason: "overflow",
+        tokens: 123_000,
+        contextWindow: 146_000,
+      },
+    });
+    expect(state.compaction).toMatchObject({
+      reason: "overflow",
+      tokens: 123_000,
+      contextWindow: 146_000,
+    });
+    expect(agentWaitPhase(state)).toBe("compacting");
+
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: { type: "compaction_end", reason: "overflow", summary: "sum" },
+    });
+    expect(state.compaction).toBeNull();
+  });
+
+  it("records duration and summary cost on the card, and reports cancellation", () => {
+    let state = appendUserMessage(createChatState(), "hi");
+    state = {
+      ...state,
+      compaction: { reason: "threshold", startedAt: Date.now() - 5_000, enterRunning: true },
+    };
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "compaction_end",
+        reason: "threshold",
+        summary: "sum",
+        tokensBefore: 120_000,
+        summaryTokens: 1_800,
+      },
+    });
+    const card = state.messages.at(-1);
+    expect(card).toMatchObject({
+      role: "summary",
+      kind: "compaction",
+      tokensBefore: 120_000,
+      summaryTokens: 1_800,
+    });
+    expect(card?.role === "summary" ? card.durationMs : 0).toBeGreaterThanOrEqual(4_000);
+    // 回合内的自动压缩：结束后回合继续跑。
+    expect(state.running).toBe(true);
+
+    const cancelled = reduceChatEvent(
+      {
+        ...appendUserMessage(createChatState(), "hi"),
+        compaction: { reason: "manual", startedAt: Date.now(), enterRunning: false },
+      },
+      {
+        type: "agent_event",
+        sessionId: "s",
+        event: { type: "compaction_end", reason: "manual", aborted: true },
+      },
+    );
+    expect(cancelled.compaction).toBeNull();
+    expect(cancelled.messages.at(-1)).toMatchObject({ role: "error", variant: "cancelled" });
+  });
+
+  it("restores the turn state after a manual compaction", () => {
+    let state = reduceChatEvent(
+      { ...createChatState(), running: false },
+      {
+        type: "agent_event",
+        sessionId: "s",
+        event: { type: "compaction_start", reason: "manual" },
+      },
+    );
+    expect(state.running).toBe(true);
+    expect(state.compaction?.enterRunning).toBe(false);
+
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: { type: "compaction_end", reason: "manual", summary: "sum" },
+    });
+    // /compact 没有回合收尾事件，不能把界面留在「运行中」。
+    expect(state.running).toBe(false);
+    expect(state.turnStartedAt).toBeNull();
+  });
+
+  it("counts rounds from turn_start and clears on turn end", () => {
+    let state = appendUserMessage(createChatState(), "hi");
+    const round = (event: Record<string, unknown>) =>
+      reduceChatEvent(state, { type: "agent_event", sessionId: "s", event });
+    state = round({ type: "agent_start" });
+    expect(state.llmRound).toBe(0);
+    state = round({ type: "turn_start" });
+    expect(state.llmRound).toBe(1);
+    state = round({ type: "turn_start" });
+    expect(state.llmRound).toBe(2);
+
+    state = reduceChatEvent(state, { type: "prompt_done", sessionId: "s" });
+    expect(state.llmRound).toBe(0);
+    expect(state.compaction).toBeNull();
   });
 });

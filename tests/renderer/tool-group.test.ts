@@ -164,6 +164,7 @@ const summaryStrings: WorkSectionSummaryStrings = {
   readCount: (n) => `Reviewed ${n} files`,
   bashCount: (n) => `Ran ${n} commands`,
   todoCount: (n) => `Updated todos ${n} times`,
+  grepCount: (n) => `Searched ${n} times`,
   toolCount: (n) => `Used ${n} tools`,
   separator: ", ",
 };

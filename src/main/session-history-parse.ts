@@ -378,6 +378,12 @@ function buildMessagesFromEntries(
     if (entry.type === "compaction" || entry.type === "branch_summary") {
       const text = (entry.summary ?? "").trim();
       if (!text) continue;
+      // 摘要调用自身的输出 token，和当拍展示保持一致。
+      const usage = ("usage" in entry ? entry.usage : undefined) as
+        | { output?: unknown }
+        | undefined;
+      const summaryTokens =
+        typeof usage?.output === "number" && usage.output > 0 ? usage.output : undefined;
       messages.push({
         id: entry.id,
         role: "summary",
@@ -386,6 +392,7 @@ function buildMessagesFromEntries(
         ...(entry.tokensBefore != null && entry.tokensBefore > 0
           ? { tokensBefore: entry.tokensBefore }
           : {}),
+        ...(summaryTokens != null ? { summaryTokens } : {}),
       });
       continue;
     }

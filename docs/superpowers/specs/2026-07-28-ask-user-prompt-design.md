@@ -1,5 +1,7 @@
 # Ask-user interactive prompt — Design
 
+> **现状对照（2026-11）**：已实现，但两项关键决策已改。保留：`ask_user` 自定义工具、非阻塞 `execute`（回合先结束）、回答作为普通 user message 开启新回合。偏离：UI 从 composer 上方浮动条改为**内嵌消息流卡片**（多题短标签、图片附件）；协议对齐 Codex 问答格式（`header` / `isSecret`、题目与选项数量校验、JSON 答案）。`AskUserStrip` 组件名为遗迹。
+
 **Date:** 2026-07-28  
 **Status:** Approved  
 **Product:** Pi Desktop  

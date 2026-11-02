@@ -1,5 +1,7 @@
 # Changes Tab + 轻量 Git — Implementation Plan
 
+> **现状对照（2026-11）**：任务已完成（React 重写后）：`git-host` / `git-ipc` / `protocol` / preload 通道全部就位，Changes UI 落地，后续扩展出 PR 浏览与 `numstat` 行数统计。文件清单中的 `.vue` 组件已变为 `.tsx`。
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Build Changes tab as Pi-web-style change review + light Git ops; remove browser 「⋯」 menu.

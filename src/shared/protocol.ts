@@ -646,6 +646,8 @@ export type SessionHistoryMessage =
 			kind: "compaction" | "branch";
 			/** 压缩前的 token 数（compaction 才有）。 */
 			tokensBefore?: number;
+			/** 生成摘要消耗的输出 token（只能从落盘 usage 还原）。 */
+			summaryTokens?: number;
 	  };
 
 /** Paginated leaf-path history for the chat UI (avoid loading entire huge sessions). */

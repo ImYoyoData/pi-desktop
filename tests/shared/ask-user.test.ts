@@ -1,38 +1,49 @@
 import { describe, expect, it } from "vitest";
 import {
   ASK_USER_CUSTOM_OPTION_ID,
+  ASK_USER_HEADER_MAX,
   formatAskUserAnswers,
   parseAskUserArgs,
+  splitRecommendedLabel,
   validateAskUserAnswers,
   withEnsuredCustomOption,
   type AskUserAnswerDraft,
 } from "../../src/shared/ask-user";
 
+const OPTIONS = [
+  { id: "prod", label: "production" },
+  { id: "stage", label: "staging" },
+];
+
 describe("parseAskUserArgs", () => {
-  it("parses a valid single-question payload and injects custom option", () => {
+  it("parses a valid single-question payload and injects the None of the above row", () => {
     const prompt = parseAskUserArgs({
       questions: [
         {
           id: "env",
+          header: "目标",
           prompt: "Deploy where?",
           type: "single",
-          options: [{ id: "prod", label: "production" }],
+          options: OPTIONS,
         },
       ],
     });
     expect(prompt?.questions).toHaveLength(1);
     expect(prompt?.questions[0]?.type).toBe("single");
-    expect(prompt?.questions[0]?.options.some((o) => o.allowCustom)).toBe(true);
-    expect(
-      prompt?.questions[0]?.options.some((o) => o.id === ASK_USER_CUSTOM_OPTION_ID),
-    ).toBe(true);
+    expect(prompt?.questions[0]?.header).toBe("目标");
+    const options = prompt?.questions[0]?.options ?? [];
+    expect(options.some((o) => o.id === ASK_USER_CUSTOM_OPTION_ID)).toBe(true);
+    expect(options.find((o) => o.id === ASK_USER_CUSTOM_OPTION_ID)?.label).toBe(
+      "None of the above",
+    );
   });
 
-  it("always appends the custom input row, even when an option allows custom text", () => {
+  it("always appends the free-form row, even when an option allows custom text", () => {
     const prompt = parseAskUserArgs({
       questions: [
         {
           id: "env",
+          header: "环境",
           prompt: "Deploy where?",
           type: "single",
           options: [
@@ -51,27 +62,158 @@ describe("parseAskUserArgs", () => {
     expect(parseAskUserArgs({ questions: [] })).toBeNull();
   });
 
-  it("keeps the tab title and option description", () => {
+  it("rejects a question with fewer than two options", () => {
     const prompt = parseAskUserArgs({
       questions: [
         {
-          id: "scope",
-          title: "改动范围",
-          prompt: "只改代码还是也改文档?",
+          id: "env",
+          prompt: "Deploy where?",
+          type: "single",
+          options: [{ id: "prod", label: "production" }],
+        },
+      ],
+    });
+    expect(prompt).toBeNull();
+  });
+
+  it("rejects the whole payload when any question is invalid", () => {
+    const prompt = parseAskUserArgs({
+      questions: [
+        {
+          id: "env",
+          prompt: "Deploy where?",
+          type: "single",
+          options: [{ id: "prod", label: "production" }],
+        },
+        { id: "flags", prompt: "Flags?", type: "multi", options: OPTIONS },
+      ],
+    });
+    expect(prompt).toBeNull();
+  });
+
+  it("rejects a question with more than three options", () => {
+    const prompt = parseAskUserArgs({
+      questions: [
+        {
+          id: "env",
+          prompt: "Deploy where?",
           type: "single",
           options: [
-            { id: "code", label: "只改代码", description: "按 AGENTS.md 默认" },
+            { id: "a", label: "a" },
+            { id: "b", label: "b" },
+            { id: "c", label: "c" },
+            { id: "d", label: "d" },
           ],
         },
       ],
     });
-    expect(prompt?.questions[0]?.title).toBe("改动范围");
-    expect(prompt?.questions[0]?.options[0]?.description).toBe("按 AGENTS.md 默认");
+    expect(prompt).toBeNull();
+  });
+
+  it("stays valid when reparsed after the free-form row was appended", () => {
+    const args = {
+      questions: [
+        {
+          id: "env",
+          prompt: "Deploy where?",
+          type: "single",
+          options: [...OPTIONS, { id: "dev", label: "dev" }],
+        },
+      ],
+    };
+    const first = parseAskUserArgs(args);
+    expect(first?.questions[0]?.options).toHaveLength(4);
+    expect(parseAskUserArgs({ questions: first?.questions })?.questions).toHaveLength(1);
+  });
+
+  it("rejects more than three questions", () => {
+    const prompt = parseAskUserArgs({
+      questions: Array.from({ length: 4 }, (_, i) => ({
+        id: `q${i}`,
+        prompt: `Question ${i}?`,
+        type: "single",
+        options: OPTIONS,
+      })),
+    });
+    expect(prompt).toBeNull();
+  });
+
+  it("rejects duplicate question ids", () => {
+    const prompt = parseAskUserArgs({
+      questions: [
+        { id: "env", prompt: "First?", type: "single", options: OPTIONS },
+        { id: "env", prompt: "Second?", type: "single", options: OPTIONS },
+      ],
+    });
+    expect(prompt).toBeNull();
+  });
+
+  it("truncates the header and falls back to the legacy title field", () => {
+    const prompt = parseAskUserArgs({
+      questions: [
+        {
+          id: "scope",
+          header: "改动范围与文档同步",
+          prompt: "只改代码还是也改文档?",
+          type: "single",
+          options: OPTIONS,
+        },
+        {
+          id: "legacy",
+          title: "旧标题",
+          prompt: "Legacy?",
+          type: "single",
+          options: OPTIONS,
+        },
+      ],
+    });
+    expect(prompt?.questions[0]?.header).toBe(
+      "改动范围与文档同步".slice(0, ASK_USER_HEADER_MAX),
+    );
+    expect(prompt?.questions[1]?.header).toBe("旧标题");
+  });
+
+  it("keeps isSecret and skippable flags", () => {
+    const prompt = parseAskUserArgs({
+      questions: [
+        {
+          id: "token",
+          header: "令牌",
+          prompt: "API token?",
+          type: "single",
+          isSecret: true,
+          skippable: false,
+          options: OPTIONS,
+        },
+      ],
+    });
+    expect(prompt?.questions[0]?.isSecret).toBe(true);
+    expect(prompt?.questions[0]?.skippable).toBe(false);
+  });
+});
+
+describe("splitRecommendedLabel", () => {
+  it("strips the recommended suffix", () => {
+    expect(splitRecommendedLabel("Deploy now (Recommended)")).toEqual({
+      text: "Deploy now",
+      recommended: true,
+    });
+    expect(splitRecommendedLabel("先部署 (推荐)")).toEqual({
+      text: "先部署",
+      recommended: true,
+    });
+  });
+
+  it("leaves plain labels alone", () => {
+    expect(splitRecommendedLabel("Plain")).toEqual({
+      text: "Plain",
+      recommended: false,
+    });
   });
 });
 
 describe("withEnsuredCustomOption", () => {
-  it("adds the custom option to buttons too", () => {
+  it("adds the free-form row to buttons too", () => {
     const q = withEnsuredCustomOption({
       id: "go",
       prompt: "Proceed?",
@@ -120,14 +262,14 @@ describe("validateAskUserAnswers + formatAskUserAnswers", () => {
     ],
   })!;
 
-  it("requires custom text for the injected custom-input row", () => {
+  it("requires text for the injected free-form row", () => {
     const withCustomRow = parseAskUserArgs({
       questions: [
         {
           id: "env",
           prompt: "Deploy where?",
           type: "single",
-          options: [{ id: "prod", label: "production" }],
+          options: OPTIONS,
         },
       ],
     })!;
@@ -150,19 +292,25 @@ describe("validateAskUserAnswers + formatAskUserAnswers", () => {
       go: { optionIds: ["yes"], customText: "", skipped: false },
     };
     expect(validateAskUserAnswers(prompt, draft)).toBeNull();
-    expect(formatAskUserAnswers(prompt, draft)).not.toContain("custom:");
+    expect(JSON.parse(formatAskUserAnswers(prompt, draft))).toEqual({
+      answers: {
+        env: { answers: ["other"] },
+        flags: { answers: ["alpha"] },
+        go: { answers: ["Confirm"] },
+      },
+    });
   });
 
-  it("allows skipped questions and formats them as [skipped]", () => {
+  it("allows skipped questions and formats them as an empty answers array", () => {
     const draft: AskUserAnswerDraft = {
       env: { optionIds: [], customText: "", skipped: true },
       flags: { optionIds: ["a"], customText: "", skipped: false },
       go: { optionIds: ["yes"], customText: "", skipped: false },
     };
     expect(validateAskUserAnswers(prompt, draft)).toBeNull();
-    const text = formatAskUserAnswers(prompt, draft);
-    expect(text).toContain("(id=env)");
-    expect(text).toContain("→ [skipped]");
+    expect(JSON.parse(formatAskUserAnswers(prompt, draft)).answers.env).toEqual({
+      answers: [],
+    });
   });
 
   it("rejects skipping a question marked skippable:false", () => {
@@ -180,28 +328,32 @@ describe("validateAskUserAnswers + formatAskUserAnswers", () => {
         },
       ],
     })!;
-    expect(required.questions[0]?.skippable).toBe(false);
     const draft: AskUserAnswerDraft = {
       go: { optionIds: [], customText: "", skipped: true },
     };
     expect(validateAskUserAnswers(required, draft)).toBe("cannot-skip");
     expect(
-      validateAskUserAnswers(required, { ...draft, go: { optionIds: ["yes"], customText: "", skipped: false } }),
+      validateAskUserAnswers(required, {
+        ...draft,
+        go: { optionIds: ["yes"], customText: "", skipped: false },
+      }),
     ).toBeNull();
   });
 
-  it("formats answers with prefix and ids", () => {
+  it("appends free text next to the selected labels", () => {
     const draft: AskUserAnswerDraft = {
       env: { optionIds: ["other"], customText: "canary 10%", skipped: false },
       flags: { optionIds: ["a", "c"], customText: "extra", skipped: false },
       go: { optionIds: ["no"], customText: "", skipped: false },
     };
     expect(validateAskUserAnswers(prompt, draft)).toBeNull();
-    const text = formatAskUserAnswers(prompt, draft);
-    expect(text.startsWith("[ask_user answers]\n")).toBe(true);
-    expect(text).toContain("(id=env)");
-    expect(text).toContain("custom: canary 10%");
-    expect(text).toContain("Reject");
+    expect(JSON.parse(formatAskUserAnswers(prompt, draft))).toEqual({
+      answers: {
+        env: { answers: ["other", "canary 10%"] },
+        flags: { answers: ["alpha", "custom", "extra"] },
+        go: { answers: ["Reject"] },
+      },
+    });
   });
 
   it("accepts a free-text answer without picking an option", () => {
@@ -211,8 +363,8 @@ describe("validateAskUserAnswers + formatAskUserAnswers", () => {
       go: { optionIds: [], customText: "ship it", skipped: false },
     };
     expect(validateAskUserAnswers(prompt, draft)).toBeNull();
-    const text = formatAskUserAnswers(prompt, draft);
-    expect(text).toContain("custom: staging");
-    expect(text).toContain("custom: ship it");
+    const parsed = JSON.parse(formatAskUserAnswers(prompt, draft));
+    expect(parsed.answers.env).toEqual({ answers: ["staging"] });
+    expect(parsed.answers.go).toEqual({ answers: ["ship it"] });
   });
 });

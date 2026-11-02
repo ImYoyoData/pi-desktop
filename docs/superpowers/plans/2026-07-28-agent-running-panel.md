@@ -1,5 +1,7 @@
 # Agent Running Panel Implementation Plan
 
+> **现状对照（2026-11）**：核心任务已完成（`bash-run-tracker` / `agent-run-registry` / `agent-runs-ipc` / `agent-runs` store 均在），但运行面板未停留在右栏固定首 Tab——右栏重做后入口迁移，`RunningTab` 组件已无引用成孤儿。终止 / 只读日志 / 工作区范围有效；v0.3.7-rc.2 起心跳识别休眠唤醒。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a fixed first right-pane tab「运行 / Running」that lists live Pi SDK bash processes for the current workspace (all sessions), streams read-only output, and supports one-click Terminate.

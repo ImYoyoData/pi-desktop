@@ -11,6 +11,7 @@ export type AgentWaitPhase =
   | "thinking"
   | "writing"
   | "tool"
+  | "compacting"
   | "waiting_user";
 
 export function agentWaitPhase(state: ChatState): AgentWaitPhase | null {
@@ -18,6 +19,7 @@ export function agentWaitPhase(state: ChatState): AgentWaitPhase | null {
   if (state.pendingAskUser || state.pendingExtensionUi || state.pendingPermission) {
     return "waiting_user";
   }
+  if (state.compaction) return "compacting";
   const stream = state.streamingMessage;
   if (stream?.role === "tool") return "tool";
   if (stream?.role === "assistant") {
@@ -36,6 +38,68 @@ export function agentWaitToolName(state: ChatState): string | null {
   const stream = state.streamingMessage;
   if (stream?.role === "tool" && stream.toolName) return stream.toolName;
   return null;
+}
+
+export type AgentWaitNetwork = {
+  stage: "sent" | "response" | "failed";
+  host: string;
+  status?: number;
+  /** 请求抛错的原因（DNS / 超时 / 连接被拒），只在 failed 阶段出现。 */
+  error?: string;
+  elapsedMs: number;
+};
+
+/** 错误串可能是一整页 HTML：压成一行并截断，避免撑爆等待指示器。 */
+export function clipRequestError(text: string, max = 120): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}
+
+/**
+ * 当前模型请求卡在网络层时，报告卡在哪个阶段。
+ */
+export function agentWaitNetwork(
+  state: ChatState,
+  now = Date.now(),
+): AgentWaitNetwork | null {
+  const progress = state.llmProgress;
+  if (!state.running || !progress) return null;
+  const from =
+    progress.stage === "sent"
+      ? progress.startedAt
+      : (progress.respondedAt ?? progress.startedAt);
+  const error = progress.error ? clipRequestError(progress.error) : "";
+  return {
+    stage: progress.stage,
+    host: progress.host,
+    ...(progress.status != null ? { status: progress.status } : {}),
+    ...(error ? { error } : {}),
+    elapsedMs: Math.max(0, now - from),
+  };
+}
+
+/** 请求发出后多久还没收到响应头，就提示可能在等网络 / 代理。 */
+export const CONNECT_SLOW_MS = 20_000;
+
+export type AgentWaitHttpKind = "ok" | "limited" | "server" | "rejected";
+
+/** 把 HTTP 状态码归成界面需要区分的几类。 */
+export function httpStatusKind(
+  status: number | undefined,
+): AgentWaitHttpKind | null {
+  if (status == null) return null;
+  if (status === 429) return "limited";
+  if (status >= 500) return "server";
+  if (status >= 400) return "rejected";
+  return "ok";
+}
+
+/** 本回合第几轮模型调用、已跑几个工具（工具序号减一）。 */
+export function agentWaitRound(
+  state: ChatState,
+): { round: number; tools: number } | null {
+  if (!state.running || state.llmRound <= 0) return null;
+  return { round: state.llmRound, tools: Math.max(0, state.nextToolOrder - 1) };
 }
 
 /** Stable id for the current wait phase (tool name included). */
@@ -78,6 +142,13 @@ export function agentWorkerSilenceMs(state: ChatState, now = Date.now()): number
   if (!state.running) return 0;
   if (!state.lastWorkerAliveAt) return Number.POSITIVE_INFINITY;
   return Math.max(0, now - state.lastWorkerAliveAt);
+}
+
+/** 12_300 → "12.3k"，用于压缩前占用。 */
+export function formatTokenCount(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}k`;
+  return String(tokens);
 }
 
 export function formatElapsedShort(ms: number): string {

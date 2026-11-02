@@ -312,6 +312,83 @@
 
 .pathDir .pathName { color: var(--fg-muted); }
 
+/* --- grep 命中 ---
+   每个文件一组：文件头可点开，行号 + 高亮与文件视图同一套观感，
+   命中行淡底色，context 行保持底色。 */
+.grepFiles {
+  display: flex;
+  flex-direction: column;
+}
+
+.grepFile + .grepFile {
+  border-top: 1px solid var(--border);
+}
+
+.grepFileHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-title);
+  font-size: var(--chat-font-xs, 11px);
+  color: var(--fg-muted, #606060);
+}
+
+.grepFileHead :global(.file-chip) {
+  min-width: 0;
+}
+
+.grepLine {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 0.8462rem;
+  line-height: 1.55;
+  text-align: left;
+  color: var(--hl-fg, var(--fg));
+  cursor: pointer;
+}
+
+.grepLine:hover {
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+
+.grepHit {
+  background: color-mix(in srgb, var(--accent, #0069cc) 8%, transparent);
+}
+
+.grepLineNo {
+  flex-shrink: 0;
+  min-width: 3ch;
+  text-align: right;
+  color: color-mix(in srgb, var(--fg) 32%, transparent);
+  user-select: none;
+}
+
+.grepLineText {
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 5px 10px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--warning, #bf8803) 10%, transparent);
+  font-size: var(--chat-font-xs, 11px);
+  color: var(--fg-muted);
+}
+
 /* --- codemode 脚本报告 --- */
 .scriptSection + .scriptSection {
   margin-top: 8px;

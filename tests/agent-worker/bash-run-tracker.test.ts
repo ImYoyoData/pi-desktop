@@ -206,6 +206,32 @@ describe("后台截断提示的来源与语言", () => {
   });
 });
 
+describe("shell 退出后的残留进程跟踪", () => {
+  it("survivor 全已退出时立即返回", async () => {
+    const survivors = new Set([0]);
+    const started = Date.now();
+    await __test.waitForSurvivorsExit(survivors, undefined, {
+      idleMs: 60_000,
+      lastOutputAt: () => started,
+    });
+    expect(survivors.size).toBe(0);
+  });
+
+  // 回归：`npm run build` 结束后残留进程还活着时，工具一跳不起，卡片永远卡在运行中，
+  // 只能等 120s 卡死看门狗杀掉。安静一段时间后应主动放弃等待（不杀进程）。
+  it("残留进程安静超过 idle 窗口后放弃等待", async () => {
+    const survivors = new Set([process.pid]);
+    const started = Date.now();
+    await __test.waitForSurvivorsExit(survivors, undefined, {
+      idleMs: 1_200,
+      lastOutputAt: () => started,
+    });
+    expect(survivors.has(process.pid)).toBe(true);
+    // 断言真的等过了 idle 窗口；否则「忽略 idle 立即返回」的回归也能通过。
+    expect(Date.now() - started).toBeGreaterThanOrEqual(1_200);
+  }, 10_000);
+});
+
 describe("bash timeout / shell resolution", () => {
   it("treats a missing timeout as no timeout", () => {
     expect(__test.resolveTimeoutMs(undefined)).toBeUndefined();

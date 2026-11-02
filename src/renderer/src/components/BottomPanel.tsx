@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button, Dropdown } from "antd";
 import {
   AddOutline,
@@ -188,4 +188,4 @@ export function BottomPanel(): ReactNode {
   );
 }
 
-export default BottomPanel;
+export default memo(BottomPanel);

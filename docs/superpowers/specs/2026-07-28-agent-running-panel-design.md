@@ -1,5 +1,7 @@
 # Agent Running Panel (方案 A) — Design
 
+> **现状对照（2026-11）**：核心已实现、形态演进。`agent-worker/bash-run-tracker.ts` 包装 bash、`main/agent-run-registry.ts` 聚合、`agent-runs` store 消费，只读日志 + 一键终止 + 当前工作区全部会话范围有效；方案 A（进程管理器而非 PTY）选型未变。偏离：右栏重做为文件 / 更改 / 浏览器三页后，「运行」不再是固定首 Tab（运行数据由 `RightPane` 体系消费，`RunningTab.tsx` 已无引用成孤儿组件）；v0.3.7-rc.2 起运行面板与心跳均能识别休眠唤醒，不再误杀。
+
 **Date:** 2026-07-28  
 **Status:** Approved (product)  
 **Approach:** Process manager for Pi SDK bash — fixed first right-pane tab「运行」

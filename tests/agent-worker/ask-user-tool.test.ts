@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { createAskUserToolDefinition } from "../../src/agent-worker/ask-user-tool";
 
+const CONFIRM_OPTIONS = [
+  { id: "y", label: "Yes" },
+  { id: "n", label: "No" },
+];
+
 describe("createAskUserToolDefinition", () => {
   it("waits for answers and returns them as tool content", async () => {
-    const waitForAnswers = vi.fn(async () => "[ask_user answers]\n1. ok");
+    const waitForAnswers = vi.fn(async () => '{"answers":{"q1":{"answers":["Yes"]}}}');
     const tool = createAskUserToolDefinition({ waitForAnswers });
     expect(tool.name).toBe("ask_user");
     const result = await tool.execute(
@@ -12,12 +17,10 @@ describe("createAskUserToolDefinition", () => {
         questions: [
           {
             id: "q1",
+            header: "确认",
             prompt: "OK?",
             type: "buttons",
-            options: [
-              { id: "y", label: "Yes" },
-              { id: "n", label: "No" },
-            ],
+            options: CONFIRM_OPTIONS,
           },
         ],
       },
@@ -27,12 +30,12 @@ describe("createAskUserToolDefinition", () => {
     );
     expect(waitForAnswers).toHaveBeenCalledOnce();
     const text = result.content.map((c) => ("text" in c ? c.text : "")).join("");
-    expect(text).toContain("[ask_user answers]");
+    expect(text).toContain('"answers"');
   });
 
   it("passes attached images through as image content", async () => {
     const waitForAnswers = vi.fn(async () => ({
-      text: "[ask_user answers]\n1. ok",
+      text: '{"answers":{"q1":{"answers":["Yes"]}}}',
       images: [{ data: "AAAA", mimeType: "image/png" }],
     }));
     const tool = createAskUserToolDefinition({ waitForAnswers });
@@ -42,9 +45,10 @@ describe("createAskUserToolDefinition", () => {
         questions: [
           {
             id: "q1",
+            header: "确认",
             prompt: "OK?",
             type: "buttons",
-            options: [{ id: "y", label: "Yes" }],
+            options: CONFIRM_OPTIONS,
           },
         ],
       },

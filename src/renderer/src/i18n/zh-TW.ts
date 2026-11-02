@@ -609,6 +609,28 @@ export const zhTW = {
 	agentRunning: "Pi 執行中…",
 	agentWaitStarting: "正在啟動…",
 	agentWaitModel: "等待模型回應…",
+	agentWaitRequestSent: (host: string) => `請求已送出 → ${host}，等待回應標頭…`,
+	agentWaitResponseHeaders: (status: number) => `已收到回應 ${status}，等待首個 token…`,
+	agentWaitResponseNoStatus: "已收到回應，等待首個 token…",
+	agentWaitRequestFailed: (host: string, error?: string) =>
+		`請求失敗 → ${host}${error ? `（${error}）` : ""}，等待重試…`,
+	agentWaitConnectSlow: (host: string, elapsed: string) =>
+		`請求已送出 → ${host}，${elapsed} 仍未連上，可能在等網路/代理`,
+	agentWaitResponseLimited: (status: number) => `被限流（${status}），等待重試…`,
+	agentWaitResponseServer: (status: number) => `伺服器錯誤 ${status}，等待重試…`,
+	agentWaitResponseRejected: (status: number) => `請求被拒絕（${status}），等待重試…`,
+	agentWaitRoundOnly: (round: number) => `第 ${round} 輪`,
+	agentWaitRetryCountdown: (seconds: number) => `${seconds} 秒後重試`,
+	agentWaitRoundWithTools: (round: number, tools: number) =>
+		`第 ${round} 輪 · ${tools} 個工具`,
+	agentWaitCompacting: "正在壓縮上下文…",
+	agentWaitCompactionManual: "手動觸發",
+	agentWaitCompactionThreshold: "上下文接近上限",
+	agentWaitCompactionOverflow: "超出上下文視窗",
+	agentWaitCompactionSize: (text: string) => `壓縮前 ${text}`,
+	agentWaitCompactionWaitingResponse: "摘要請求等待回應",
+	agentWaitCompactionSummarizing: "摘要已回傳，正在產生",
+	agentWaitCompactionFailed: "摘要請求失敗",
 	agentWaitThinking: "思考中…",
 	agentWaitWriting: "產生中…",
 	agentWaitTool: (name: string) => `執行工具：${name}`,
@@ -630,7 +652,9 @@ export const zhTW = {
 	askUserNext: "下一題",
 	askUserSkip: "略過此題",
 	askUserSkipped: "已略過",
-	askUserCustomOption: "自訂輸入",
+	askUserCustomOption: "以上皆非",
+	askUserCustomOptionDesc: "可在下方補充說明",
+	askUserRecommended: "推薦",
 	askUserCustomPlaceholder: "自訂回答…",
 	askUserAttachmentRemove: "移除附件",
 	askUserAttachmentTooLarge: "附件過大：單張圖片最多 4 MB",
@@ -665,6 +689,9 @@ export const zhTW = {
 	summaryBranch: "分支摘要",
 	summaryTokens: (tokens: number) =>
 		`${tokens.toLocaleString()} tokens → 摘要`,
+	summaryDuration: (text: string) => `耗時 ${text}`,
+	summaryCost: (text: string) => `摘要 ${text} tokens`,
+	compactionCancelled: "上下文壓縮已取消",
 	/** Visible user bubble when retrying after a partial AI turn. */
 	retryContinue: "繼續",
 	/** Instruction sent to the agent (may differ from the bubble text). */
@@ -1018,6 +1045,8 @@ export const zhTW = {
 	userCardCollapse: "收合",
 	revertTurn: "撤回",
 	reverted: "已撤回",
+	receiptSent: "已傳送",
+	receiptRead: "已讀",
 	revertTurnConfirm:
 		"將還原本輪對話修改過的工作區檔案（聊天記錄保留）。是否繼續？",
 	revertTurnDone: (restored: number, deleted: number) =>
@@ -1218,6 +1247,7 @@ export const zhTW = {
 	wsSummarySteps: (n: number) => `已完成 ${n} 個步驟`,
 	wsSummaryEditCount: (n: number) => `編輯 ${n} 個檔案`,
 	wsSummaryReadCount: (n: number) => `檢視 ${n} 個檔案`,
+	wsSummaryGrepCount: (n: number) => `搜尋 ${n} 次`,
 	wsSummaryBashCount: (n: number) => `執行 ${n} 條命令`,
 	wsSummaryTodoCount: (n: number) => `更新待辦 ${n} 次`,
 	wsSummaryToolCount: (n: number) => `呼叫 ${n} 個工具`,
@@ -1239,6 +1269,8 @@ export const zhTW = {
 	toolResultReadRange: (start: number, end: number, total?: number | null) =>
 		total != null ? `第 ${start}-${end} 行，共 ${total} 行` : `第 ${start}-${end} 行`,
 	toolResultImages: (n: number) => `${n} 張圖片`,
+	toolResultElements: (n: number) => `${n} 個元素`,
+	toolResultTools: (n: number) => `${n} 個工具`,
 	toolResultNoOutput: "無輸出",
 	toolCallCount: (n: number) => `${n} 個呼叫`,
 	toolTruncated: "已截斷",
@@ -1254,6 +1286,12 @@ export const zhTW = {
 	toolBodyScriptFailed: "指令碼失敗",
 	toolBodyScriptSections: (n: number) => `${n} 個小節`,
 	toolBodyWallTime: (seconds: number) => `耗時 ${seconds} 秒`,
+	toolBodyGrepMatches: (matches: number, files: number) =>
+		`${matches} 處符合 / ${files} 個檔案`,
+	toolBodyGrepNoMatches: "沒有符合",
+	toolBodyGrepIgnoreCase: "忽略大小寫",
+	toolBodyGrepLiteral: "字面值",
+	toolBodyGrepFileHits: (n: number) => `${n} 處`,
 	toolNestedArgs: "呼叫參數",
 	toolNestedResult: "呼叫結果",
 	toolNestedError: "失敗原因",

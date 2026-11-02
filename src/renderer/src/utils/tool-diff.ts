@@ -3,6 +3,7 @@
 import type { ChatMessage } from "../stores/chat-reducer";
 import { safeStringify } from "./safe-json";
 import { languageFromPath } from "./editor-lang";
+import { parseGrepOutput, type GrepFileHits } from "./grep-card";
 import {
   isTodoToolName,
   normalizeTodoRows,
@@ -106,6 +107,25 @@ export type BashToolCard = {
   durationMs?: number | null;
 };
 
+export type GrepToolCard = {
+  kind: "grep";
+  pattern: string | null;
+  /** 搜索根（args.path）；输出里的相对路径要靠它拼回可打开的路径。 */
+  searchPath: string | null;
+  glob: string | null;
+  ignoreCase: boolean;
+  literal: boolean;
+  hits: GrepFileHits[];
+  matchCount: number;
+  noMatches: boolean;
+  /** 尾部提示原文：匹配上限 / 字节截断 / 单行截断。 */
+  notices: string[];
+  /** 剥掉尾部提示后的文本：解析不出命中时按纯文本显示。 */
+  preview: string | null;
+  /** Execution duration stamped by the reducer (live turns only). */
+  durationMs?: number | null;
+};
+
 export type TodoToolCard = {
   kind: "todo";
   action: string | null;
@@ -133,6 +153,7 @@ export type ToolCard =
   | FileToolCard
   | ReadToolCard
   | BashToolCard
+  | GrepToolCard
   | TodoToolCard
   | GenericToolCard;
 
@@ -206,6 +227,12 @@ export function extractToolResult(result: unknown): {
     return { details: result, text, images, structured };
   }
   return { details, text, images, structured };
+}
+
+function stringArg(args: unknown, key: string): string | null {
+  if (!isRecord(args)) return null;
+  const value = args[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function pathFromArgs(args: unknown): string | null {
@@ -610,6 +637,29 @@ export function parseBashToolCard(
   };
 }
 
+export function parseGrepToolCard(
+  args: unknown,
+  result: unknown,
+  opts?: { durationMs?: number },
+): GrepToolCard {
+  const { text } = extractToolResult(result);
+  const parsed = parseGrepOutput(text);
+  return {
+    kind: "grep",
+    pattern: stringArg(args, "pattern"),
+    searchPath: pathFromArgs(args),
+    glob: stringArg(args, "glob"),
+    ignoreCase: isRecord(args) && args.ignoreCase === true,
+    literal: isRecord(args) && args.literal === true,
+    hits: parsed.hits,
+    matchCount: parsed.matchCount,
+    noMatches: parsed.noMatches,
+    notices: parsed.notices,
+    preview: parsed.text.trim() ? parsed.text : null,
+    durationMs: opts?.durationMs ?? null,
+  };
+}
+
 export function parseTodoToolCard(args: unknown, result: unknown): TodoToolCard {
   const { details, text } = extractToolResult(result);
   const fromDetails = details ? todosFromToolDetails("todo", details) : null;
@@ -658,6 +708,9 @@ export function parseToolCard(
   }
   if (isBashTool(name)) {
     return parseBashToolCard(args, result, opts);
+  }
+  if (isGrepTool(name)) {
+    return parseGrepToolCard(args, result, opts);
   }
   if (isTodoToolName(toolName)) {
     return parseTodoToolCard(args, result);
@@ -743,6 +796,8 @@ export function toolCardHasBody(card: ToolCard): boolean {
       return Boolean(card.preview);
     case "bash":
       return Boolean(card.preview || card.command);
+    case "grep":
+      return Boolean(card.preview || card.hits.length);
     case "edit":
     case "write":
     case "other":
@@ -768,6 +823,10 @@ export function isFileMutationTool(toolName: string): boolean {
     n === "write_file" ||
     n === "create_file"
   );
+}
+
+export function isGrepTool(toolName: string): boolean {
+  return toolName.toLowerCase() === "grep";
 }
 
 export function isReadTool(toolName: string): boolean {

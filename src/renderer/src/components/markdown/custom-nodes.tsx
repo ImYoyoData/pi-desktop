@@ -95,14 +95,19 @@ const GLASS_CODE_CSS =
   ":host{--diffs-light-bg:transparent;--diffs-dark-bg:transparent}" +
   "pre,code,[data-gutter],[data-content]{background-color:transparent!important}";
 
+/** diff 只清掉 :host 的深色壳：改动行的底色是 diff 的语义信息，不能一并抹掉。 */
+const GLASS_DIFF_CSS = ":host{--diffs-light-bg:transparent;--diffs-dark-bg:transparent}";
+
 /** 代码块与 ```diff 都交给 markstream 的代码块（stream-diffs 高亮），只有图表自己渲染。 */
 function CodeBlockNode({ node, isDark }: CodeBlockProps): ReactNode {
-  const code = node.code ?? "";
+  // markstream 把 code 原样交给渲染器，fence 末尾的换行会多出一行空行（行号也多一个）。
+  const code = node.diff ? (node.code ?? "") : (node.code ?? "").replace(/\r\n$|\n$|\r$/, "");
   const language = fenceLanguage(node);
   const langKey = language.toLowerCase();
   const glassSurface = useAppearanceStore((state) => state.glassSurface);
   const codeBlockOptions = useMemo(
-    () => (glassSurface && !node.diff ? { unsafeCSS: GLASS_CODE_CSS } : undefined),
+    () =>
+      glassSurface ? { unsafeCSS: node.diff ? GLASS_DIFF_CSS : GLASS_CODE_CSS } : undefined,
     [glassSurface, node.diff],
   );
 

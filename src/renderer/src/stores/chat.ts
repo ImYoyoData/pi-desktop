@@ -20,6 +20,8 @@ import {
 	setPendingExtensionUi,
 	setPendingPermission,
 	withRunClock,
+	type ChatCompaction,
+	type ChatLlmProgress,
 	type ChatMessage,
 	type ChatRetryHint,
 	type ChatState,
@@ -78,6 +80,8 @@ import {
 } from "../../../shared/permissions";
 
 export type {
+	ChatCompaction,
+	ChatLlmProgress,
 	ChatMessage,
 	ChatState,
 	ChatUserImage,
@@ -141,6 +145,10 @@ export type ChatWaitState = {
 	lastActivityAt: number | null;
 	lastWorkerAliveAt: number | null;
 	autoRecovering: boolean;
+	llmProgress: ChatLlmProgress | null;
+	llmRound: number;
+	nextToolOrder: number;
+	compaction: ChatCompaction | null;
 };
 
 type ChatDerived = {
@@ -172,7 +180,11 @@ export type ChatStoreState = ChatBase &
 		clearPendingPermissionFor: (sessionId: string) => void;
 		replyPermission: (reply: PermissionAskReply) => Promise<void>;
 		readAskDraft: (requestId: string) => AskUserAnswerDraft | null;
-		writeAskDraft: (requestId: string, draft: AskUserAnswerDraft) => void;
+		writeAskDraft: (
+			requestId: string,
+			draft: AskUserAnswerDraft,
+			persist?: boolean,
+		) => void;
 		readAskStep: (requestId: string) => number | null;
 		writeAskStep: (requestId: string, step: number) => void;
 		readAskAttachments: (requestId: string) => AskUserAttachment[];
@@ -263,6 +275,10 @@ function waitStateOf(state: ChatState | undefined): ChatWaitState | null {
 		lastActivityAt: state.lastActivityAt,
 		lastWorkerAliveAt: state.lastWorkerAliveAt,
 		autoRecovering: state.autoRecovering,
+		llmProgress: state.llmProgress,
+		llmRound: state.llmRound,
+		nextToolOrder: state.nextToolOrder,
+		compaction: state.compaction,
 	};
 }
 
@@ -316,8 +332,13 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 		}
 	}
 
-	function writeAskDraft(requestId: string, draft: AskUserAnswerDraft): void {
+	function writeAskDraft(
+		requestId: string,
+		draft: AskUserAnswerDraft,
+		persist = true,
+	): void {
 		askUserDrafts.set(requestId, draft);
+		if (!persist) return;
 		try {
 			const raw = sessionStorage.getItem(ASK_DRAFT_KEY);
 			const parsed = (raw ? JSON.parse(raw) : {}) as Record<string, AskUserAnswerDraft>;
@@ -536,6 +557,7 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 				text: row.text,
 				kind: row.kind,
 				...(row.tokensBefore != null ? { tokensBefore: row.tokensBefore } : {}),
+				...(row.summaryTokens != null ? { summaryTokens: row.summaryTokens } : {}),
 			};
 		}
 		return {
@@ -1021,6 +1043,7 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 					toolInFlight,
 					outputSilenceMs,
 					workerSilenceMs,
+					compacting: Boolean(state.compaction),
 				})
 			) {
 				continue;
@@ -1128,6 +1151,9 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 					lastWorkerAliveAt: null,
 					autoRecoverCount: 0,
 					autoRecovering: false,
+					llmProgress: null,
+					llmRound: 0,
+					compaction: null,
 				},
 			},
 		});
@@ -1415,6 +1441,7 @@ softHangReported.delete(sessionId);
 		const edit = get().pendingUserEdit;
 		commit({ pendingUserEdit: null });
 		if (edit?.sessionId === sessionId) {
+			await stopRunBeforeMutation(sessionId);
 			const before = stateFor(sessionId);
 			const located = locateUserTurn(before, edit.messageId);
 			if (located) {

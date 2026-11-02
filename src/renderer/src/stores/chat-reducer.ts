@@ -91,6 +91,10 @@ export type ChatMessage =
 			kind: "compaction" | "branch";
 			/** 压缩前的 token 数。 */
 			tokensBefore?: number;
+			/** 压缩耗时（compaction_start → compaction_end）。 */
+			durationMs?: number;
+			/** 生成摘要消耗的输出 token。 */
+			summaryTokens?: number;
 	  }
 	| {
 			id: string;
@@ -104,6 +108,31 @@ export type ChatRetryHint = {
 	maxAttempts: number;
 	delayMs: number;
 	message: string;
+	/** Wall-clock when the retry delay began (for the countdown). */
+	at: number;
+};
+
+/** 上下文压缩进行中的状态（compaction_start ~ compaction_end）。 */
+export type ChatCompaction = {
+	reason: "manual" | "threshold" | "overflow" | null;
+	startedAt: number;
+	/** 压缩开始前回合是否在跑；手动压缩结束后要还原成 false。 */
+	enterRunning: boolean;
+	/** 压缩前上下文占用（worker 附上，读不到就没有）。 */
+	tokens?: number;
+	contextWindow?: number;
+};
+
+/** 模型 HTTP 请求走到哪一步（worker 包装 globalThis.fetch 上报）。 */
+export type ChatLlmProgress = {
+	/** sent：请求已发出；response：已收到响应头；failed：请求本身抛错。 */
+	stage: "sent" | "response" | "failed";
+	host: string;
+	startedAt: number;
+	respondedAt?: number;
+	status?: number;
+	/** failed 阶段的抛错原因（DNS / 超时 / 连接被拒）。 */
+	error?: string;
 };
 
 /** Matches pi-web useAgentSession: history vs live stream kept separate */
@@ -138,6 +167,12 @@ export type ChatState = {
 	autoRecoverCount: number;
 	/** True while restart + resend is in flight. */
 	autoRecovering: boolean;
+	/** 最近一次模型请求的网络阶段；回合结束时清空。 */
+	llmProgress: ChatLlmProgress | null;
+	/** 本回合第几次模型调用（pi turn_start 计数），0 表示尚未开始。 */
+	llmRound: number;
+	/** 正在压缩上下文；null 表示没在压缩。 */
+	compaction: ChatCompaction | null;
 };
 
 export function createChatState(): ChatState {
@@ -156,6 +191,9 @@ export function createChatState(): ChatState {
 		lastWorkerAliveAt: null,
 		autoRecoverCount: 0,
 		autoRecovering: false,
+		llmProgress: null,
+		llmRound: 0,
+		compaction: null,
 	};
 }
 
@@ -220,7 +258,10 @@ export function withRunClock(
 			state.turnStartedAt == null &&
 			state.phaseStartedAt == null &&
 			state.lastActivityAt == null &&
-			state.lastWorkerAliveAt == null
+			state.lastWorkerAliveAt == null &&
+			state.llmProgress == null &&
+			state.compaction == null &&
+			state.llmRound === 0
 		) {
 			return state;
 		}
@@ -230,6 +271,9 @@ export function withRunClock(
 			phaseStartedAt: null,
 			lastActivityAt: null,
 			lastWorkerAliveAt: null,
+			llmProgress: null,
+			llmRound: 0,
+			compaction: null,
 		};
 	}
 	const now = opts?.now ?? Date.now();
@@ -905,8 +949,62 @@ function reduceAgentPayload(
 	payload: Record<string, unknown>,
 ): ChatState {
 	const type = payload.type;
+	if (type === "llm_progress") {
+		const stage = payload.stage;
+		if (stage !== "sent" && stage !== "response" && stage !== "failed") {
+			return state;
+		}
+		const host = typeof payload.host === "string" ? payload.host : "";
+		const at = typeof payload.at === "number" ? payload.at : Date.now();
+		const startedAt = state.llmProgress?.startedAt ?? at;
+		if (stage === "sent") {
+			return { ...state, llmProgress: { stage, host, startedAt: at } };
+		}
+		const status = typeof payload.status === "number" ? payload.status : undefined;
+		const error = typeof payload.error === "string" ? payload.error : undefined;
+		return {
+			...state,
+			llmProgress: {
+				stage,
+				host,
+				startedAt,
+				respondedAt: at,
+				...(status != null ? { status } : {}),
+				...(error ? { error } : {}),
+			},
+		};
+	}
 	if (type === "agent_start" || type === "turn_start") {
-		return { ...state, running: true, streamingMessage: null, retryHint: null };
+		return {
+			...state,
+			running: true,
+			streamingMessage: null,
+			retryHint: null,
+			// 上一轮的请求阶段不能带进新一轮：等新的 sent 覆盖。
+			llmProgress: null,
+			llmRound: type === "agent_start" ? 0 : state.llmRound + 1,
+		};
+	}
+	if (type === "compaction_start") {
+		const raw = payload.reason;
+		const reason =
+			raw === "manual" || raw === "threshold" || raw === "overflow" ? raw : null;
+		const tokens = typeof payload.tokens === "number" ? payload.tokens : undefined;
+		const contextWindow =
+			typeof payload.contextWindow === "number" && payload.contextWindow > 0
+				? payload.contextWindow
+				: undefined;
+		return {
+			...state,
+			running: true,
+			compaction: {
+				reason,
+				startedAt: Date.now(),
+				enterRunning: state.running,
+				...(tokens != null ? { tokens } : {}),
+				...(contextWindow != null ? { contextWindow } : {}),
+			},
+		};
 	}
 	if (type === "auto_retry_start") {
 		const attempt = typeof payload.attempt === "number" ? payload.attempt : 1;
@@ -925,6 +1023,7 @@ function reduceAgentPayload(
 				maxAttempts,
 				delayMs,
 				message: friendlyError(raw || "Request failed"),
+				at: Date.now(),
 			},
 		};
 	}
@@ -938,21 +1037,36 @@ function reduceAgentPayload(
 		}
 		return { ...state, retryHint: null };
 	}
+	if (type === "compaction_end" && payload.aborted === true) {
+		return appendError({ ...state, compaction: null }, t.compactionCancelled, {
+			variant: "cancelled",
+		});
+	}
 	if (
 		type === "compaction_end" &&
 		typeof payload.errorMessage === "string" &&
 		payload.errorMessage
 	) {
-		return appendError(state, payload.errorMessage);
+		return appendError({ ...state, compaction: null }, payload.errorMessage);
 	}
 	if (type === "compaction_end") {
 		// 压缩成功：当拍插摘要卡片，和重启后从 compaction entry 还原的卡片一致。
 		const summary = typeof payload.summary === "string" ? payload.summary.trim() : "";
-		if (!summary) return state;
+		if (!summary) return { ...state, compaction: null, running: state.compaction?.enterRunning ?? state.running };
 		const tokensBefore = payload.tokensBefore;
+		const summaryTokens =
+			typeof payload.summaryTokens === "number" && payload.summaryTokens > 0
+				? payload.summaryTokens
+				: undefined;
+		const durationMs = state.compaction
+			? Math.max(0, Date.now() - state.compaction.startedAt)
+			: undefined;
 		const committed = commitStreamingMessage(state);
 		return {
 			...committed,
+			compaction: null,
+			// 手动压缩（/compact）没有回合收尾事件，必须自己还原 running。
+			running: state.compaction?.enterRunning ?? false,
 			messages: [
 				...committed.messages,
 				{
@@ -963,6 +1077,8 @@ function reduceAgentPayload(
 					...(typeof tokensBefore === "number" && tokensBefore > 0
 						? { tokensBefore }
 						: {}),
+					...(durationMs != null && durationMs > 0 ? { durationMs } : {}),
+					...(summaryTokens != null ? { summaryTokens } : {}),
 				},
 			],
 		};
@@ -1567,14 +1683,21 @@ export function reduceChatEvent(
 					: {};
 			const next = reduceAgentPayload(state, payload);
 			const t = payload.type;
+			// 网络层进度不是输出，不刷新静默计时。
+			const progressOnly = t === "llm_progress";
 			// Start a turn only on lifecycle starts. Late stream/tool chunks after
 			// prompt_done / agent_end must not resurrect running (sticky "运行中").
+			// compaction_start 也算：手动 /compact 不在回合内，但 worker 确实在忙，
+			// 不置 running 的话界面看不到压缩进度。
 			const isLifecycleStart =
-				t === "agent_start" || t === "turn_start" || t === "auto_retry_start";
+				t === "agent_start" ||
+				t === "turn_start" ||
+				t === "auto_retry_start" ||
+				t === "compaction_start";
 			if (!state.running && !isLifecycleStart && next.running) {
-				return withRunClock({ ...next, running: false }, { activity: true });
+				return withRunClock({ ...next, running: false }, { activity: !progressOnly });
 			}
-			return withRunClock(next, { activity: true });
+			return withRunClock(next, { activity: !progressOnly });
 		}
 		case "prompt_done": {
 			const committed = commitStreamingMessage(state);

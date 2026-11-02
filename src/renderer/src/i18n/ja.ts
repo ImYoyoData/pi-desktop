@@ -609,6 +609,28 @@ export const ja = {
 	agentRunning: "Pi 実行中…",
 	agentWaitStarting: "起動しています…",
 	agentWaitModel: "モデルの応答を待っています…",
+	agentWaitRequestSent: (host: string) => `リクエスト送信済み → ${host}、応答待ち…`,
+	agentWaitResponseHeaders: (status: number) => `応答 ${status} を受信、最初のトークン待ち…`,
+	agentWaitResponseNoStatus: "応答を受信、最初のトークン待ち…",
+	agentWaitRequestFailed: (host: string, error?: string) =>
+		`リクエスト失敗 → ${host}${error ? `（${error}）` : ""}、再試行を待っています…`,
+	agentWaitConnectSlow: (host: string, elapsed: string) =>
+		`リクエスト送信済み → ${host}、${elapsed} 応答なし（ネットワーク/プロキシの可能性）`,
+	agentWaitResponseLimited: (status: number) => `レート制限（${status}）、再試行待ち…`,
+	agentWaitResponseServer: (status: number) => `サーバーエラー ${status}、再試行待ち…`,
+	agentWaitResponseRejected: (status: number) => `リクエスト拒否（${status}）、再試行待ち…`,
+	agentWaitRoundOnly: (round: number) => `第 ${round} ラウンド`,
+	agentWaitRetryCountdown: (seconds: number) => `${seconds} 秒後に再試行`,
+	agentWaitRoundWithTools: (round: number, tools: number) =>
+		`第 ${round} ラウンド · ツール ${tools} 回`,
+	agentWaitCompacting: "コンテキストを圧縮中…",
+	agentWaitCompactionManual: "手動実行",
+	agentWaitCompactionThreshold: "コンテキストが上限に接近",
+	agentWaitCompactionOverflow: "コンテキストウィンドウ超過",
+	agentWaitCompactionSize: (text: string) => `圧縮前 ${text}`,
+	agentWaitCompactionWaitingResponse: "要約リクエストの応答待ち",
+	agentWaitCompactionSummarizing: "要約を受信、生成中",
+	agentWaitCompactionFailed: "要約リクエスト失敗",
 	agentWaitThinking: "思考中…",
 	agentWaitWriting: "生成中…",
 	agentWaitTool: (name: string) => `ツールを実行: ${name}`,
@@ -630,7 +652,9 @@ export const ja = {
 	askUserNext: "次の質問",
 	askUserSkip: "この質問をスキップ",
 	askUserSkipped: "スキップしました",
-	askUserCustomOption: "自由入力",
+	askUserCustomOption: "どれでもない",
+	askUserCustomOptionDesc: "必要なら下に詳細を追加",
+	askUserRecommended: "おすすめ",
 	askUserCustomPlaceholder: "自由回答…",
 	askUserAttachmentRemove: "添付を削除",
 	askUserAttachmentTooLarge: "添付が大きすぎます: 画像は 1 枚 4 MB までです",
@@ -665,6 +689,9 @@ export const ja = {
 	summaryBranch: "ブランチの要約",
 	summaryTokens: (tokens: number) =>
 		`${tokens.toLocaleString()} tokens → 要約`,
+	summaryDuration: (text: string) => `${text} かかりました`,
+	summaryCost: (text: string) => `要約 ${text} tokens`,
+	compactionCancelled: "コンテキスト圧縮をキャンセルしました",
 	/** Visible user bubble when retrying after a partial AI turn. */
 	retryContinue: "続ける",
 	/** Instruction sent to the agent (may differ from the bubble text). */
@@ -1018,6 +1045,8 @@ export const ja = {
 	userCardCollapse: "折りたたむ",
 	revertTurn: "巻き戻す",
 	reverted: "巻き戻しました",
+	receiptSent: "送信済み",
+	receiptRead: "既読",
 	revertTurnConfirm:
 		"このターンで変更したワークスペースのファイルを元に戻します（チャット履歴は残ります）。続行しますか？",
 	revertTurnDone: (restored: number, deleted: number) =>
@@ -1218,6 +1247,7 @@ export const ja = {
 	wsSummarySteps: (n: number) => `${n} ステップを完了しました`,
 	wsSummaryEditCount: (n: number) => `${n} 件のファイルを編集`,
 	wsSummaryReadCount: (n: number) => `${n} 件のファイルを確認`,
+	wsSummaryGrepCount: (n: number) => `${n} 回検索`,
 	wsSummaryBashCount: (n: number) => `${n} 件のコマンドを実行`,
 	wsSummaryTodoCount: (n: number) => `ToDo を ${n} 回更新`,
 	wsSummaryToolCount: (n: number) => `${n} 件のツールを呼び出し`,
@@ -1239,6 +1269,8 @@ export const ja = {
 	toolResultReadRange: (start: number, end: number, total?: number | null) =>
 		total != null ? `第 ${start}-${end} 行（全 ${total} 行）` : `第 ${start}-${end} 行`,
 	toolResultImages: (n: number) => `${n} 枚の画像`,
+	toolResultElements: (n: number) => `${n} 個の要素`,
+	toolResultTools: (n: number) => `${n} 個のツール`,
 	toolResultNoOutput: "出力なし",
 	toolCallCount: (n: number) => `${n} 件の呼び出し`,
 	toolTruncated: "切り詰め済み",
@@ -1254,6 +1286,12 @@ export const ja = {
 	toolBodyScriptFailed: "スクリプト失敗",
 	toolBodyScriptSections: (n: number) => `${n} セクション`,
 	toolBodyWallTime: (seconds: number) => `所要 ${seconds} 秒`,
+	toolBodyGrepMatches: (matches: number, files: number) =>
+		`${matches} 件一致 / ${files} ファイル`,
+	toolBodyGrepNoMatches: "一致なし",
+	toolBodyGrepIgnoreCase: "大文字小文字を無視",
+	toolBodyGrepLiteral: "リテラル",
+	toolBodyGrepFileHits: (n: number) => `${n} 件`,
 	toolNestedArgs: "呼び出し引数",
 	toolNestedResult: "呼び出し結果",
 	toolNestedError: "失敗の理由",
