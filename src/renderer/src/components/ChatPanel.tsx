@@ -124,15 +124,17 @@ export function ChatPanel({ visible }: Props): ReactNode {
           <PermissionStrip />
           {/* Docked widgets share one surface with the composer (chat-input-stack). */}
           <div className={styles.chatInputStack}>
-            {hasDock ? (
-              <div className={`stack-above ${styles.stackAbove}`}>
-                <SessionTodoPanel />
-                <SessionChangedFiles />
-              </div>
-            ) : null}
-            <Suspense fallback={null}>
-              <Composer docked={hasDock} />
-            </Suspense>
+            <div className={`input-surface ${styles.inputSurface}`}>
+              {hasDock ? (
+                <div className={`stack-above ${styles.stackAbove}`}>
+                  <SessionTodoPanel />
+                  <SessionChangedFiles />
+                </div>
+              ) : null}
+              <Suspense fallback={null}>
+                <Composer docked={hasDock} />
+              </Suspense>
+            </div>
           </div>
           <SessionStatsBar stats={sessionStats} />
         </>
