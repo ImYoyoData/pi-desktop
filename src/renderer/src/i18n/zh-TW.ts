@@ -1354,7 +1354,6 @@ export const zhTW = {
 	ompModelReasoning: "推理",
 	ompModelVision: "圖片",
 	ompSettingsGeneral: "一般",
-	ompTabAppearance: "外觀",
 	ompTabModel: "模型",
 	ompTabInteraction: "互動",
 	ompTabContext: "上下文",

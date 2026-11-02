@@ -306,7 +306,7 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
   const current = sections.find((entry) => entry.id === active) ?? sections[0];
   const activeGroup = groupOf(current.id);
   const groupSections = sections.filter((entry) => groupOf(entry.id) === activeGroup);
-  /** OMP 自己的配置分类：模型清单 + 资源 + omp 自带的 10 个设置 tab。 */
+  /** OMP 自己的配置分类：模型清单 + 资源 + omp 自带且桌面端适用的设置 tab。 */
   const ompSections: { id: string; icon: SectionIcon; label: string; description: string }[] = [
     {
       id: OMP_MODELS_SECTION,

@@ -159,11 +159,14 @@ export function OmpSettings({ tab }: { tab: string }): ReactNode {
 	}, [message]);
 
 	const values = snapshot?.values ?? {};
-	const merged: Record<string, unknown> = { ...values };
-	for (const [id, value] of Object.entries(patch)) {
-		if (value === null) delete merged[id];
-		else merged[id] = value;
-	}
+	const merged = useMemo(() => {
+		const next: Record<string, unknown> = { ...values };
+		for (const [id, value] of Object.entries(patch)) {
+			if (value === null) delete next[id];
+			else next[id] = value;
+		}
+		return next;
+	}, [values, patch]);
 
 	const needle = query.trim().toLowerCase();
 	const groups = useMemo(() => {
@@ -200,12 +203,8 @@ export function OmpSettings({ tab }: { tab: string }): ReactNode {
 		setPatch((prev) => ({ ...prev, [id]: next }));
 	}
 
-	/** 恢复默认：删掉该键，让 omp 回到自身默认值。布尔项写回默认值本身。 */
+	/** 恢复默认：删掉该键，让 omp 回到自身默认值。 */
 	function resetValue(entry: OmpSettingEntry): void {
-		if (entry.type === "boolean") {
-			setValue(entry.id, entry.default === true);
-			return;
-		}
 		setValue(entry.id, null);
 	}
 

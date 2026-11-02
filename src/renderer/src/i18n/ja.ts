@@ -1354,7 +1354,6 @@ export const ja = {
 	ompModelReasoning: "推論",
 	ompModelVision: "画像",
 	ompSettingsGeneral: "一般",
-	ompTabAppearance: "外観",
 	ompTabModel: "モデル",
 	ompTabInteraction: "インタラクション",
 	ompTabContext: "コンテキスト",

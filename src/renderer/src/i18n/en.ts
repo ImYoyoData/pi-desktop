@@ -1392,7 +1392,6 @@ export const en = {
 	ompModelReasoning: "Reasoning",
 	ompModelVision: "Images",
 	ompSettingsGeneral: "General",
-	ompTabAppearance: "Appearance",
 	ompTabModel: "Model",
 	ompTabInteraction: "Interaction",
 	ompTabContext: "Context",

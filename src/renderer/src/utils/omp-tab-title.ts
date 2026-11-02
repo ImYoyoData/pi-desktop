@@ -5,8 +5,6 @@ type Messages = ReturnType<typeof useI18n>;
 /** omp tab 的显示名：桌面端翻译，字段文案仍用 omp 原文。 */
 export function ompTabTitle(t: Messages, tab: string): string {
 	switch (tab) {
-		case "appearance":
-			return t.ompTabAppearance;
 		case "model":
 			return t.ompTabModel;
 		case "interaction":
