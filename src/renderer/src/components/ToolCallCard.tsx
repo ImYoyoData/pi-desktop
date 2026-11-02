@@ -581,6 +581,7 @@ export function ToolCallCard({
         <div
           className={styles.stepHead}
           title={pathTitle}
+          data-fold-toggle={expandable ? "" : undefined}
           onClick={() => {
             if (expandable) toggleOpen();
           }}
@@ -604,6 +605,7 @@ export function ToolCallCard({
         <div
           className={styles.toolCallHead}
           title={pathTitle}
+          data-fold-toggle={expandable ? "" : undefined}
           onClick={() => {
             if (expandable) toggleOpen();
           }}

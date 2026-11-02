@@ -78,6 +78,7 @@ import {
   innerScrollCanSwallow,
   type InnerScrollMetrics,
 } from "@renderer/utils/inner-scroll";
+import { foldAnchorScrollDelta } from "@renderer/utils/fold-anchor";
 import {
   assistantModelDetail as assistantModelDetailOf,
   assistantStats as assistantStatsOf,
@@ -124,7 +125,10 @@ const OVERSCAN_PX = 200;
 const NEAR_BOTTOM_PX = 120;
 /**
  * 用户展开/折叠是一次局部重排：这段时间内的贴底会把视口拽到新的末尾，
- * 看起来就是“内容往上开”。窗口内保持视口不动，等下一次真实内容增长再恢复跟随。
+ * 看起来就是“内容往上开”。窗口内改为锚定被点的行，内容只向下推。
+ *
+ * shortcut: 窗口固定 400ms 不续期（续期会让流式输出永远不跟随）；
+ * 更慢的异步渲染会晚于窗口落地，那一次长高仍会贴底。
  */
 const FOLD_HOLD_MS = 400;
 
@@ -263,8 +267,8 @@ export function MessageList({
   const lastJumpedUserId = useRef<string | null>(null);
   /** Avoid follow-bottom immediately undoing the post-send card-bottom scroll. */
   const suppressFollowBottomUntil = useRef(0);
-  /** 折叠/展开窗口：期内不贴底，避免把用户正在看的位置顶走。 */
-  const foldHoldUntil = useRef(0);
+  /** 折叠/展开窗口：期内钉住被点行的视口位置，避免贴底把它顶走。 */
+  const foldAnchor = useRef<{ el: Element; top: number; until: number } | null>(null);
   /** virtua 容器元素，用于实测其在滚动内容中的起始偏移。 */
   const virtualHostRef = useRef<HTMLDivElement | null>(null);
   /**
@@ -480,10 +484,35 @@ export function MessageList({
     if (!followBottom.current || selectDrag.current) return;
     // Minimized / hidden: no layout work until the window is restored.
     if (document.hidden || paneHidden()) return;
-    if (Date.now() < foldHoldUntil.current) return;
     const sc = scrollerRef.current;
-    if (!sc || atBottom(sc)) return;
+    if (!sc) return;
+    if (holdFoldAnchor(sc)) return;
+    if (atBottom(sc)) return;
     scrollToBottom();
+  }
+
+  /**
+   * 展开/折叠期间把被点行的视口位置钉住，超出视口时再向下让位。
+   * 块边界取整条消息行：展开体不一定在被点行的直接父级里。
+   */
+  function holdFoldAnchor(sc: HTMLElement): boolean {
+    const anchor = foldAnchor.current;
+    if (!anchor) return false;
+    if (Date.now() > anchor.until || !anchor.el.isConnected) {
+      foldAnchor.current = null;
+      return false;
+    }
+    const block = anchor.el.closest("[data-msg-id]") ?? anchor.el.parentElement ?? anchor.el;
+    const scBox = sc.getBoundingClientRect();
+    const delta = foldAnchorScrollDelta({
+      anchorTop: anchor.top,
+      headTop: anchor.el.getBoundingClientRect().top,
+      blockBottom: block.getBoundingClientRect().bottom,
+      viewTop: scBox.top,
+      viewBottom: scBox.bottom,
+    });
+    if (Math.abs(delta) >= 1) sc.scrollTop += delta;
+    return true;
   }
 
   const commitScrollRef = useRef(commitBottomScroll);
@@ -551,6 +580,8 @@ export function MessageList({
     // Jump control / settle are the only callers; anything else must not move
     // the viewport while the user is reading history.
     if (!followBottom.current || paneHidden()) return;
+    // 贴底是显式意图，展开窗口的锚定不能再把它拉回去。
+    foldAnchor.current = null;
     const sc = scrollerRef.current;
     if (!sc) return;
     const token = ++instantSnapToken.current;
@@ -696,6 +727,8 @@ export function MessageList({
    */
   function applyFollowIntent(intent: FollowIntent): void {
     intentToken.current++;
+    // 用户接管视口，展开窗口的锚定立即让位。
+    foldAnchor.current = null;
     const sc = scrollerRef.current;
     if (!sc) return;
     // 内容装得下时没有历史可看，保持贴底。
@@ -841,13 +874,18 @@ export function MessageList({
   }
 
   /**
-   * 折叠/展开是用户主动的局部重排：这一下不跟着贴底，
+   * 折叠/展开是用户主动的局部重排：钉住这一行而不是贴底，
    * 否则视口被拽到新的末尾，正在看的那一行会“往上开”。
    */
   function onScrollerClickCapture(event: MouseEvent): void {
     const target = event.target instanceof Element ? event.target : null;
-    if (!target?.closest("[aria-expanded]")) return;
-    foldHoldUntil.current = Date.now() + FOLD_HOLD_MS;
+    const toggle = target?.closest("[aria-expanded], [data-fold-toggle]");
+    if (!toggle) return;
+    foldAnchor.current = {
+      el: toggle,
+      top: toggle.getBoundingClientRect().top,
+      until: Date.now() + FOLD_HOLD_MS,
+    };
   }
 
   function engageHistoryReading(): void {

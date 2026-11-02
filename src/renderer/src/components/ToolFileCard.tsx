@@ -61,7 +61,12 @@ export function ToolFileCard({
 
   return (
     <div className={`${styles.toolFile}${streaming ? ` ${styles.streaming}` : ""}`}>
-      <button type="button" className={styles.toolFileHead} onClick={toggleOpen}>
+      <button
+        type="button"
+        className={styles.toolFileHead}
+        aria-expanded={open}
+        onClick={toggleOpen}
+      >
         {open ? (
           <ChevronDownOutline size={12} className={styles.chev} />
         ) : (
