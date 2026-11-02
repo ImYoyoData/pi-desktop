@@ -60,11 +60,21 @@
   min-width: 0;
 }
 
+/* 输入框与上方吸附卡片的共享玻璃层：壁纸模式下两者共用同一块底与同一次模糊，
+   否则两块各自采样，边界处颜色不连续。 */
+.inputSurface {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-width: 0;
+  border-radius: var(--radius-lg, 8px);
+}
+
 .stackAbove {
   border: 1px solid var(--border);
   border-bottom: none;
   border-radius: var(--radius-lg, 8px) var(--radius-lg, 8px) 0 0;
-  background: var(--tool-bg, #f5f6f7);
+  background: var(--bg-input);
   padding: 3px 3px 0;
   overflow: hidden;
   box-shadow: none;
