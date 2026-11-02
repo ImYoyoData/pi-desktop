@@ -71,12 +71,28 @@ function readText(filePath: string): string {
 function parseFrontmatter(content: string): Record<string, unknown> {
 	const match = /^﻿?---\r?\n([\s\S]*?)\r?\n---(?=\r?\n|$)/.exec(content);
 	if (!match) return {};
+	const lines = match[1].split(/\r?\n/);
 	const fields: Record<string, unknown> = {};
-	for (const line of match[1].split(/\r?\n/)) {
-		const field = /^([A-Za-z0-9_.-]+)\s*:\s*(.*)$/.exec(line);
+	for (let i = 0; i < lines.length; i += 1) {
+		const field = /^([A-Za-z0-9_.-]+)\s*:\s*(.*)$/.exec(lines[i]!);
 		if (!field) continue;
-		const key = field[1];
-		const raw = field[2].trim();
+		const key = field[1]!;
+		const raw = field[2]!.trim();
+		// 块标量（`|` 保留换行、`>` 折叠成一行）：描述常用这种写法，
+		// 不处理的话界面上只会显示一个 `|`。
+		if (/^[|>][-+]?$/.test(raw)) {
+			const block: string[] = [];
+			while (i + 1 < lines.length) {
+				const next = lines[i + 1]!;
+				if (next.trim() && !/^\s/.test(next)) break;
+				block.push(next.replace(/^\s+/, ""));
+				i += 1;
+			}
+			fields[key] = raw.startsWith("|")
+				? block.join("\n").trim()
+				: block.join(" ").replace(/\s+/g, " ").trim();
+			continue;
+		}
 		if (!raw || raw.startsWith("#")) continue;
 		if (raw === "true") fields[key] = true;
 		else if (raw === "false") fields[key] = false;

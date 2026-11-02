@@ -2185,6 +2185,48 @@ export function SessionSidebar(): ReactNode {
   return (
     <aside className="sidebar">
       <div className={styles.topActions}>
+        {activeRoot ? (
+          <Dropdown
+            {...NO_OVERLAY_MOTION}
+            trigger={["click"]}
+            menu={{
+              selectable: true,
+              selectedKeys: [activeBackend],
+              items: AGENT_BACKENDS.map((backend) => ({
+                key: backend,
+                label: (
+                  <span className={styles.backendMenuLabel}>
+                    <span>{AGENT_BACKEND_LABELS[backend]}</span>
+                    {backend === activeBackend ? (
+                      <CheckmarkOutline size={14} />
+                    ) : null}
+                  </span>
+                ),
+                // 选中态用项目自己的中性灰底，避免 antd 默认的深蓝高亮与整体配色打架。
+                style:
+                  backend === activeBackend
+                    ? { backgroundColor: "var(--bg-selected)", fontWeight: 600 }
+                    : undefined,
+              })),
+              onClick: ({ key }) =>
+                void switchWorkspaceBackend(key as AgentBackend),
+            }}
+          >
+            <Button
+              type="text"
+              size="small"
+              className={`pi-interactive ${styles.topBtn}`}
+              styles={{ root: { justifyContent: "flex-start" } }}
+              title={t.workspaceBackend}
+            >
+              <span className={styles.btnContent}>
+                <span className={styles.btnLabel}>
+                  {AGENT_BACKEND_LABELS[activeBackend]}
+                </span>
+              </span>
+            </Button>
+          </Dropdown>
+        ) : null}
         <Button
           type="text"
           size="small"
@@ -2210,36 +2252,6 @@ export function SessionSidebar(): ReactNode {
             <span className={styles.btnLabel}>{t.pullRequests}</span>
           </span>
         </Button>
-        {activeRoot ? (
-          <Dropdown
-            {...NO_OVERLAY_MOTION}
-            trigger={["click"]}
-            menu={{
-              selectable: true,
-              selectedKeys: [activeBackend],
-              items: AGENT_BACKENDS.map((backend) => ({
-                key: backend,
-                label: AGENT_BACKEND_LABELS[backend],
-              })),
-              onClick: ({ key }) =>
-                void switchWorkspaceBackend(key as AgentBackend),
-            }}
-          >
-            <Button
-              type="text"
-              size="small"
-              className={`pi-interactive ${styles.topBtn}`}
-              styles={{ root: { justifyContent: "flex-start" } }}
-              title={t.workspaceBackend}
-            >
-              <span className={styles.btnContent}>
-                <span className={styles.btnLabel}>
-                  {AGENT_BACKEND_LABELS[activeBackend]}
-                </span>
-              </span>
-            </Button>
-          </Dropdown>
-        ) : null}
       </div>
 
       {showStuckRecovery ? (
