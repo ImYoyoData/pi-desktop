@@ -145,25 +145,16 @@ export function ompSettingVisible(
 		return target ? ompEffectiveValue(target, values) : undefined;
 	};
 	switch (entry.condition) {
-		case "macOS":
-			// 桌面端不跑终端渲染：macOS 专属项（拼写检查等）在桌面端没有意义。
-			return false;
-		case "hasImageProtocol":
-		case "nativeRendering":
-			// 终端能力，桌面端恒为真。
-			return true;
 		case "advisorEnabled":
 			return value("advisor.enabled") === true;
-		case "vimModeEnabled":
-			return value("tui.vimMode") === true;
+		case "autoThinkingActive":
+			return value("defaultThinkingLevel") === "auto";
 		case "hindsightActive":
 			return value("memory.backend") === "hindsight";
 		case "mnemopiActive":
 			return value("memory.backend") === "mnemopi";
 		case "autolearnActive":
 			return value("autolearn.enabled") === true;
-		case "autoThinkingActive":
-			return value("defaultThinkingLevel") === "auto";
 		case "usageAwareFallbackEnabled":
 			return value("retry.usageAwareFallback") === true;
 		case "planModeEnabled":

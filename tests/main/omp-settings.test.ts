@@ -100,3 +100,42 @@ describe("omp models.yml 合并", () => {
 		expect(readOmpModels().providers).toHaveLength(1);
 	});
 });
+
+describe("omp 设置 schema 的桌面端过滤", () => {
+	const schema = require("../../src/shared/omp-settings-schema.json") as {
+		tabs: { id: string; groups: string[] }[];
+		settings: { id: string; tab: string; group: string | null }[];
+	};
+
+	it("不含只影响 TUI 渲染的设置", () => {
+		const prefixes = ["tui.", "terminal.", "display.", "statusLine.", "composer.", "theme."];
+		const leaked = schema.settings
+			.map((entry) => entry.id)
+			.filter((id) => prefixes.some((prefix) => id.startsWith(prefix)));
+		expect(leaked).toEqual([]);
+	});
+
+	it("外观页整体不导出", () => {
+		expect(schema.tabs.map((tab) => tab.id)).not.toContain("appearance");
+		expect(schema.settings.some((entry) => entry.tab === "appearance")).toBe(false);
+	});
+
+	it("每个 tab 与 group 都至少有一个设置项", () => {
+		for (const tab of schema.tabs) {
+			expect(schema.settings.some((entry) => entry.tab === tab.id)).toBe(true);
+			for (const group of tab.groups) {
+				const hit = schema.settings.some(
+					(entry) => entry.tab === tab.id && entry.group === group,
+				);
+				expect(hit, `${tab.id}/${group}`).toBe(true);
+			}
+		}
+	});
+
+	it("每项设置的 tab 都在导出的 tab 列表里", () => {
+		const tabIds = new Set(schema.tabs.map((tab) => tab.id));
+		for (const entry of schema.settings) {
+			expect(tabIds.has(entry.tab), entry.id).toBe(true);
+		}
+	});
+});

@@ -1355,7 +1355,6 @@ export const zh = {
 	ompModelReasoning: "推理",
 	ompModelVision: "图片",
 	ompSettingsGeneral: "通用",
-	ompTabAppearance: "外观",
 	ompTabModel: "模型",
 	ompTabInteraction: "交互",
 	ompTabContext: "上下文",
