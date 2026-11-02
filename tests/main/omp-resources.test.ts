@@ -103,6 +103,28 @@ describe("omp 资源扫描与启停", () => {
 		expect(raw.disabledServers).toBeUndefined();
 	});
 
+	it("frontmatter 的块标量描述被正确读成文本", () => {
+		const skillDir = path.join(dir, "skills", "blockscalar");
+		fs.mkdirSync(skillDir, { recursive: true });
+		fs.writeFileSync(
+			path.join(skillDir, "SKILL.md"),
+			[
+				"---",
+				"name: blockscalar",
+				"description: >",
+				"  第一行描述",
+				"  第二行描述",
+				"---",
+				"",
+				"正文",
+			].join(String.fromCharCode(10)),
+			"utf8",
+		);
+		const skill = listOmpResources().skills.find((item) => item.name === "blockscalar");
+		expect(skill?.description).toBe("第一行描述 第二行描述");
+		expect(skill?.detail).toBeUndefined();
+	});
+
 	it("项目级与用户级同名资源只列一条，项目级优先", () => {
 		const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-desk-omp-proj-"));
 		const projectSkills = path.join(projectRoot, ".omp", "skills", "alpha");
