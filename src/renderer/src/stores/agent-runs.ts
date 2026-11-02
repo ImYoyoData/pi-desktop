@@ -61,6 +61,15 @@ export const useAgentRunsStore = create<AgentRunsState>()((set, get) => {
   const stallTerminating = new Set<string>();
   /** 已收到 ended 的 run：快照可能是它结束前的旧列表，不能再把它加回来。 */
   const endedIds = new Set<string>();
+  const ENDED_IDS_MAX = 500;
+
+  function rememberEnded(runId: string): void {
+    if (endedIds.size >= ENDED_IDS_MAX) {
+      const oldest = endedIds.values().next().value;
+      if (oldest) endedIds.delete(oldest);
+    }
+    endedIds.add(runId);
+  }
 
   function writeBase(patch: Partial<AgentRunsBase>): void {
     set((state) => {
@@ -88,8 +97,9 @@ export const useAgentRunsStore = create<AgentRunsState>()((set, get) => {
     const workspaceRoot = currentWorkspaceRoot();
     switch (event.type) {
       case "snapshot": {
-        const runs = event.runs.filter((r) =>
-          matchesWorkspace(r.workspaceRoot, workspaceRoot),
+        const runs = event.runs.filter(
+          (r) =>
+            !endedIds.has(r.id) && matchesWorkspace(r.workspaceRoot, workspaceRoot),
         );
         const selectedId = get().selectedId;
         writeBase({
@@ -128,7 +138,7 @@ export const useAgentRunsStore = create<AgentRunsState>()((set, get) => {
       }
       case "ended": {
         stallTerminating.delete(event.runId);
-        endedIds.add(event.runId);
+        rememberEnded(event.runId);
         const runs = get().runs.filter((r) => r.id !== event.runId);
         const selectedId = get().selectedId;
         writeBase({
@@ -162,12 +172,14 @@ export const useAgentRunsStore = create<AgentRunsState>()((set, get) => {
 
     const list = await window.api.runs.list(workspaceRoot);
     if (gen !== refreshGen) return;
-    // 完整快照是权威列表，已结束的 id 到此作废。
-    endedIds.clear();
-
-    const next = list.filter((r) =>
-      matchesWorkspace(r.workspaceRoot, workspaceRoot),
+    // 请求期间结束的 run 仍要从这份旧列表里滤掉；记录本身留着，
+    // 因为并发的 resync 拿到的也可能是在它结束之前发出的快照。
+    const next = list.filter(
+      (r) =>
+        !endedIds.has(r.id) && matchesWorkspace(r.workspaceRoot, workspaceRoot),
     );
+    // 再进一代：在途的 resync 持有的都是旧代号，不能再写回旧列表。
+    refreshGen += 1;
     writeBase({ runs: next, selectedId: syncSelection(next, get().selectedId) });
   }
 

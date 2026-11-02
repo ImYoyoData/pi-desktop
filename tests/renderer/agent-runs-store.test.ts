@@ -188,6 +188,9 @@ describe("agent-runs store", () => {
 
   it("resync does not bring back a run that already ended", async () => {
     setWorkspaceRoot("c:/ws/a");
+    // resync 有 3s 节流且计时器在闭包里，前面用例刚用过：把时钟拨到窗口之外，
+    // 否则这里直接返回，空列表也能让断言通过。
+    vi.useFakeTimers({ now: Date.now() + 10_000 });
     const store = state();
     store.applyEvent({ type: "upsert", run: snap({ id: "gone" }) });
     store.applyEvent({ type: "ended", runId: "gone" });
@@ -195,6 +198,30 @@ describe("agent-runs store", () => {
     vi.mocked(window.api.runs.list).mockResolvedValueOnce([snap({ id: "gone" })]);
 
     await store.resync("c:/ws/a");
+
+    expect(window.api.runs.list).toHaveBeenCalledTimes(1);
+    expect(state().runs).toEqual([]);
+    vi.useRealTimers();
+  });
+
+  it("does not restore a run that ended while refresh was in flight", async () => {
+    setWorkspaceRoot("c:/ws/a");
+    const store = state();
+    // 必须用本用例独有的 id：endedIds 在闭包里，前面的用例已经把 r1 记成结束，
+    // 拿它做断言的话跳过请求中的 ended 也能通过。
+    store.applyEvent({ type: "upsert", run: snap({ id: "r-inflight" }) });
+
+    let resolveList!: (value: AgentRunSnapshot[]) => void;
+    const pending = new Promise<AgentRunSnapshot[]>((resolve) => {
+      resolveList = resolve;
+    });
+    vi.mocked(window.api.runs.list).mockImplementationOnce(() => pending);
+
+    const refreshing = store.refresh("c:/ws/a");
+    // 请求飞行中才到达结束事件：回来的快照里它还是活的。
+    store.applyEvent({ type: "ended", runId: "r-inflight" });
+    resolveList([snap({ id: "r-inflight" })]);
+    await refreshing;
 
     expect(state().runs).toEqual([]);
   });

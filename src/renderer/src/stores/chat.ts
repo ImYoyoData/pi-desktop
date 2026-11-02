@@ -1403,10 +1403,16 @@ softHangReported.delete(sessionId);
 		/** Bubble text (defaults to `message`). Agent always receives `message`. */
 		displayText?: string,
 	): Promise<void> {
-		// 重编辑必须排队前先停下当前轮：promptChain 会等到旧轮整轮结束，
-		// 遇到待回答的 ask_user 就是永久等待。
-		if (get().pendingUserEdit?.sessionId === sessionId) {
-			await stopRunBeforeMutation(sessionId);
+		// 重编辑意图在这里同步认领：停轮会让会话变空闲，自动排空的队列消息
+		// 会抢在本次调用之前进 promptChain，把这份意图取走、换成排队文本。
+		const pending = get().pendingUserEdit;
+		const edit = pending?.sessionId === sessionId ? pending : null;
+		if (edit) {
+			commit({ pendingUserEdit: null });
+			// 只在当前轮还在跑时打断：空闲时发 abort 没人会回收尾事件，
+			// 残留的停止意图会把下一轮正常结束的待办误标成暂停。
+			// 不能 await：否则链位会被期间到达的排队消息占走。
+			if (stateFor(sessionId).running) void abort(sessionId);
 		}
 		// Strictly serialize prompts per session: a second prompt fired while
 		// one is in flight would race the worker and corrupt the single-active
@@ -1420,6 +1426,7 @@ softHangReported.delete(sessionId);
 				images,
 				elementTags,
 				displayText,
+				edit,
 			),
 		);
 		promptChain.set(
@@ -1437,15 +1444,15 @@ softHangReported.delete(sessionId);
 		elementTags?: ElementTag[],
 		/** Bubble text (defaults to `message`). Agent always receives `message`. */
 		displayText?: string,
+		/** 调用方已同步认领的重编辑意图；不传则视为普通提问。 */
+		edit?: PendingUserEdit | null,
 	): Promise<void> {
 		const promptImages = toPromptImages(images);
 		const promptCitations = toPromptCitations(citations);
 		const bubbleText = displayText !== undefined ? displayText : message;
 
 		// Re-edit commit: replace that bubble and everything after it (UI + agent tree).
-		const edit = get().pendingUserEdit;
-		commit({ pendingUserEdit: null });
-		if (edit?.sessionId === sessionId) {
+		if (edit) {
 			await stopRunBeforeMutation(sessionId);
 			const before = stateFor(sessionId);
 			const located = locateUserTurn(before, edit.messageId);

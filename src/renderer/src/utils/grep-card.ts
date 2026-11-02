@@ -78,6 +78,8 @@ export function grepOpenPath(searchPath: string | null, filePath: string): strin
   if (!base || base === ".") return filePath;
   const name = base.split("/").pop() ?? "";
   // path 指向单个文件时 pi 把输出退化成 basename，不靠扩展名也应认出来。
+  // shortcut: 命中路径恰好等于目录名时（目录 deploy 里搜到 deploy/deploy）无从区分，
+  // 这里按单文件处理；要区分得由调用方传入路径类型。
   if (name === filePath) return base;
   return joinPath(base, filePath);
 }
