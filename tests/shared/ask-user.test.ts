@@ -110,6 +110,22 @@ describe("parseAskUserArgs", () => {
     expect(prompt).toBeNull();
   });
 
+  it("stays valid when reparsed after the free-form row was appended", () => {
+    const args = {
+      questions: [
+        {
+          id: "env",
+          prompt: "Deploy where?",
+          type: "single",
+          options: [...OPTIONS, { id: "dev", label: "dev" }],
+        },
+      ],
+    };
+    const first = parseAskUserArgs(args);
+    expect(first?.questions[0]?.options).toHaveLength(4);
+    expect(parseAskUserArgs({ questions: first?.questions })?.questions).toHaveLength(1);
+  });
+
   it("rejects more than three questions", () => {
     const prompt = parseAskUserArgs({
       questions: Array.from({ length: 4 }, (_, i) => ({

@@ -155,6 +155,8 @@ function parseQuestion(raw: unknown): AskUserQuestion | null {
   for (const item of q.options) {
     const opt = parseOption(item);
     if (!opt) continue;
+    // 客户端自动补齐的自定义选项不计入上限，否则 worker→main 二次解析会超限。
+    if (opt.id === ASK_USER_CUSTOM_OPTION_ID) continue;
     if (seen.has(opt.id)) continue;
     seen.add(opt.id);
     options.push(opt);
