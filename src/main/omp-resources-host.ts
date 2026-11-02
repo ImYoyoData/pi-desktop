@@ -348,11 +348,25 @@ export function listOmpResources(root?: string): OmpResourcesSnapshot {
 				: item,
 		);
 	return {
-		skills: mark(skills),
-		instructions: mark(instructions),
-		extensions: mark(extensions),
-		mcp,
+		skills: mark(dedupe(skills)),
+		instructions: mark(dedupe(instructions)),
+		extensions: mark(dedupe(extensions)),
+		mcp: dedupe(mcp),
 	};
+}
+
+/**
+ * 同名资源只留一条：扫描顺序是项目级在前，于是项目级配置覆盖用户级的同名项。
+ *
+ * 不去重会列出两个 id 相同的行，界面互相覆盖、开关也分不清改的是哪一份。
+ */
+function dedupe(items: OmpResourceItem[]): OmpResourceItem[] {
+	const seen = new Set<string>();
+	return items.filter((item) => {
+		if (seen.has(item.id)) return false;
+		seen.add(item.id);
+		return true;
+	});
 }
 
 /** 切换一个资源的启用状态。 */
@@ -375,7 +389,8 @@ export function setOmpResourceEnabled(
  * MCP 的启停写进条目所在的 mcp.json（enabled 字段）。
  *
  * 重新启用时还要清掉用户级 disabledServers 里的同名条目：那个 denylist
- * 优先于 enabled 字段，不清的话服务器仍被 omp 抑制。
+ * 优先于 enabled 字段，不清的话服务器仍被 omp 抑制。条目本身就在用户级
+ * 文件里时，denylist 与条目同处一份文件，一并改掉。
  */
 function setMcpEnabled(item: OmpResourceItem, enabled: boolean): void {
 	const raw = readText(item.filePath);
@@ -392,24 +407,35 @@ function setMcpEnabled(item: OmpResourceItem, enabled: boolean): void {
 	else entry.enabled = false;
 	servers[item.name] = entry;
 	parsed.mcpServers = servers;
+
+	const isUserFile = userMcpPath() === item.filePath;
+	if (enabled && isUserFile) removeUserDeny(parsed, item.name);
 	fs.writeFileSync(item.filePath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
 
-	if (!enabled) return;
-	const userPath = userMcpPath();
-	if (userPath === item.filePath) return;
-	const userRaw = readText(userPath);
+	if (!enabled || isUserFile) return;
+	const userRaw = readText(userMcpPath());
 	if (!userRaw) return;
 	try {
 		const userConfig = JSON.parse(userRaw) as Record<string, unknown>;
-		const denied = userConfig.disabledServers;
-		if (!Array.isArray(denied) || !denied.includes(item.name)) return;
-		const next = denied.filter((entry2) => entry2 !== item.name);
-		if (next.length) userConfig.disabledServers = next;
-		else delete userConfig.disabledServers;
-		fs.writeFileSync(userPath, `${JSON.stringify(userConfig, null, 2)}\n`, "utf8");
+		if (!removeUserDeny(userConfig, item.name)) return;
+		fs.writeFileSync(
+			userMcpPath(),
+			`${JSON.stringify(userConfig, null, 2)}\n`,
+			"utf8",
+		);
 	} catch {
 		// 用户级 mcp.json 读不出来时不动它。
 	}
+}
+
+/** 从配置里移除某个服务器的禁用记录；返回是否真的改动了。 */
+function removeUserDeny(config: Record<string, unknown>, name: string): boolean {
+	const denied = config.disabledServers;
+	if (!Array.isArray(denied) || !denied.includes(name)) return false;
+	const next = denied.filter((entry) => entry !== name);
+	if (next.length) config.disabledServers = next;
+	else delete config.disabledServers;
+	return true;
 }
 
 export type OmpResourceKindFilter = OmpResourceKind;

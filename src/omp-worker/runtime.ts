@@ -8,6 +8,7 @@ import type { OmpWorkerInbound } from "../shared/omp-worker-messages";
 import type { AgentCommand } from "../shared/protocol";
 import { toPromptImages } from "../shared/protocol";
 import { createOmpAskUserTool } from "./ask-user-tool";
+import { forkOmpUserTurn } from "./fork";
 import {
 	CONTEXT_USAGE_EVENT_TYPES,
 	emitContextUsage,
@@ -182,6 +183,21 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			}
 			active.setModel(model);
 			post({ kind: "result", id, data: { ok: true } });
+			return;
+		}
+		case "fork_user_turn": {
+			const active = requireSession();
+			const filePath = active.sessionFile;
+			if (!filePath) {
+				post({ kind: "result", id, error: "session file not found" });
+				return;
+			}
+			const data = await forkOmpUserTurn(
+				filePath,
+				command.userIndex,
+				command.expectText,
+			);
+			post({ kind: "result", id, data });
 			return;
 		}
 		case "set_session_name": {

@@ -35,6 +35,24 @@ function readMcpEntry(target: OmpMcpTestTarget): Record<string, unknown> | null 
 		: null;
 }
 
+/** 用户级 mcp.json 的 disabledServers：omp 的 denylist 优先于条目上的 enabled。 */
+function readUserDeny(): string[] {
+	const file = path.join(ompAgentDir(), "mcp.json");
+	if (!fs.existsSync(file)) return [];
+	try {
+		const raw = JSON.parse(fs.readFileSync(file, "utf8")) as {
+			disabledServers?: unknown;
+		};
+		return Array.isArray(raw.disabledServers)
+			? raw.disabledServers.filter(
+					(entry): entry is string => typeof entry === "string",
+				)
+			: [];
+	} catch {
+		return [];
+	}
+}
+
 /** 测试一个 OMP MCP 服务器：initialize 握手 + tools/list。 */
 export async function testOmpMcpServer(
 	target: OmpMcpTestTarget,
@@ -43,7 +61,7 @@ export async function testOmpMcpServer(
 	if (!entry) {
 		return { ...target, ok: false, error: "server not found", durationMs: 0 };
 	}
-	if (entry.enabled === false) {
+	if (entry.enabled === false || readUserDeny().includes(target.name)) {
 		return { ...target, ok: false, error: "disabled", durationMs: 0 };
 	}
 	const outcome = await testMcpServer(entry);

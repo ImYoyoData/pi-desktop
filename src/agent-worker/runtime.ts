@@ -1230,6 +1230,10 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			});
 			return;
 		}
+		case "fork_user_turn":
+			// pi 的分叉在主进程直接读写会话文件（session-fork.ts），不经 worker。
+			post({ kind: "result", id, error: "unsupported command: fork_user_turn" });
+			return;
 		case "set_session_name":
 			// pi 的改名直接改会话文件，worker 不参与；扣到这里说明调用方传错了。
 			post({ kind: "result", id, error: "unsupported command: set_session_name" });

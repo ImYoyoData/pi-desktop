@@ -81,4 +81,44 @@ describe("omp 资源扫描与启停", () => {
 		expect(raw.mcpServers.demo?.enabled).toBe(false);
 		expect(listOmpResources().mcp[0]?.enabled).toBe(false);
 	});
+
+	it("用户级 denylist 里的服务器，点启用后真的恢复", () => {
+		fs.writeFileSync(
+			path.join(dir, "mcp.json"),
+			JSON.stringify(
+				{ mcpServers: { demo: { command: "echo" } }, disabledServers: ["demo"] },
+				null,
+				2,
+			),
+			"utf8",
+		);
+		const server = listOmpResources().mcp[0]!;
+		expect(server.enabled).toBe(false);
+
+		setOmpResourceEnabled(server, true);
+		expect(listOmpResources().mcp[0]?.enabled).toBe(true);
+		const raw = JSON.parse(fs.readFileSync(path.join(dir, "mcp.json"), "utf8")) as {
+			disabledServers?: string[];
+		};
+		expect(raw.disabledServers).toBeUndefined();
+	});
+
+	it("项目级与用户级同名资源只列一条，项目级优先", () => {
+		const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-desk-omp-proj-"));
+		const projectSkills = path.join(projectRoot, ".omp", "skills", "alpha");
+		fs.mkdirSync(projectSkills, { recursive: true });
+		fs.writeFileSync(
+			path.join(projectSkills, "SKILL.md"),
+			["---", "name: alpha", "description: 项目级", "---", ""].join(
+				String.fromCharCode(10),
+			),
+			"utf8",
+		);
+		writeSkill("alpha", "用户级");
+
+		const skills = listOmpResources(projectRoot).skills;
+		expect(skills).toHaveLength(1);
+		expect(skills[0]?.scope).toBe("project");
+		fs.rmSync(projectRoot, { recursive: true, force: true });
+	});
 });

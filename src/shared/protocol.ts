@@ -482,6 +482,7 @@ export type AgentCommand =
 	| { type: "abort" }
 	| { type: "clear_queue" }
 	| { type: "set_model"; provider: string; modelId: string }
+	| { type: "fork_user_turn"; userIndex: number; expectText?: string }
 	| { type: "set_session_name"; name: string }
 	| { type: "set_thinking_level"; level: string; persist?: boolean }
 	| { type: "compact"; customInstructions?: string }
