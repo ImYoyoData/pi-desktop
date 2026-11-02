@@ -109,10 +109,14 @@ function splitSegments(text: string): string[] {
 const SHELL_WRAP_RE =
   /^(?:sh|bash|zsh|dash|ksh|pwsh|powershell)(?:\.exe)?\b[^\n]*?\s-[A-Za-z]*c\s+(["'])([\s\S]*)\1\s*$/i;
 
+/** 段首的环境变量赋值与启动器包装：`PORT=3000 npm run dev`、`env A=1 next dev`。 */
+const LAUNCHER_RE = /^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s+|env\s+|exec\s+|command\s+)+/;
+
 function segmentIsPersistent(segment: string, depth: number): boolean {
-  if (PERSISTENT_PATTERNS.some((re) => re.test(segment))) return true;
+  const command = segment.replace(LAUNCHER_RE, "");
+  if (PERSISTENT_PATTERNS.some((re) => re.test(command))) return true;
   if (depth <= 0) return false;
-  const wrapped = SHELL_WRAP_RE.exec(segment);
+  const wrapped = SHELL_WRAP_RE.exec(command);
   if (!wrapped) return false;
   const inner = wrapped[2]!;
   return splitSegments(inner).some((part) => segmentIsPersistent(part, depth - 1));

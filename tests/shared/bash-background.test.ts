@@ -50,6 +50,15 @@ describe("bash-background", () => {
     ).toBe(false);
   });
 
+  it("detects launchers behind environment assignments", () => {
+    expect(commandShouldStartBackground("PORT=3000 npm run dev")).toBe(true);
+    expect(commandShouldStartBackground("NODE_ENV=production npm start")).toBe(true);
+    expect(commandShouldStartBackground('NODE_ENV="production mode" next dev')).toBe(true);
+    expect(commandShouldStartBackground("A=1 B=2 pnpm dev")).toBe(true);
+    expect(commandShouldStartBackground("env PORT=3000 vite")).toBe(true);
+    expect(commandShouldStartBackground("cd web && PORT=3000 npm run dev")).toBe(true);
+  });
+
   it("ignores commands that merely mention a server name", () => {
     expect(commandShouldStartBackground("grep -rn next src")).toBe(false);
     expect(commandShouldStartBackground("cat vite.config.ts")).toBe(false);

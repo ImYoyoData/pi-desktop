@@ -1403,6 +1403,11 @@ softHangReported.delete(sessionId);
 		/** Bubble text (defaults to `message`). Agent always receives `message`. */
 		displayText?: string,
 	): Promise<void> {
+		// 重编辑必须排队前先停下当前轮：promptChain 会等到旧轮整轮结束，
+		// 遇到待回答的 ask_user 就是永久等待。
+		if (get().pendingUserEdit?.sessionId === sessionId) {
+			await stopRunBeforeMutation(sessionId);
+		}
 		// Strictly serialize prompts per session: a second prompt fired while
 		// one is in flight would race the worker and corrupt the single-active
 		// checkpoint (both user bubbles ended up with revert buttons).

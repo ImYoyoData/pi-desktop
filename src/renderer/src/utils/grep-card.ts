@@ -60,7 +60,8 @@ export function parseGrepOutput(raw: string): ParsedGrepOutput {
     hits,
     notices,
     matchCount,
-    noMatches: text.trim() === NO_MATCHES,
+    // 工具偏好会在空结果后面追加 .gitignore 说明，所以只认开头这句。
+    noMatches: text.trimStart().startsWith(NO_MATCHES),
     text,
   };
 }
@@ -76,6 +77,7 @@ export function grepOpenPath(searchPath: string | null, filePath: string): strin
   const base = searchPath.replace(/\\/g, "/").replace(/\/+$/, "");
   if (!base || base === ".") return filePath;
   const name = base.split("/").pop() ?? "";
-  if (name === filePath && /\.[A-Za-z0-9]+$/.test(name)) return base;
+  // path 指向单个文件时 pi 把输出退化成 basename，不靠扩展名也应认出来。
+  if (name === filePath) return base;
   return joinPath(base, filePath);
 }

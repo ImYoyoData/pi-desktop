@@ -186,6 +186,19 @@ describe("agent-runs store", () => {
     expect(state().runs.map((r) => r.id).sort()).toEqual(["fresh", "stale"]);
   });
 
+  it("resync does not bring back a run that already ended", async () => {
+    setWorkspaceRoot("c:/ws/a");
+    const store = state();
+    store.applyEvent({ type: "upsert", run: snap({ id: "gone" }) });
+    store.applyEvent({ type: "ended", runId: "gone" });
+    // 快照在 run 结束前发出，回来时已经是旧列表。
+    vi.mocked(window.api.runs.list).mockResolvedValueOnce([snap({ id: "gone" })]);
+
+    await store.resync("c:/ws/a");
+
+    expect(state().runs).toEqual([]);
+  });
+
   it("refresh clears when workspace is null", async () => {
     setWorkspaceRoot("c:/ws/a");
     const store = state();
