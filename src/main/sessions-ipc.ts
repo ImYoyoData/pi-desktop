@@ -251,7 +251,24 @@ export function registerSessionsIpc(broker: SessionBroker): void {
       expectText?: string,
       backend?: AgentBackend,
     ) => {
-      const list = await broker.listSessions(cwd, agentBackendOf(backend));
+      const resolvedBackend = agentBackendOf(backend);
+      if (resolvedBackend === "omp") {
+        // OMP 的会话文件格式 pi 的 SDK 打不开，分叉交给它自己的 worker。
+        const forked = await broker.send(sessionId, {
+          type: "fork_user_turn",
+          userIndex: Number(userIndex),
+          ...(expectText === undefined ? {} : { expectText }),
+        });
+        if (!forked || typeof forked !== "object") {
+          throw new Error("could not write the forked session");
+        }
+        return forked as {
+          id: string;
+          filePath: string;
+          cwd: string;
+        };
+      }
+      const list = await broker.listSessions(cwd, resolvedBackend);
       const target = list.find((s) => s.id === sessionId);
       if (!target?.filePath) {
         throw new Error("session not found");
