@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.3.7-rc.4 (2026-11-02)
+
+回填 rc.3 评审指出的问题，都是细节回归：带环境变量前缀的常驻命令不再被当成前台阻塞，后台残留进程不会再从运行面板消失，ask_user 待答时重编辑不再卡住。
+
+### 修复 Fixes
+
+- **修复后台跟踪与重编辑阻塞**：常驻判定重新支持 `PORT=3000 npm run dev` 这类环境变量前缀；shell 退出后的残留进程安静下来仍留在运行面板、能终止；ask_user 待答时重编辑先停当前轮再排队；运行面板不再把已结束的 run 复活；grep 空结果带说明时仍显示「无匹配」，无扩展名的单文件搜索点开不再拼错路径。
+
+- **Fixed background tracking and blocked re-edits**: persistent-command detection supports environment prefixes such as `PORT=3000 npm run dev` again; leftover processes stay in the Running panel, and stay terminable, after the shell exits and goes quiet; a re-edit submitted while ask_user waits stops the active turn before queuing; the Running panel no longer resurrects runs that already ended; grep reports "no matches" when an explanation is appended, and single-file searches without an extension no longer open a joined-up wrong path.
+
 ## v0.3.7-rc.3 (2026-11-02)
 
 本版给最后一条用户消息加上发送回执（已发送 / 已读），ask_user 对齐 Codex 的问答协议：短标签改为 header、支持密文题，并对题量与选项数做校验；工具卡片里 grep 结果按文件分组、可以直接点开文件，工具族补齐图标与结果摘要，等待指示器说清请求阶段与上下文压缩进度。同时修复消息区贴底抽搐、折叠展开把正在看的行顶走、展开右侧栏文件页卡顿数秒等问题。

@@ -217,18 +217,27 @@ describe("shell 退出后的残留进程跟踪", () => {
     expect(survivors.size).toBe(0);
   });
 
-  // 回归：`npm run build` 结束后残留进程还活着时，工具一跳不起，卡片永远卡在运行中，
-  // 只能等 120s 卡死看门狗杀掉。安静一段时间后应主动放弃等待（不杀进程）。
-  it("残留进程安静超过 idle 窗口后放弃等待", async () => {
+  // 回归：`npm run build` 结束后残留进程还活着时，不能因为“安静”就丢掉条目，
+  // 否则用户既看不到它、也终止不了它（端口一直被占）。
+  it("残留进程安静超过 idle 窗口仍继续跟踪，直到它退出", async () => {
     const survivors = new Set([process.pid]);
     const started = Date.now();
-    await __test.waitForSurvivorsExit(survivors, undefined, {
-      idleMs: 1_200,
+    const waiting = __test.waitForSurvivorsExit(survivors, undefined, {
+      idleMs: 300,
       lastOutputAt: () => started,
+      pollMs: 50,
     });
+    let settled = false;
+    void waiting.then(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    expect(settled).toBe(false);
     expect(survivors.has(process.pid)).toBe(true);
-    // 断言真的等过了 idle 窗口；否则「忽略 idle 立即返回」的回归也能通过。
-    expect(Date.now() - started).toBeGreaterThanOrEqual(1_200);
+
+    survivors.clear();
+    await waiting;
+    expect(survivors.size).toBe(0);
   }, 10_000);
 });
 

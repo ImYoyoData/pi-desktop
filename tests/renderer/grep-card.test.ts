@@ -46,6 +46,16 @@ describe("parseGrepOutput", () => {
     expect(parsed.hits).toEqual([]);
   });
 
+  // 工具偏好会在空结果后追加 .gitignore 说明，卡片摘要仍需认出来。
+  it("marks a no-match result that carries the ignore explanation", () => {
+    const parsed = parseGrepOutput(
+      "No matches found\n\ngrep skips .gitignore'd paths (node_modules, out, build, release).",
+    );
+    expect(parsed.noMatches).toBe(true);
+    expect(parsed.hits).toEqual([]);
+    expect(parsed.text).toContain("grep skips");
+  });
+
   it("does not invent hits from an error message", () => {
     const parsed = parseGrepOutput("Path not found: /tmp/app");
     expect(parsed.hits).toEqual([]);
@@ -62,6 +72,11 @@ describe("grepOpenPath", () => {
 
   it("keeps the search root when it points at a single file", () => {
     expect(grepOpenPath("src/App.tsx", "App.tsx")).toBe("src/App.tsx");
+  });
+
+  it("recognizes an extensionless single-file search", () => {
+    expect(grepOpenPath("Dockerfile", "Dockerfile")).toBe("Dockerfile");
+    expect(grepOpenPath("deploy/Makefile", "Makefile")).toBe("deploy/Makefile");
   });
 
   it("passes paths through when searching from the workspace root", () => {
