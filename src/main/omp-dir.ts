@@ -4,19 +4,15 @@ import path from "node:path";
 /**
  * omp 的配置根：`<config>/agent`，默认 `~/.omp/agent`。
  *
- * worker 里的 omp SDK 按 `PI_CODING_AGENT_DIR` → `<PI_CONFIG_DIR|.omp>/agent`
- * 的顺序解析目录，桌面端必须算出同一个路径，否则会去读另一套会话与配置。
+ * 不读 `PI_CODING_AGENT_DIR`：那是 pi 的目录变量，桌面端两侧共用它就会把
+ * 两套会话与配置堆进同一个 agent 目录。omp 只认自己的两个变量。
+ * 算出的目录会随 init 消息交给 worker，由 worker 显式使用。
  * shortcut: 不认 omp profile 与 Linux XDG 迁移，那两种安装需手动设目录。
  */
 export function ompAgentDir(): string {
-	// 测试与隔离运行用的显式覆盖，优先级最高。
-	const testDir = process.env.OMP_AGENT_DIR;
-	if (testDir && testDir.trim()) {
-		return path.normalize(path.resolve(expandHome(testDir.trim())));
-	}
-	const agentEnv = process.env.PI_CODING_AGENT_DIR;
-	if (agentEnv && agentEnv.trim()) {
-		return path.normalize(path.resolve(expandHome(agentEnv.trim())));
+	const envDir = process.env.OMP_AGENT_DIR;
+	if (envDir && envDir.trim()) {
+		return path.normalize(path.resolve(expandHome(envDir.trim())));
 	}
 	const configDir = process.env.PI_CONFIG_DIR?.trim() || ".omp";
 	return path.join(homeDir(), configDir, "agent");

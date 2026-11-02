@@ -43,10 +43,8 @@ export type OmpSettingsTabEntry = {
 	groups: string[];
 };
 
-/** 设置页一次读取的全部内容：配置文件位置与已显式设置的值。 */
+/** 设置页一次读取的全部内容：已显式设置的值。 */
 export type OmpSettingsSnapshot = {
-	filePath: string;
-	exists: boolean;
 	values: Record<string, unknown>;
 };
 

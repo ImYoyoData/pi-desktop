@@ -174,11 +174,14 @@ describe("omp 配置目录解析", () => {
 		}
 	});
 
-	it("优先 PI_CODING_AGENT_DIR，与 worker 里的 omp SDK 一致", async () => {
+	it("不跟随 PI_CODING_AGENT_DIR，那是 pi 的目录变量", async () => {
 		delete process.env.OMP_AGENT_DIR;
-		process.env.PI_CODING_AGENT_DIR = path.join(os.tmpdir(), "omp-agent-x");
+		process.env.PI_CODING_AGENT_DIR = path.join(os.tmpdir(), "pi-agent-x");
+		process.env.PI_CONFIG_DIR = ".omp-test";
 		const { ompAgentDir } = await import("../../src/main/omp-dir");
-		expect(ompAgentDir()).toBe(path.resolve(os.tmpdir(), "omp-agent-x"));
+		const dir = ompAgentDir();
+		expect(dir).not.toContain("pi-agent-x");
+		expect(dir.endsWith(path.join(".omp-test", "agent"))).toBe(true);
 	});
 
 	it("没有覆盖时落到 <PI_CONFIG_DIR>/agent", async () => {

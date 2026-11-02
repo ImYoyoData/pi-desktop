@@ -1334,6 +1334,7 @@ export const zhTW = {
 	customizeOmpModels: "模型與供應商",
 	customizeOmpModelsDesc: "OMP 自己的模型設定，寫入 ~/.omp/agent/models.yml。",
 	ompSave: "儲存",
+	ompSaveFailed: "改動未儲存，已恢復為設定檔裡的值：",
 	ompSaved: "已儲存",
 	ompUnnamed: "未命名供應商",
 	ompNoProviders: "還沒有供應商，點左下角新增。",

@@ -1258,7 +1258,9 @@ export function createSessionBroker(deps: {
       return;
     }
     if (rec.pendingCommands.size > 0 || deps.hasActiveRuns?.(sessionId)) {
-      // 空闲回收器会等到这些跑完再动手。
+      // 有命令在等结果：现在断开会把它们挂死。标记待重启，交给状态变化与
+      // 空闲回收器在它们跑完后动手。
+      rec.restartOnIdle = true;
       scheduleIdleDestroy(sessionId);
       return;
     }

@@ -144,6 +144,11 @@ export function ExtensionUiStrip(): ReactNode {
 
         {prompt.method === "select" ? (
           <div className={styles.stripBody}>
+            {prompt.message ? (
+              <Typography.Text type="secondary" className={styles.message}>
+                {prompt.message}
+              </Typography.Text>
+            ) : null}
             <div className={styles.optList}>
               {prompt.options.map((opt) => (
                 <button

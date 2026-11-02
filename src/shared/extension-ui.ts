@@ -17,6 +17,8 @@ export type ExtensionUiPending =
       method: "select";
       title: string;
       options: string[];
+      /** 选项之外的补充说明（如工具审批要批的命令全文）。 */
+      message?: string;
     }
   | {
       sessionId: string;
@@ -111,6 +113,7 @@ export type ExtensionUiDialogParams =
       method: "select";
       title: string;
       options: string[];
+      message?: string;
     }
   | {
       requestId: string;
@@ -146,7 +149,8 @@ export function parseExtensionUiDialogParams(
         ? params.options.filter((o): o is string => typeof o === "string")
         : [];
       if (!title || options.length === 0) return null;
-      return { requestId, method, title, options };
+      const message = typeof params.message === "string" ? params.message : "";
+      return { requestId, method, title, options, ...(message ? { message } : {}) };
     }
     case "confirm": {
       const message = typeof params.message === "string" ? params.message : "";
