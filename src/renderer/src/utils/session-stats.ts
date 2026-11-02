@@ -44,7 +44,9 @@ export function formatSessionTtft(ms: number | null | undefined): string {
 
 export function formatSessionCost(usd: number | null | undefined): string {
   if (usd == null || !Number.isFinite(usd) || usd <= 0) return "—";
-  return `$${usd.toFixed(2)}`;
+  // 小额会话成本四舍五入到 $0.00 等于谎报零，细分到四位。
+  if (usd < 0.0001) return "<$0.0001";
+  return `$${usd < 0.01 ? usd.toFixed(4) : usd.toFixed(2)}`;
 }
 
 export function formatSessionDuration(ms: number | null | undefined): string {

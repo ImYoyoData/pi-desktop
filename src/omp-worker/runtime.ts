@@ -12,7 +12,9 @@ import { forkOmpUserTurn } from "./fork";
 import {
 	CONTEXT_USAGE_EVENT_TYPES,
 	emitContextUsage,
+	observeOmpTiming,
 	readOmpContextUsage,
+	restoreOmpTiming,
 } from "./context-usage";
 import { handleOmpRpcResponse, setRpcWorkspaceRoot } from "./main-rpc";
 import { createOmpDesktopExtensionUIContext } from "./extension-ui-context";
@@ -113,12 +115,14 @@ async function initSession(
 	if (modelFallbackMessage) {
 		process.stderr.write(`[omp-worker] ${modelFallbackMessage}\n`);
 	}
-	created.subscribe(
-		createEventThrottle() as Parameters<AgentSession["subscribe"]>[0],
-	);
-	created.subscribe((event: { type?: unknown }) => {
-		if (typeof event.type !== "string") return;
-		if (!CONTEXT_USAGE_EVENT_TYPES.has(event.type)) return;
+	restoreOmpTiming(created.sessionFile);
+	const sendEvent = createEventThrottle();
+	created.subscribe((event) => {
+		const raw = event as unknown as Record<string, unknown>;
+		observeOmpTiming(raw);
+		sendEvent(raw);
+		if (typeof raw.type !== "string") return;
+		if (!CONTEXT_USAGE_EVENT_TYPES.has(raw.type)) return;
 		try {
 			emitContextUsage(created);
 		} catch {

@@ -78,10 +78,11 @@ describe("formatSessionTtft", () => {
 });
 
 describe("formatSessionCost", () => {
-  it("formats two decimals with a dollar sign", () => {
+  it("keeps four decimals below one cent so tiny costs stay readable", () => {
     expect(formatSessionCost(1.5)).toBe("$1.50");
-    // 判据是原值 > 0，四舍五入后为 0 仍会显示。
-    expect(formatSessionCost(0.004)).toBe("$0.00");
+    expect(formatSessionCost(0.42)).toBe("$0.42");
+    expect(formatSessionCost(0.004)).toBe("$0.0040");
+    expect(formatSessionCost(0.00002)).toBe("<$0.0001");
     expect(formatSessionCost(0)).toBe("—");
   });
 });
