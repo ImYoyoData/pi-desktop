@@ -59,6 +59,8 @@ export const useAgentRunsStore = create<AgentRunsState>()((set, get) => {
   let lastResyncAt = 0;
   /** Avoid repeat terminate storms for the same run id. */
   const stallTerminating = new Set<string>();
+  /** 已收到 ended 的 run：快照可能是它结束前的旧列表，不能再把它加回来。 */
+  const endedIds = new Set<string>();
 
   function writeBase(patch: Partial<AgentRunsBase>): void {
     set((state) => {
@@ -126,6 +128,7 @@ export const useAgentRunsStore = create<AgentRunsState>()((set, get) => {
       }
       case "ended": {
         stallTerminating.delete(event.runId);
+        endedIds.add(event.runId);
         const runs = get().runs.filter((r) => r.id !== event.runId);
         const selectedId = get().selectedId;
         writeBase({
@@ -159,6 +162,8 @@ export const useAgentRunsStore = create<AgentRunsState>()((set, get) => {
 
     const list = await window.api.runs.list(workspaceRoot);
     if (gen !== refreshGen) return;
+    // 完整快照是权威列表，已结束的 id 到此作废。
+    endedIds.clear();
 
     const next = list.filter((r) =>
       matchesWorkspace(r.workspaceRoot, workspaceRoot),
@@ -182,7 +187,10 @@ export const useAgentRunsStore = create<AgentRunsState>()((set, get) => {
       if (gen !== refreshGen) return;
       const known = new Set(get().runs.map((r) => r.id));
       const missing = list.filter(
-        (r) => !known.has(r.id) && matchesWorkspace(r.workspaceRoot, workspaceRoot),
+        (r) =>
+          !known.has(r.id) &&
+          !endedIds.has(r.id) &&
+          matchesWorkspace(r.workspaceRoot, workspaceRoot),
       );
       if (!missing.length) return;
       writeBase({

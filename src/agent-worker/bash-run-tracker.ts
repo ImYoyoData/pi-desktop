@@ -68,8 +68,11 @@ type ActiveRun = {
 	removeOuterAbort: (() => void) | null;
 };
 
-/** 命令本身已结束（shell 退出）时，残留进程安静这么久就不再等它。 */
+/** 命令本身已结束（shell 退出）时，残留进程安静这么久后降为低频轮询。 */
 const SURVIVOR_IDLE_MS = 30_000;
+
+/** 安静下来后的轮询间隔：条目要留到进程真的退出，否则用户再也终止不了它。 */
+const SURVIVOR_IDLE_POLL_MS = 5_000;
 
 /** setTimeout 的上限（毫秒），与 Pi SDK 的 MAX_TIMEOUT_MS 一致。 */
 const MAX_TIMEOUT_MS = 2_147_483_647;
@@ -277,13 +280,13 @@ function waitForChildExit(child: ChildProcess): Promise<number | null> {
 }
 
 /**
- * 等 shell 的残留进程退出。带 `idleMs` 时，连续这么久没有输出也算结束：
- * 命令已经跑完，剩下的只是孤儿进程或 pid 复用误判，不能让工具继续挂着。
+ * 等 shell 的残留进程退出。带 `idleMs` 时，连续这么久没有输出就降为低频轮询：
+ * 安静的残留进程仍占着端口，必须留到它退出或被用户终止。
  */
 async function waitForSurvivorsExit(
 	survivors: Set<number>,
 	signal?: AbortSignal,
-	idle?: { idleMs: number; lastOutputAt: () => number },
+	idle?: { idleMs: number; lastOutputAt: () => number; pollMs?: number },
 ): Promise<void> {
 	while (survivors.size > 0) {
 		if (signal?.aborted) return;
@@ -291,8 +294,10 @@ async function waitForSurvivorsExit(
 			if (!isPidAlive(pid)) survivors.delete(pid);
 		}
 		if (survivors.size === 0) return;
-		if (idle && Date.now() - idle.lastOutputAt() >= idle.idleMs) return;
-		await new Promise<void>((r) => setTimeout(r, 1_000));
+		const quiet = idle && Date.now() - idle.lastOutputAt() >= idle.idleMs;
+		await new Promise<void>((r) =>
+			setTimeout(r, quiet ? (idle.pollMs ?? SURVIVOR_IDLE_POLL_MS) : 1_000),
+		);
 	}
 }
 
