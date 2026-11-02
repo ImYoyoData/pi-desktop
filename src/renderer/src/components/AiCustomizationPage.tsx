@@ -26,6 +26,9 @@ import McpServerForm from "@renderer/components/customize/McpServerForm";
 import CustomizeHooks from "@renderer/components/customize/CustomizeHooks";
 import CustomizeTools from "@renderer/components/customize/CustomizeTools";
 import CustomizeModels from "@renderer/components/customize/CustomizeModels";
+import { OmpModels } from "@renderer/components/customize/omp/OmpModels";
+import { OmpResources } from "@renderer/components/customize/omp/OmpResources";
+import { OmpSettings } from "@renderer/components/customize/omp/OmpSettings";
 import CustomizeRuntime from "@renderer/components/customize/CustomizeRuntime";
 import CustomizePermissions from "@renderer/components/customize/CustomizePermissions";
 import CustomizeRetry from "@renderer/components/customize/CustomizeRetry";
@@ -36,7 +39,11 @@ import { useCustomizationsStore } from "@renderer/stores/customizations";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useDialog, useMessage } from "@renderer/services/feedback";
-import { useI18n } from "@renderer/i18n/use-i18n";
+import { useI18n, useUiLocale } from "@renderer/i18n/use-i18n";
+import { ompTabTitle } from "@renderer/utils/omp-tab-title";
+import { ompTabLead } from "../../../shared/omp-settings-text";
+import { OMP_SETTINGS_TABS } from "../../../shared/omp-settings";
+import type { OmpResourceKind } from "../../../shared/omp-resources";
 import { useScopedWorkspaces } from "@renderer/utils/scoped-workspaces";
 import * as prefs from "@renderer/utils/prefs";
 import { registerStateApplier } from "@renderer/utils/state-sync";
@@ -119,6 +126,61 @@ const SECTION_IDS = [
 const LIST_KINDS = ["skills", "instructions", "mcp", "plugins"] as const;
 type ListKind = (typeof LIST_KINDS)[number];
 
+/** OMP 左栏里「模型与供应商」的 id；其余分类直接用 omp 的 tab id。 */
+const OMP_MODELS_SECTION = "omp-models";
+
+/** OMP 的资源分类：id 为 omp-<kind>，内容页按 kind 渲染。 */
+const OMP_RESOURCE_SECTIONS: {
+	id: string;
+	kind: OmpResourceKind;
+	icon: CodiconName;
+	labelKey: string;
+	descriptionKey: string;
+}[] = [
+	{
+		id: "omp-skills",
+		kind: "skills",
+		icon: "skills",
+		labelKey: "ompResourceSkills",
+		descriptionKey: "ompResourceSkillsDesc",
+	},
+	{
+		id: "omp-instructions",
+		kind: "instructions",
+		icon: "instructions",
+		labelKey: "ompResourceInstructions",
+		descriptionKey: "ompResourceInstructionsDesc",
+	},
+	{
+		id: "omp-mcp",
+		kind: "mcp",
+		icon: "mcp",
+		labelKey: "ompResourceMcp",
+		descriptionKey: "ompResourceMcpDesc",
+	},
+	{
+		id: "omp-extensions",
+		kind: "extensions",
+		icon: "plugins",
+		labelKey: "ompResourceExtensions",
+		descriptionKey: "ompResourceExtensionsDesc",
+	},
+];
+
+/** omp tab → 导航图标（复用 pi 现有的 codicon 集）。 */
+const OMP_TAB_ICONS: Record<string, CodiconName> = {
+	appearance: "appearance",
+	model: "prompts",
+	interaction: "keyboard",
+	context: "instructions",
+	memory: "skills",
+	files: "file",
+	shell: "run",
+	tools: "tools",
+	tasks: "plugins",
+	providers: "proxy",
+};
+
 /** 配置管理下的次级来源：pi 是现有配置，omp 暂未实现。 */
 const CONFIG_SOURCES = [
   { id: "pi", label: "Pi" },
@@ -151,6 +213,7 @@ function resolveSection(id: string): string {
 
 export function AiCustomizationPage({ section, visible }: Props): ReactNode {
   const t = useI18n();
+  const uiLocale = useUiLocale();
   const message = useMessage();
   const dialog = useDialog();
   const store = useCustomizationsStore();
@@ -160,6 +223,7 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
 
   const [active, setActive] = useState<string>(() => resolveSection(section));
   const [configSource, setConfigSource] = useState<ConfigSource>("pi");
+  const [ompActive, setOmpActive] = useState<string>("omp-models");
   const [modal, setModal] = useState<string | null>(null);
   const [width, setWidth] = useState<number>(readWidth);
   const [editing, setEditing] = useState<EditingTarget | null>(null);
@@ -242,7 +306,30 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
   const current = sections.find((entry) => entry.id === active) ?? sections[0];
   const activeGroup = groupOf(current.id);
   const groupSections = sections.filter((entry) => groupOf(entry.id) === activeGroup);
-  const configEmpty = activeGroup === "config" && configSource === "omp";
+  /** OMP 自己的配置分类：模型清单 + 资源 + omp 自带的 10 个设置 tab。 */
+  const ompSections: { id: string; icon: SectionIcon; label: string; description: string }[] = [
+    {
+      id: OMP_MODELS_SECTION,
+      icon: "models",
+      label: t.customizeOmpModels,
+      description: t.customizeOmpModelsDesc,
+    },
+    ...OMP_RESOURCE_SECTIONS.map((entry) => ({
+      id: entry.id,
+      icon: entry.icon,
+      label: t[entry.labelKey as "ompResourceSkills"],
+      description: t[entry.descriptionKey as "ompResourceSkillsDesc"],
+    })),
+    ...OMP_SETTINGS_TABS.map((tab) => ({
+      id: tab.id,
+      icon: OMP_TAB_ICONS[tab.id] ?? "settings",
+      label: ompTabTitle(t, tab.id),
+      description: ompTabLead(uiLocale, tab.id) ?? tab.lead,
+    })),
+  ];
+  const showOmp = activeGroup === "config" && configSource === "omp";
+  const listedSections = showOmp ? ompSections : groupSections;
+  const activeListId = showOmp ? ompActive : active;
 
   const listKind: ListKind = (LIST_KINDS as readonly string[]).includes(active)
     ? (active as ListKind)
@@ -394,8 +481,6 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
 
   function selectSection(id: string): void {
     leaveEditor(() => {
-      // omp 暂无自己的分类，点左侧条目时先切回 pi，避免点击无反应。
-      if (configSource === "omp") setConfigSource("pi");
       setActive(id);
       layout.setCustomizeSection(id);
     });
@@ -796,19 +881,21 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
             </div>
           ) : null}
           <div className={styles.sidebarSectionsList} role="tablist">
-            {groupSections.map((entry) => (
+            {listedSections.map((entry) => (
               <button
                 key={entry.id}
                 type="button"
                 role="tab"
                 className={
-                  entry.id === active
+                  entry.id === activeListId
                     ? `${styles.sectionListItem} ${styles.selected}`
                     : styles.sectionListItem
                 }
-                aria-selected={entry.id === active}
+                aria-selected={entry.id === activeListId}
                 title={entry.description}
-                onClick={() => selectSection(entry.id)}
+                onClick={() =>
+                  showOmp ? setOmpActive(entry.id) : selectSection(entry.id)
+                }
               >
                 <span className={styles.sectionIcon}>
                   {isCodiconName(entry.icon) ? (
@@ -835,8 +922,21 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
       />
 
       <section className={styles.managementContent}>
-        {configEmpty ? (
-          <div key="config-empty" className={`${styles.contentInner} view-layer-enter`} />
+        {showOmp ? (
+          <div key="omp-panel" className={`${styles.contentInner} view-layer-enter`}>
+            {ompActive === OMP_MODELS_SECTION ? (
+              <OmpModels />
+            ) : OMP_RESOURCE_SECTIONS.find((entry) => entry.id === ompActive) ? (
+              <OmpResources
+                kind={
+                  OMP_RESOURCE_SECTIONS.find((entry) => entry.id === ompActive)!
+                    .kind
+                }
+              />
+            ) : (
+              <OmpSettings tab={ompActive} />
+            )}
+          </div>
         ) : mcpForm && active === "mcp" ? (
           <div key="mcp-form" className={`${styles.contentInner} view-layer-enter`}>
             <McpServerForm

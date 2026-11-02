@@ -2,7 +2,9 @@ import { agentDir, homeDir } from "./agent-dir";
 import fs from "node:fs";
 import path from "node:path";
 import type { SessionSummary } from "../shared/protocol";
+import type { AgentBackend } from "../shared/agent-backend";
 import { workspacePathKey } from "../shared/workspace-path";
+import { ompAgentDir } from "./omp-dir";
 import { listSessionSummariesOffMain } from "./session-history-offload";
 import type { DiskSessionRow } from "./session-history-worker";
 import { readSettingsRoot, settingsPath } from "./settings-file";
@@ -42,16 +44,33 @@ export function configuredSessionDir(cwd?: string): string | null {
   return resolveSessionDirPath(raw);
 }
 
-/** 工作区实际使用的会话目录：pi 的 sessionDir，或默认的按 cwd 编码目录。 */
-export function workspaceSessionDir(cwd: string): { dir: string; custom: boolean } {
+/**
+ * 工作区在该引擎下的会话目录。
+ *
+ * pi 可以配 sessionDir；omp 的会话目录固定落在它自己的 agentDir 下。
+ */
+export function workspaceSessionDir(
+  cwd: string,
+  backend: AgentBackend = "pi",
+): { dir: string; custom: boolean } {
+  if (backend === "omp") {
+    return {
+      dir: encodeCwdSessionDir(path.resolve(cwd), ompAgentDir()),
+      custom: false,
+    };
+  }
   const custom = configuredSessionDir(cwd);
   if (custom) return { dir: custom, custom: true };
   return { dir: encodeCwdSessionDir(path.resolve(cwd)), custom: false };
 }
 
-/** 列表缓存 key：自定义目录被多个工作区共用，必须带上 cwd。 */
-function sessionListCacheKey(cwd: string, dir: string): string {
-  return `${dir}\0${normalizeWorkspacePath(cwd)}`;
+/** 列表缓存 key：自定义目录被多个工作区共用，必须带上 cwd 与引擎。 */
+function sessionListCacheKey(
+  cwd: string,
+  dir: string,
+  backend: AgentBackend,
+): string {
+  return `${backend}\0${dir}\0${normalizeWorkspacePath(cwd)}`;
 }
 
 /** Case-fold on Windows/macOS so Desktop recent and CLI cwd keys merge cleanly. */export function normalizeWorkspacePath(input: string): string {
@@ -82,6 +101,11 @@ const sessionListCache = new Map<
   { signature: string; sessions: SessionSummary[] }
 >();
 let piWorkspacesCache: {
+  agentDir: string;
+  signature: string;
+  workspaces: string[];
+} | null = null;
+let ompWorkspacesCache: {
   agentDir: string;
   signature: string;
   workspaces: string[];
@@ -157,15 +181,18 @@ async function sessionsTreeSignature(
   return rows.join("|");
 }
 
-function diskRowToSummary(row: {
-  id: string;
-  filePath: string;
-  cwd: string;
-  name?: string;
-  modified: string;
-  created?: string;
-  firstMessage: string;
-}): SessionSummary {
+function diskRowToSummary(
+  row: {
+    id: string;
+    filePath: string;
+    cwd: string;
+    name?: string;
+    modified: string;
+    created?: string;
+    firstMessage: string;
+  },
+  backend: AgentBackend,
+): SessionSummary {
   return {
     id: row.id,
     filePath: row.filePath,
@@ -175,6 +202,7 @@ function diskRowToSummary(row: {
     created: row.created ?? row.modified,
     firstMessage: row.firstMessage,
     status: "idle",
+    backend,
   };
 }
 
@@ -327,16 +355,18 @@ export function invalidateSessionListCaches(cwd?: string): void {
     sessionListCache.clear();
   }
   piWorkspacesCache = null;
+  ompWorkspacesCache = null;
 }
 
 /**
- * Delete Pi's session store for a workspace under `~/.pi/agent/sessions/...`.
+ * Delete a workspace's session store for one backend.
  * Never touches the project directory itself — only the encoded session folder.
  */
-export async function purgeWorkspaceSessionDir(cwd: string): Promise<void> {
-  const resolvedCwd = path.resolve(cwd);
-  invalidateSessionListCaches(resolvedCwd);
-  const { dir: sessionDir, custom } = workspaceSessionDir(resolvedCwd);
+async function purgeBackendSessionDir(
+  resolvedCwd: string,
+  backend: AgentBackend,
+): Promise<void> {
+  const { dir: sessionDir, custom } = workspaceSessionDir(resolvedCwd, backend);
   if (custom) {
     // 自定义目录为所有项目共用：只删 header cwd 匹配当前工作区的文件。
     const rows = await listSessionSummariesSafe({ dir: sessionDir });
@@ -347,7 +377,8 @@ export async function purgeWorkspaceSessionDir(cwd: string): Promise<void> {
     }
     return;
   }
-  const agentSessionsRoot = path.resolve(resolveAgentDir(), "sessions");
+  const agentRoot = backend === "omp" ? ompAgentDir() : resolveAgentDir();
+  const agentSessionsRoot = path.resolve(agentRoot, "sessions");
   const resolvedSessionDir = path.resolve(sessionDir);
   const rel = path.relative(agentSessionsRoot, resolvedSessionDir);
   // Safety: only delete a direct child of the agent sessions root.
@@ -358,13 +389,21 @@ export async function purgeWorkspaceSessionDir(cwd: string): Promise<void> {
     rel.includes("..") ||
     rel.split(path.sep).length !== 1
   ) {
-    throw new Error("refuse to purge session dir outside agent sessions root");
+    throw new Error(`refuse to purge ${backend} session dir outside agent sessions root`);
   }
   try {
     await fs.promises.rm(resolvedSessionDir, { recursive: true, force: true });
   } catch {
     // already gone
   }
+}
+
+/** 清掉两个后端在该工作区下的会话文件。 */
+export async function purgeWorkspaceSessionDir(cwd: string): Promise<void> {
+  const resolvedCwd = path.resolve(cwd);
+  invalidateSessionListCaches(resolvedCwd);
+  await purgeBackendSessionDir(resolvedCwd, "pi");
+  await purgeBackendSessionDir(resolvedCwd, "omp");
 }
 
 /** 只改第一行 header：cwd 指向新路径，parentSession 指向搬移后的父文件。 */
@@ -428,14 +467,12 @@ async function rewriteSessionFileCwd(filePath: string, newCwd: string): Promise<
  * 工作区重新定位：把旧 cwd 的会话目录搬到新 cwd 目录，会话目录是按 cwd 编码的，
  * 因此文件要搬家且 header 的 cwd 要跟着改，否则新路径下看不到这些会话。
  */
-export async function migrateWorkspaceSessionDir(
-  oldCwd: string,
-  newCwd: string,
+async function migrateBackendSessionDir(
+  resolvedOld: string,
+  resolvedNew: string,
+  backend: AgentBackend,
 ): Promise<void> {
-  const resolvedOld = path.resolve(oldCwd);
-  const resolvedNew = path.resolve(newCwd);
-  if (workspacePathsEqual(resolvedOld, resolvedNew)) return;
-  const { dir: fromDir, custom } = workspaceSessionDir(resolvedOld);
+  const { dir: fromDir, custom } = workspaceSessionDir(resolvedOld, backend);
   if (custom) {
     // 自定义目录里文件不搬家：只把 header 的 cwd 改到新路径。
     const rows = await listSessionSummariesSafe({ dir: fromDir });
@@ -444,16 +481,16 @@ export async function migrateWorkspaceSessionDir(
       if (!workspacePathsEqual(path.resolve(row.cwd), resolvedOld)) continue;
       await rewriteSessionFileCwd(row.filePath, resolvedNew);
     }
-    invalidateSessionListCaches(resolvedOld);
-    invalidateSessionListCaches(resolvedNew);
     return;
   }
-  const toDir = encodeCwdSessionDir(resolvedNew);
+  const toDir = encodeCwdSessionDir(
+    resolvedNew,
+    backend === "omp" ? ompAgentDir() : undefined,
+  );
   let files: string[];
   try {
     files = await fs.promises.readdir(fromDir);
   } catch {
-    invalidateSessionListCaches(resolvedOld);
     return;
   }
   await fs.promises.mkdir(toDir, { recursive: true });
@@ -470,19 +507,31 @@ export async function migrateWorkspaceSessionDir(
   } catch {
     // 旧目录残留不影响迁移结果
   }
+}
+
+export async function migrateWorkspaceSessionDir(
+  oldCwd: string,
+  newCwd: string,
+): Promise<void> {
+  const resolvedOld = path.resolve(oldCwd);
+  const resolvedNew = path.resolve(newCwd);
+  if (workspacePathsEqual(resolvedOld, resolvedNew)) return;
+  await migrateBackendSessionDir(resolvedOld, resolvedNew, "pi");
+  await migrateBackendSessionDir(resolvedOld, resolvedNew, "omp");
   invalidateSessionListCaches(resolvedOld);
   invalidateSessionListCaches(resolvedNew);
 }
 
 export async function listSessionsForCwd(
   cwd: string,
+  backend: AgentBackend = "pi",
 ): Promise<SessionSummary[]> {
   const resolvedCwd = path.resolve(cwd);
-  const { dir: sessionDir, custom } = workspaceSessionDir(resolvedCwd);
+  const { dir: sessionDir, custom } = workspaceSessionDir(resolvedCwd, backend);
   const signature = await dirJsonlSignature(sessionDir);
   if (signature === null) return [];
   // key 带上 cwd：自定义目录被多个工作区共用，否则列表会互相覆盖。
-  const key = sessionListCacheKey(resolvedCwd, sessionDir);
+  const key = sessionListCacheKey(resolvedCwd, sessionDir, backend);
   const hit = sessionListCache.get(key);
   if (hit && hit.signature === signature) return hit.sessions;
 
@@ -493,7 +542,7 @@ export async function listSessionsForCwd(
     return workspacePathsEqual(path.resolve(row.cwd), resolvedCwd);
   });
   const entries = workspaceRows
-    .map((row) => ({ row, summary: diskRowToSummary(row) }))
+    .map((row) => ({ row, summary: diskRowToSummary(row, backend) }))
     .sort((a, b) => b.summary.modified.localeCompare(a.summary.modified));
 
   // 派生会话的 parentSession 是父文件路径，这里解析成父会话 id。
@@ -518,6 +567,34 @@ export async function listSessionsForCwd(
   return sessions;
 }
 
+/** 扫描某个会话根目录，返回其中会话 header 记录过的工作区。 */
+async function listWorkspacesUnderSessionsRoot(
+  sessionsDir: string,
+  custom: string | null,
+): Promise<string[]> {
+  const rows = custom
+    ? await listSessionSummariesSafe({ dir: custom })
+    : await listSessionSummariesSafe({ allUnder: sessionsDir });
+  const latestByCwd = new Map<string, { display: string; modified: number }>();
+
+  for (const row of rows) {
+    const raw = typeof row.cwd === "string" ? row.cwd.trim() : "";
+    if (!raw) continue;
+    const display = path.resolve(raw);
+    const key = normalizeWorkspacePath(display);
+    const modified = Date.parse(row.modified) || 0;
+    const prev = latestByCwd.get(key);
+    if (!prev || modified > prev.modified) {
+      latestByCwd.set(key, { display, modified });
+    }
+  }
+
+  return [...latestByCwd.values()]
+    .filter((row) => workspaceEntryKind(row.display) === "dir")
+    .sort((a, b) => b.modified - a.modified)
+    .map((row) => row.display);
+}
+
 /**
  * Workspaces that already have Pi CLI / Desktop sessions under ~/.pi/agent/sessions.
  * Sorted by most recently modified session. Missing folders on disk are skipped.
@@ -536,30 +613,30 @@ export async function listPiCliWorkspaces(): Promise<string[]> {
     return piWorkspacesCache.workspaces;
   }
 
-  const rows = custom
-    ? await listSessionSummariesSafe({ dir: custom })
-    : await listSessionSummariesSafe({ allUnder: sessionsDir });
-  const latestByCwd = new Map<string, { display: string; modified: number }>();
-
-  for (const row of rows) {
-    const raw = typeof row.cwd === "string" ? row.cwd.trim() : "";
-    if (!raw) continue;
-    const display = path.resolve(raw);
-    const key = normalizeWorkspacePath(display);
-    const modified = Date.parse(row.modified) || 0;
-    const prev = latestByCwd.get(key);
-    if (!prev || modified > prev.modified) {
-      latestByCwd.set(key, { display, modified });
-    }
-  }
-
-  const result = [...latestByCwd.values()]
-    .filter((row) => workspaceEntryKind(row.display) === "dir")
-    .sort((a, b) => b.modified - a.modified)
-    .map((row) => row.display);
-
+  const result = await listWorkspacesUnderSessionsRoot(sessionsDir, custom);
   if (signature != null) {
     piWorkspacesCache = { agentDir: sessionsDir, signature, workspaces: result };
+  }
+  return result;
+}
+
+/** omp 自己的会话目录里出现过的工作区（与 pi 的列表分开扫，再合并展示）。 */
+export async function listOmpCliWorkspaces(): Promise<string[]> {
+  if (process.env.PI_DESKTOP_NO_FULL_RECENT === "1") return [];
+  const sessionsDir = path.join(ompAgentDir(), "sessions");
+  const signature = await sessionsTreeSignature(sessionsDir);
+  if (
+    ompWorkspacesCache &&
+    ompWorkspacesCache.agentDir === sessionsDir &&
+    signature != null &&
+    ompWorkspacesCache.signature === signature
+  ) {
+    return ompWorkspacesCache.workspaces;
+  }
+
+  const result = await listWorkspacesUnderSessionsRoot(sessionsDir, null);
+  if (signature != null) {
+    ompWorkspacesCache = { agentDir: sessionsDir, signature, workspaces: result };
   }
   return result;
 }
@@ -572,7 +649,10 @@ export async function mergeRecentWithPiCliWorkspaces(
   desktopRecent: string[],
   dismissed: string[] = [],
 ): Promise<string[]> {
-  const fromPi = await listPiCliWorkspaces();
+  const [fromPi, fromOmp] = await Promise.all([
+    listPiCliWorkspaces(),
+    listOmpCliWorkspaces(),
+  ]);
   const merged: string[] = [];
   const seen = new Set<string>();
   const dismissedKeys = new Set(
@@ -592,5 +672,6 @@ export async function mergeRecentWithPiCliWorkspaces(
   // Explicit Desktop recent always wins (even if previously dismissed via Pi-only remove).
   for (const entry of desktopRecent) push(entry, true);
   for (const entry of fromPi) push(entry, false);
+  for (const entry of fromOmp) push(entry, false);
   return merged;
 }

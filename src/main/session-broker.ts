@@ -4,6 +4,14 @@ import type {
   WorkerInbound,
   WorkerOutbound,
 } from "../shared/agent-worker-messages";
+import type { AgentBackend } from "../shared/agent-backend";
+import type {
+  BackendRuntime,
+  SpawnWorker,
+  WorkerHandle,
+} from "./backend-runtime";
+
+export type { SpawnWorker, WorkerHandle } from "./backend-runtime";
 
 import type { StreamRenderSettings } from "../shared/stream-render";
 import type { BashNoticeLocale } from "../shared/bash-notice-i18n";
@@ -98,36 +106,24 @@ function modelRef(value: unknown): { provider: string; id: string } | null {
     : null;
 }
 
-export type WorkerHandle = {
-  send: (msg: WorkerInbound) => Promise<WorkerOutbound | null>;
-  kill: () => void;
-  onMessage: (cb: (msg: WorkerOutbound) => void) => () => void;
-};
-
-export type SpawnWorker = (
-  cwd: string,
-  filePath?: string,
-) => Promise<{
-  worker: WorkerHandle;
-  id: string;
-  filePath: string;
-  cwd: string;
-}>;
-
 /** Allocate session id + jsonl without spawning the Pi agent worker. */
-export type AllocateSession = (cwd: string) => Promise<{
+export type AllocateSession = (cwd: string, backend?: AgentBackend) => Promise<{
   id: string;
   cwd: string;
   filePath: string;
 }>;
 
 export type SessionBroker = {
-  createSession: (cwd: string) => Promise<SessionSummary>;
-  listSessions: (cwd: string) => Promise<SessionSummary[]>;
+  createSession: (cwd: string, backend?: AgentBackend) => Promise<SessionSummary>;
+  listSessions: (
+    cwd: string,
+    backend?: AgentBackend,
+  ) => Promise<SessionSummary[]>;
   openSession: (
     sessionId: string,
     cwd: string,
     filePath?: string,
+    backend?: AgentBackend,
   ) => Promise<SessionSummary | null>;
   closeSession: (sessionId: string) => Promise<void>;
   send: (sessionId: string, command: AgentCommand) => Promise<unknown>;
@@ -153,9 +149,15 @@ export type SessionBroker = {
   restartWorker: (sessionId: string) => Promise<void>;
   /** Restart live workers for a workspace so settings / init snapshot reloads. */
   restartWorkersForCwd: (cwd: string) => Promise<void>;
+  /** 重启某一后端的存活 worker（OMP 设置保存后需要重新读配置）。 */
+  restartWorkersForBackend: (backend: AgentBackend) => Promise<void>;
   /** 回收所有存活 worker，使下次启动读取新的环境变量（如代理变更）。 */
   recycleWorkers: () => void;
-  deleteSession: (sessionId: string, cwd: string) => Promise<void>;
+  deleteSession: (
+    sessionId: string,
+    cwd: string,
+    backend?: AgentBackend,
+  ) => Promise<void>;
   /** 关掉某工作区下的会话 worker（只断连接，不删会话文件）。 */
   stopWorkspaceSessions: (cwd: string) => Promise<void>;
   /**
@@ -164,8 +166,12 @@ export type SessionBroker = {
    */
   purgeWorkspace: (cwd: string) => Promise<void>;
   /** Wipe chat history for a session (disk + live worker) while keeping the same session id. */
-  clearContext: (sessionId: string, cwd: string) => Promise<void>;
-  notifyWorkersReloadModels: () => Promise<void>;
+  clearContext: (
+    sessionId: string,
+    cwd: string,
+    backend?: AgentBackend,
+  ) => Promise<void>;
+  notifyWorkersReloadModels: (backend?: AgentBackend) => Promise<void>;
   /** Hot-reload the streaming render switch into live workers (no restart). */
   notifyWorkersReloadStreamRender: (
     streamRender: StreamRenderSettings,
@@ -199,6 +205,7 @@ export type SessionBroker = {
 
 type SessionRecord = {
   cwd: string;
+  backend: AgentBackend;
   summary: SessionSummary;
   worker: WorkerHandle | null;
   /** In-flight spawn (prewarm or cold start) — dedupes concurrent spawns. */
@@ -229,6 +236,8 @@ type SessionRecord = {
 
 export function createSessionBroker(deps: {
   spawnWorker: SpawnWorker;
+  /** 额外引擎的运行时（omp）；pi 未列时用上面的 spawnWorker 组装。 */
+  backends?: Partial<Record<AgentBackend, BackendRuntime>>;
   /** Override for tests — default writes a Pi session jsonl without spawning a worker. */
   allocateSession?: AllocateSession;
   idleDestroyMs?: number;
@@ -238,8 +247,21 @@ export function createSessionBroker(deps: {
   hasActiveRuns?: (sessionId: string) => boolean;
 }): SessionBroker {
   const idleDestroyMs = deps.idleDestroyMs ?? IDLE_WORKER_DESTROY_MS;
-  const allocateSession =
-    deps.allocateSession ?? (async (cwd: string) => allocateSessionOnDisk(cwd));
+
+  function runtimeOf(backend: AgentBackend): BackendRuntime | null {
+    return deps.backends?.[backend] ?? null;
+  }
+
+  function spawnerFor(backend: AgentBackend): SpawnWorker {
+    return runtimeOf(backend)?.spawnWorker ?? deps.spawnWorker;
+  }
+
+  const allocateSession: AllocateSession =
+    deps.allocateSession ??
+    (async (cwd, backend = "pi") => {
+      const runtime = runtimeOf(backend);
+      return runtime ? runtime.allocate(cwd) : allocateSessionOnDisk(cwd);
+    });
   const sessions = new Map<string, SessionRecord>();
   const listeners = new Set<(event: AgentEvent) => void>();
 
@@ -464,7 +486,7 @@ export function createSessionBroker(deps: {
     rec: SessionRecord,
   ): Promise<void> {
     const filePath = rec.summary.filePath || undefined;
-    const spawned = await deps.spawnWorker(rec.cwd, filePath);
+    const spawned = await spawnerFor(rec.backend)(rec.cwd, filePath);
     if (spawned.id !== sessionId) {
       spawned.worker.kill();
       throw new Error(
@@ -743,6 +765,7 @@ export function createSessionBroker(deps: {
     id: string,
     cwd: string,
     filePath: string,
+    backend: AgentBackend,
     meta?: Partial<Pick<SessionSummary, "name" | "firstMessage" | "modified" | "created">>,
   ): SessionSummary {
     const existing = sessions.get(id);
@@ -753,6 +776,7 @@ export function createSessionBroker(deps: {
       id,
       cwd,
       filePath,
+      backend,
       name: meta?.name ?? previous?.name,
       firstMessage: meta?.firstMessage ?? previous?.firstMessage,
       modified,
@@ -761,6 +785,7 @@ export function createSessionBroker(deps: {
     };
     if (existing) {
       existing.cwd = cwd;
+      existing.backend = backend;
       existing.summary = {
         ...summary,
         status: existing.worker ? (previous?.status ?? "idle") : "idle",
@@ -769,6 +794,7 @@ export function createSessionBroker(deps: {
     }
     sessions.set(id, {
       cwd,
+      backend,
       summary,
       worker: null,
       workerPromise: null,
@@ -785,27 +811,37 @@ export function createSessionBroker(deps: {
     return { ...summary };
   }
 
-  async function createSession(cwd: string): Promise<SessionSummary> {
+  async function createSession(
+    cwd: string,
+    backend: AgentBackend = "pi",
+  ): Promise<SessionSummary> {
     // 草稿预热：落盘后立即后台启动 worker，首条消息不必再等冷启动。
-    const allocated = await allocateSession(cwd);
+    const allocated = await allocateSession(cwd, backend);
     const summary = registerSessionShell(
       allocated.id,
       allocated.cwd,
       allocated.filePath,
+      backend,
     );
     prewarmWorker(summary.id);
     return summary;
   }
 
-  async function listSessions(cwd: string): Promise<SessionSummary[]> {
+  async function listSessions(
+    cwd: string,
+    backend: AgentBackend = "pi",
+  ): Promise<SessionSummary[]> {
     markStartup("main:sessions-list-start");
-    const disk = await listSessionsForCwd(cwd);
+    const disk = await listSessionsForCwd(cwd, backend);
     markStartup("main:sessions-list-disk-done");
     const merged = new Map<string, SessionSummary>();
     for (const row of disk) {
       merged.set(row.id, { ...row });
     }
     for (const rec of sessions.values()) {
+      if (rec.backend !== backend) {
+        continue;
+      }
       if (path.resolve(rec.cwd) !== path.resolve(cwd)) {
         continue;
       }
@@ -912,6 +948,7 @@ export function createSessionBroker(deps: {
     sessionId: string,
     cwd: string,
     filePath?: string,
+    backend: AgentBackend = "pi",
   ): Promise<SessionSummary | null> {
     const live = sessions.get(sessionId);
     if (live) {
@@ -919,7 +956,7 @@ export function createSessionBroker(deps: {
       // `openSession` is awaited by the renderer before flipping the active
       // session, so a synchronous disk scan here made every switch janky.
       void (async () => {
-        const disk = await listSessionsForCwd(cwd);
+        const disk = await listSessionsForCwd(cwd, live.backend);
         const target = disk.find((s) => s.id === sessionId);
         if (target) {
           if (target.name?.trim()) live.summary.name = target.name;
@@ -943,11 +980,13 @@ export function createSessionBroker(deps: {
       } catch {
         modified = undefined;
       }
-      const summary = registerSessionShell(sessionId, cwd, hinted, { modified });
+      const summary = registerSessionShell(sessionId, cwd, hinted, backend, {
+        modified,
+      });
       prewarmWorker(summary.id);
       return summary;
     }
-    const disk = await listSessionsForCwd(cwd);
+    const disk = await listSessionsForCwd(cwd, backend);
     const target = disk.find((s) => s.id === sessionId);
     if (!target?.filePath) {
       return null;
@@ -959,11 +998,17 @@ export function createSessionBroker(deps: {
     }
     // Register shell, then warm the Pi agent worker in the background so the
     // first prompt after switching is fast (no cold-start stall on send).
-    const summary = registerSessionShell(target.id, cwd, target.filePath, {
-      name: target.name,
-      firstMessage: target.firstMessage,
-      modified: target.modified,
-    });
+    const summary = registerSessionShell(
+      target.id,
+      cwd,
+      target.filePath,
+      backend,
+      {
+        name: target.name,
+        firstMessage: target.firstMessage,
+        modified: target.modified,
+      },
+    );
     prewarmWorker(summary.id);
     return summary;
   }
@@ -1221,11 +1266,26 @@ export function createSessionBroker(deps: {
     }
   }
 
-  async function deleteSession(sessionId: string, cwd: string): Promise<void> {
+  async function restartWorkersForBackend(
+    backend: AgentBackend,
+  ): Promise<void> {
+    const ids = [...sessions.entries()]
+      .filter(([, rec]) => rec.backend === backend && rec.worker !== null)
+      .map(([id]) => id);
+    for (const id of ids) {
+      await restartWorker(id);
+    }
+  }
+
+  async function deleteSession(
+    sessionId: string,
+    cwd: string,
+    backend: AgentBackend = "pi",
+  ): Promise<void> {
     const rec = sessions.get(sessionId);
     let filePath = rec?.summary.filePath;
     if (!filePath) {
-      const disk = await listSessionsForCwd(cwd);
+      const disk = await listSessionsForCwd(cwd, rec?.backend ?? backend);
       filePath = disk.find((s) => s.id === sessionId)?.filePath;
     }
     // Disconnect agent first, then remove registry + disk record.
@@ -1262,9 +1322,13 @@ export function createSessionBroker(deps: {
     await purgeWorkspaceSessionDir(resolved);
   }
 
-  async function clearContext(sessionId: string, cwd: string): Promise<void> {
+  async function clearContext(
+    sessionId: string,
+    cwd: string,
+    backend: AgentBackend = "pi",
+  ): Promise<void> {
     const live = sessions.get(sessionId);
-    const disk = await listSessionsForCwd(cwd);
+    const disk = await listSessionsForCwd(cwd, live?.backend ?? backend);
     const target = disk.find((s) => s.id === sessionId);
     const filePath = (live?.summary.filePath || target?.filePath || "").trim();
     if (!filePath) {
@@ -1288,15 +1352,20 @@ export function createSessionBroker(deps: {
     return () => listeners.delete(cb);
   }
 
-  async function notifyWorkersReloadModels(): Promise<void> {
-    // AuthStorage caches auth.json in memory at worker start. ModelRuntime.refresh()
-    // does not call AuthStorage.reload(), so a live worker keeps empty credentials
-    // after the main process writes a new API key — until restart (matches issue #2).
-    const ids = [...sessions.entries()]
-      .filter(([, rec]) => rec.worker !== null)
-      .map(([id]) => id);
-    for (const id of ids) {
-      await restartWorker(id);
+  async function notifyWorkersReloadModels(
+    backend?: AgentBackend,
+  ): Promise<void> {
+    const targets = [...sessions.entries()].filter(
+      ([, rec]) =>
+        rec.worker !== null && (backend === undefined || rec.backend === backend),
+    );
+    for (const [id, rec] of targets) {
+      // AuthStorage 缓存 auth.json，pi 需要重建进程；omp 的 worker 支持热刷新。
+      if (rec.backend === "omp") {
+        await sendRawIfAlive(id, { kind: "reload_models" });
+      } else {
+        await restartWorker(id);
+      }
     }
   }
 
@@ -1347,6 +1416,7 @@ export function createSessionBroker(deps: {
     killWorker,
     restartWorker,
     restartWorkersForCwd,
+    restartWorkersForBackend,
     recycleWorkers,
     deleteSession,
     stopWorkspaceSessions,

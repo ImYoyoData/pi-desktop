@@ -108,6 +108,11 @@ extraResources:
     to: resources/
     filter:
       - "**/*"
+  # OMP 后端：bun --compile 产出的独立 worker（自带运行时与 SDK）
+  - from: build/omp
+    to: omp
+    filter:
+      - "**/*"
   # SDK 按 PI_PACKAGE_DIR 解析 docs/README/examples；这些 .md 被 asar 的
   # "!**/*.{md,map}" 排除，1.0.0 的 codemode 提示词会引导模型读取文档。
   - from: node_modules/@earendil-works/pi-coding-agent
