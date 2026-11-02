@@ -15,7 +15,7 @@ const SHELL_WORKDIR_GUIDELINE =
 	"Every shell call already starts in the session working directory (the <cwd> value); changing directory inside one call does not carry to the next. Do not prefix commands with `cd <project path>`, `Set-Location <project path>`, or `git -C <project path>`; use relative paths.";
 
 const GREP_IGNORE_NOTICE =
-	"grep skips .gitignore'd paths (node_modules, out, build, release). An explicit `path` does not override the ignore rules: use shell `rg --no-ignore` for those.";
+	"grep skips .gitignore'd paths (node_modules, out, build, release) even when `path` points at them. Only those directories need `rg --no-ignore` through the shell; every normal search stays on this tool.";
 
 function preferenceGuidelines(declared: readonly string[]): string[] {
 	const has = (name: string) => declared.includes(name);
@@ -24,20 +24,20 @@ function preferenceGuidelines(declared: readonly string[]): string[] {
 	if (shell) {
 		rules.push(
 			has("grep")
-				? `Reserve ${shell} for builds, tests, git, post-processing pipelines (sort/uniq/xargs), and other CLIs.`
+				? `Reserve ${shell} for builds, tests, git, post-processing pipelines (sort/uniq/xargs), and other CLIs. Searching file contents, reading files, and listing directories belong to grep / read / ls.`
 				: `${shell} handles builds, tests, git, content search, post-processing pipelines (sort/uniq/xargs), and other CLIs.`,
 			SHELL_WORKDIR_GUIDELINE,
 		);
 	}
 	if (has("grep")) {
 		rules.push(
-			"Search file contents with `grep` instead of shelling out to grep/rg: write alternatives as one regex `(a|b|c)`; `context` covers -A/-B, `limit` covers `| head`, `glob` covers --include, `literal` covers -F.",
+			"Search file contents with `grep` instead of shelling out to grep/rg/git grep: it takes pattern, path, glob, ignoreCase, literal, context and limit. Do not pipe to head or redirect stderr — it caps matches and reports truncation itself.",
 			GREP_IGNORE_NOTICE,
 		);
 	} else if (shell) {
 		rules.push(`Search file contents with ${shell} \`rg\`; no grep tool is active.`);
 	}
-	if (has("find")) rules.push("Locate files with `find` instead of shell find/dir.");
+	if (has("find")) rules.push("Locate files with `find` (glob + path) instead of shell find/dir.");
 	if (has("ls")) rules.push("List a directory with `ls` instead of shell ls.");
 	if (has("read")) rules.push("Read file contents with `read` instead of shell cat/head/tail/sed/awk.");
 	return rules;
