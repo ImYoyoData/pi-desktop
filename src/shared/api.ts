@@ -336,14 +336,13 @@ export function createApi(
 				IpcChannels.workspace.setArchivedSessions,
 				ids,
 			) as Promise<string[]>,
-		listBackends: () =>
-			ipcRenderer.invoke(IpcChannels.workspace.listBackends) as Promise<
-				Record<string, AgentBackend>
+		getBackend: () =>
+			ipcRenderer.invoke(IpcChannels.workspace.getBackend) as Promise<
+				AgentBackend
 			>,
-		setBackend: (root: string, backend: AgentBackend) =>
+		setBackend: (backend: AgentBackend) =>
 			ipcRenderer.invoke(
 				IpcChannels.workspace.setBackend,
-				root,
 				backend,
 			) as Promise<AgentBackend>,
 		revealInFolder: (root: string) =>

@@ -10,7 +10,7 @@ import type {
 } from "../../../shared/protocol";
 import { toIpcPlain } from "../../../shared/protocol";
 import { agentBackendOf, type AgentBackend } from "../../../shared/agent-backend";
-import { workspaceBackend } from "@renderer/utils/workspace-backend";
+import { currentBackend } from "@renderer/utils/current-backend";
 import { isUnstartedSession } from "@renderer/utils/session-started";
 import { useComposerStore } from "./composer";
 import { useWorkspaceStore } from "./workspace";
@@ -353,10 +353,10 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
     }
   }
 
-  /** 会话自己记录的引擎优先：切了工作区引擎后，旧会话仍属于它原来的后端。 */
-  function backendOfSession(sessionId: string, cwd: string): AgentBackend {
+  /** 会话自己记录的引擎优先：切了全局引擎后，旧会话仍属于它原来的后端。 */
+  function backendOfSession(sessionId: string): AgentBackend {
     const row = get().sessions.find((s) => s.id === sessionId);
-    return agentBackendOf(row?.backend ?? workspaceBackend(cwd));
+    return agentBackendOf(row?.backend ?? currentBackend());
   }
 
   /**
@@ -379,7 +379,7 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
     }
     if (get().draftRoot && get().draftRoot !== cwd) commit({ draftRoot: null });
     // 预热草稿与崩溃残留的空会话不上侧栏；活动会话始终保留。
-    const rows = await window.api.sessions.list(cwd, workspaceBackend(cwd));
+    const rows = await window.api.sessions.list(cwd, currentBackend());
     const activeId = get().activeId;
     const kept = rows.filter(
       (row) => row.id === activeId || !isUnstartedSession(row),
@@ -437,7 +437,7 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
     if (preparedDraft && sameWorkspacePath(preparedDraft.cwd, cwd)) return;
     await releasePreparedDraft();
     try {
-      const created = await window.api.sessions.create(cwd, workspaceBackend(cwd));
+      const created = await window.api.sessions.create(cwd, currentBackend());
       preparedDraft = { cwd, summary: created };
     } catch {
       // 预热失败时仍走发送时建会话的老路
@@ -480,7 +480,7 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
     if (!prepared) await releasePreparedDraft();
     const created =
       prepared?.summary ??
-      (await window.api.sessions.create(cwd, workspaceBackend(cwd)));
+      (await window.api.sessions.create(cwd, currentBackend()));
     preparedDraft = null;
     upsert(created);
     commit({ activeId: created.id, draftRoot: null });
@@ -504,7 +504,7 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
       sessionId,
       cwd,
       knownFilePath || undefined,
-      backendOfSession(sessionId, cwd),
+      backendOfSession(sessionId),
     );
     if (!opened) {
       throw new Error(`failed to open session: ${sessionId}`);
@@ -607,7 +607,7 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
     await window.api.sessions.delete(
       sessionId,
       cwd,
-      backendOfSession(sessionId, cwd),
+      backendOfSession(sessionId),
     );
     dropSessionState(sessionId);
   }
@@ -637,7 +637,7 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
       sessionId,
       cwd,
       trimmed,
-      backendOfSession(sessionId, cwd),
+      backendOfSession(sessionId),
     );
     if (updated) upsert({ ...updated, name: updated.name?.trim() || trimmed });
     return updated;
