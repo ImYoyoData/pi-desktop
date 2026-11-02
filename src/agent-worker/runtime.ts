@@ -71,14 +71,12 @@ import {
 	detectCommandShell,
 } from "./command-shell";
 import { createBrowserToolDefinitions } from "./browser-tools";
-import {
-	readContextUsage,
-	SessionTimingTracker,
-	type SessionTiming,
-} from "./context-usage";
+import { readContextUsage } from "./context-usage";
 import {
 	parseSessionTiming,
 	sessionTimingPath,
+	SessionTimingTracker,
+	type SessionTiming,
 } from "../shared/session-timing";
 import {
 	createDesktopExtensionUIContext,

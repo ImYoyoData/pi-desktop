@@ -1,8 +1,14 @@
+import { readFileSync, writeFileSync } from "node:fs";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent";
 import type {
 	ContextUsageSegment,
 	SessionContextUsage,
 } from "../shared/protocol";
+import {
+	parseSessionTiming,
+	sessionTimingPath,
+	SessionTimingTracker,
+} from "../shared/session-timing";
 import { post } from "./transport";
 
 /**
@@ -40,6 +46,43 @@ function num(value: unknown): number | null {
 	return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+const timingTracker = new SessionTimingTracker();
+let lastPersistedTimingJson = "";
+
+/** 打开会话时恢复计时，否则重启后时长/首 token/平均都从零开始。 */
+export function restoreOmpTiming(sessionFile: string | undefined): void {
+	timingTracker.reset();
+	lastPersistedTimingJson = "";
+	if (!sessionFile) return;
+	try {
+		const timing = parseSessionTiming(
+			JSON.parse(readFileSync(sessionTimingPath(sessionFile), "utf8")),
+		);
+		if (!timing) return;
+		timingTracker.restore(timing);
+		lastPersistedTimingJson = JSON.stringify(timing);
+	} catch {
+		// 没有计时文件就是新会话。
+	}
+}
+
+/** 事件流喂给计时器，上下文用量上报时一起打包。 */
+export function observeOmpTiming(event: unknown): void {
+	timingTracker.observe(event);
+}
+
+function persistOmpTiming(sessionFile: string | undefined): void {
+	if (!sessionFile) return;
+	try {
+		const json = JSON.stringify(timingTracker.snapshot());
+		if (json === lastPersistedTimingJson) return;
+		writeFileSync(sessionTimingPath(sessionFile), json, "utf8");
+		lastPersistedTimingJson = json;
+	} catch {
+		// 计时只用于展示，写盘失败不影响会话。
+	}
+}
+
 /** 读取当前会话的上下文用量；拿不到时返回 null。 */
 export function readOmpContextUsage(
 	active: AgentSession,
@@ -64,6 +107,8 @@ export function readOmpContextUsage(
 	try {
 		const stats = active.getSessionStats();
 		result.toolCalls = num(stats.toolCalls) ?? null;
+		result.turns = num(stats.userMessages) ?? null;
+		result.steps = num(stats.assistantMessages) ?? null;
 		result.messageCount = num(stats.totalMessages) ?? null;
 		result.inputTokens = num(stats.tokens?.input) ?? null;
 		result.outputTokens = num(stats.tokens?.output) ?? null;
@@ -89,6 +134,13 @@ export function readOmpContextUsage(
 		// 分段不可用时用量条只显示总量。
 	}
 
+	const timing = timingTracker.snapshot();
+	result.llmDurationMs = timing.llmMs > 0 ? timing.llmMs : null;
+	result.ttftMs = timing.ttftSteps > 0 ? timing.ttftMs / timing.ttftSteps : null;
+	result.ttftSteps = timing.ttftSteps > 0 ? timing.ttftSteps : null;
+	result.tokensPerSecond =
+		timing.decodeMs > 0 ? timing.outputTokens / (timing.decodeMs / 1000) : null;
+
 	return result;
 }
 
@@ -106,6 +158,7 @@ export const CONTEXT_USAGE_EVENT_TYPES = new Set([
 export function emitContextUsage(active: AgentSession): void {
 	const usage = readOmpContextUsage(active);
 	if (!usage) return;
+	persistOmpTiming(active.sessionFile);
 	const model = active.model;
 	post({
 		kind: "event",
@@ -118,11 +171,17 @@ export function emitContextUsage(active: AgentSession): void {
 			thinkingLevel: usage.thinkingLevel ?? null,
 			toolCalls: usage.toolCalls ?? null,
 			messageCount: usage.messageCount ?? null,
+			turns: usage.turns ?? null,
+			steps: usage.steps ?? null,
 			inputTokens: usage.inputTokens ?? null,
 			outputTokens: usage.outputTokens ?? null,
 			cacheReadTokens: usage.cacheReadTokens ?? null,
 			cacheWriteTokens: usage.cacheWriteTokens ?? null,
 			costUsd: usage.costUsd ?? null,
+			llmDurationMs: usage.llmDurationMs ?? null,
+			ttftMs: usage.ttftMs ?? null,
+			ttftSteps: usage.ttftSteps ?? null,
+			tokensPerSecond: usage.tokensPerSecond ?? null,
 			segments: usage.segments ?? null,
 		},
 	});
