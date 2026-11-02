@@ -126,7 +126,7 @@ const SECTION_IDS = [
 const LIST_KINDS = ["skills", "instructions", "mcp", "plugins"] as const;
 type ListKind = (typeof LIST_KINDS)[number];
 
-/** OMP 左栏里「模型与供应商」的 id；其余分类直接用 omp 的 tab id。 */
+/** OMP 左栏里「模型」的 id；其余分类直接用 omp 的 tab id。 */
 const OMP_MODELS_SECTION = "omp-models";
 
 /** OMP 的资源分类：id 为 omp-<kind>，内容页按 kind 渲染。 */
