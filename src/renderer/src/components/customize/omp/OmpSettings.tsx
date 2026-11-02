@@ -1,5 +1,12 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Button, Input, InputNumber, Select, Spin } from "antd";
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useState,
+	type ReactNode,
+} from "react";
+import { Input, InputNumber, Select, Spin } from "antd";
+import { createOmpSettingsWriter } from "@renderer/utils/omp-settings-writer";
 import {
 	SettingsGroup,
 	SettingsRow,
@@ -135,7 +142,12 @@ function Control({
 	);
 }
 
-/** 一个 omp 设置 tab：按 omp 自己的 group 分卡片，只写用户改过的字段。 */
+/**
+ * 一个 omp 设置 tab：按 omp 自己的 group 分卡片。
+ *
+ * 改动即写入 omp 的 config.yml（防抖合并），不再需要保存按钮；
+ * 写入失败时提示并回到磁盘上的真实值。
+ */
 export function OmpSettings({ tab }: { tab: string }): ReactNode {
 	const t = useI18n();
 	const locale = useUiLocale();
@@ -144,29 +156,38 @@ export function OmpSettings({ tab }: { tab: string }): ReactNode {
 	const lead = ompTabLead(locale, tab) ?? meta?.lead ?? "";
 	const entries = useMemo(() => ompSettingsForTab(tab), [tab]);
 	const [snapshot, setSnapshot] = useState<OmpSettingsSnapshot | null>(null);
-	const [patch, setPatch] = useState<Record<string, unknown>>({});
-	const [saving, setSaving] = useState(false);
+	const [values, setValues] = useState<Record<string, unknown>>({});
 	const [query, setQuery] = useState("");
 
-	useEffect(() => {
-		void (async () => {
-			try {
-				setSnapshot(await window.api.ompSettings.get());
-			} catch (err) {
-				message.error(err instanceof Error ? err.message : String(err));
-			}
-		})();
-	}, [message]);
+	const load = useCallback(async (): Promise<void> => {
+		const next = await window.api.ompSettings.get();
+		setSnapshot(next);
+		setValues(next.values);
+	}, []);
 
-	const values = snapshot?.values ?? {};
-	const merged = useMemo(() => {
-		const next: Record<string, unknown> = { ...values };
-		for (const [id, value] of Object.entries(patch)) {
-			if (value === null) delete next[id];
-			else next[id] = value;
-		}
-		return next;
-	}, [values, patch]);
+	useEffect(() => {
+		void load().catch((err: unknown) => {
+			message.error(err instanceof Error ? err.message : String(err));
+		});
+	}, [load, message]);
+
+	const writer = useMemo(
+		() =>
+			createOmpSettingsWriter(
+				(patch) => window.api.ompSettings.save(patch),
+				(err) => {
+					message.error(err instanceof Error ? err.message : String(err));
+					// 写失败：回到磁盘上的真实状态，不留与磁盘不一致的界面。
+					void load().catch(() => {
+						// 读也失败时只能保留当前界面值。
+					});
+				},
+			),
+		[load, message],
+	);
+
+	// 切 tab 或卸载前把未写入的改动落盘。
+	useEffect(() => () => writer.flush(), [writer]);
 
 	const needle = query.trim().toLowerCase();
 	const groups = useMemo(() => {
@@ -174,7 +195,7 @@ export function OmpSettings({ tab }: { tab: string }): ReactNode {
 		const order = meta?.groups ?? [];
 		for (const entry of entries) {
 			// 条件不满足的项不显示：桌面端按 omp 同样的依据判定。
-			if (!ompSettingVisible(entry, merged)) continue;
+			if (!ompSettingVisible(entry, values)) continue;
 			if (
 				needle &&
 				!entry.id.toLowerCase().includes(needle) &&
@@ -195,31 +216,21 @@ export function OmpSettings({ tab }: { tab: string }): ReactNode {
 		return ungrouped.length
 			? [{ title: t.ompSettingsGeneral, rows: ungrouped }, ...titled]
 			: titled;
-	}, [entries, meta, merged, needle, t.ompSettingsGeneral]);
-
-	const dirty = Object.keys(patch).length > 0;
+	}, [entries, meta, values, needle, t.ompSettingsGeneral]);
 
 	function setValue(id: string, next: unknown): void {
-		setPatch((prev) => ({ ...prev, [id]: next }));
+		setValues((prev) => {
+			const draft = { ...prev };
+			if (next === null || next === undefined) delete draft[id];
+			else draft[id] = next;
+			return draft;
+		});
+		writer.queue({ [id]: next });
 	}
 
 	/** 恢复默认：删掉该键，让 omp 回到自身默认值。 */
 	function resetValue(entry: OmpSettingEntry): void {
 		setValue(entry.id, null);
-	}
-
-	async function save(): Promise<void> {
-		setSaving(true);
-		try {
-			const next = await window.api.ompSettings.save(patch);
-			setSnapshot(next);
-			setPatch({});
-			message.success(t.ompSaved);
-		} catch (err) {
-			message.error(err instanceof Error ? err.message : String(err));
-		} finally {
-			setSaving(false);
-		}
 	}
 
 	if (!snapshot) {
@@ -249,14 +260,6 @@ export function OmpSettings({ tab }: { tab: string }): ReactNode {
 						value={query}
 						onChange={(event) => setQuery(event.target.value)}
 					/>
-					<Button
-						type="primary"
-						loading={saving}
-						disabled={!dirty}
-						onClick={() => void save()}
-					>
-						{t.ompSave}
-					</Button>
 				</div>
 			</header>
 
@@ -276,10 +279,10 @@ export function OmpSettings({ tab }: { tab: string }): ReactNode {
 								entry.description,
 							);
 							const isSet = Object.prototype.hasOwnProperty.call(
-								merged,
+								values,
 								entry.id,
 							);
-							const value = ompEffectiveValue(entry, merged);
+							const value = ompEffectiveValue(entry, values);
 							return (
 								<SettingsRow
 									key={entry.id}
