@@ -739,6 +739,18 @@ html[data-theme]:not([data-wallpaper="on"]) .modal-editor-panel {
   --ant-modal-content-bg: var(--bg);
 }
 
+/*
+ * antd v6 的 message 列表内容盒是全宽且可命中的，提示显示期间会盖住标题栏按钮；
+ * 只让卡片本身接收点击。
+ */
+.ant-message .ant-message-list-content {
+  pointer-events: none;
+}
+
+.ant-message .ant-message-notice {
+  pointer-events: auto;
+}
+
 /* antd v6 的弹窗内容盒是 .ant-modal-container，v5 的 .ant-modal-content 已不存在 */
 .pi-settings-modal .ant-modal-container {
   border-radius: var(--radius-lg);
