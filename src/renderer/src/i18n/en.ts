@@ -1,3 +1,5 @@
+import type { DetailCountUnit, DetailFlag, DetailLabel } from "../utils/tool-detail-types";
+
 const TOOL_DESCRIPTIONS: Record<string, string> = {
 	read: "Read file contents",
 	write: "Create or overwrite files",
@@ -686,9 +688,21 @@ export const en = {
 	extensionUiYes: "Yes",
 	extensionUiNo: "No",
 	extensionUiCancel: "Cancel",
+	extensionUiBack: "Back",
 	extensionUiSubmit: "Submit",
 	extensionUiInputPlaceholder: "Type a value…",
 	extensionUiEditorPlaceholder: "Edit text…",
+	extensionUiExpand: "Expand request",
+	extensionUiCollapse: "Collapse request",
+	extensionUiReviewMode: "Review Mode",
+	extensionUiReviewBaseBranch: "1. Review against a base branch (PR Style)",
+	extensionUiReviewUncommitted: "2. Review uncommitted changes",
+	extensionUiReviewCommit: "3. Review a specific commit",
+	extensionUiReviewPr: "4. Review a specific PR/MR",
+	extensionUiReviewCustom: "5. Custom review instructions",
+	extensionUiReviewCustomTitle: "Enter custom review instructions",
+	extensionUiReviewBaseTitle: "Select base branch to compare against",
+	extensionUiReviewCommitTitle: "Select commit to review",
 	permissionToolLine: (toolName: string, category: string) =>
 		`${toolName} · ${category}`,
 	retrying: (attempt: number, max: number) => `Retrying ${attempt}/${max}…`,
@@ -974,6 +988,14 @@ export const en = {
 	notifySystem: "System notification",
 	notifySystemHint:
 		"Show an OS notification only when the window is in the background.",
+	notifyUpdateAutoCheck: "Automatically check for updates",
+	notifyUpdateAutoCheckHint:
+		"Check for a new version on startup and at the chosen interval, and alert in the title bar when one is available.",
+	notifyUpdateInterval: "Update check interval",
+	notifyUpdateIntervalHint:
+		"How often to check for new versions automatically while the toggle is on.",
+	notifyUpdateIntervalHours: (hours: number) =>
+		hours === 1 ? "1 hour" : `${hours} hours`,
 	notifyPreview: "Preview sound",
 	notifyPreviewPlayed: "Played completion sound",
 	notifyTurnCompleteBody: "Turn complete",
@@ -1335,7 +1357,6 @@ export const en = {
 	toolWaitCost: (cost: string) => `$${cost}`,
 	toolWaitContext: (used: string, total: string | null) =>
 		total ? `ctx ${used}/${total}` : `ctx ${used}`,
-	toolWaitResult: "Result",
 	agentTranscriptShow: "Show subagent conversation",
 	agentTranscriptHide: "Hide subagent conversation",
 	agentTranscriptCount: (n: number) => `${n} ${n === 1 ? "entry" : "entries"}`,
@@ -1343,16 +1364,68 @@ export const en = {
 	agentTranscriptLoading: "Loading conversation…",
 	agentTranscriptFailed: "Could not load the subagent conversation",
 	agentTranscriptRetry: "Retry",
-	agentTranscriptUser: "User",
-	agentTranscriptAssistant: "Assistant",
-	agentTranscriptThinking: "Thinking",
-	agentTranscriptError: "Failed",
 	toolBodyGrepMatches: (matches: number, files: number) =>
 		`${matches} ${matches === 1 ? "match" : "matches"} in ${files} ${files === 1 ? "file" : "files"}`,
 	toolBodyGrepNoMatches: "No matches",
 	toolBodyGrepIgnoreCase: "ignore case",
 	toolBodyGrepLiteral: "literal",
 	toolBodyGrepFileHits: (n: number) => `${n}`,
+	toolDetailCount: (unit: DetailCountUnit, n: number) => {
+		const labels: Record<DetailCountUnit, string> = {
+			matches: `${n} matches`,
+			files: `${n} files`,
+			searched: `${n} searched`,
+			replacements: `${n} replacements`,
+			findings: `${n} findings`,
+			items: `${n} items`,
+			agents: `${n} agents`,
+			sources: `${n} sources`,
+			questions: `${n} questions`,
+			tools: `${n} tools`,
+			bytes: `${n} bytes`,
+		};
+		return labels[unit];
+	},
+	toolDetailFlag: (flag: DetailFlag) => {
+		const labels: Record<DetailFlag, string> = {
+			applied: "applied",
+			preview: "preview",
+			limit: "limit reached",
+			ok: "ok",
+			failed: "failed",
+			cancelled: "cancelled",
+			timedOut: "timed out",
+			requested: "requested",
+			read: "read",
+			write: "write",
+			clear: "clear",
+			rewound: "rewound",
+			truncated: "truncated",
+			noMatches: "no matches",
+		};
+		return labels[flag];
+	},
+	toolDetailLabel: (label: DetailLabel) => {
+		const labels: Record<DetailLabel, string> = {
+			output: "Output",
+			code: "Code",
+			input: "Input",
+			paths: "Paths",
+			matches: "Matches",
+			sources: "Sources",
+			answer: "Answer",
+			questions: "Questions",
+			report: "Report",
+			notes: "Notes",
+			goal: "Goal",
+			memory: "Memory",
+			skill: "Skill",
+			result: "Result",
+			details: "Details",
+			tasks: "Tasks",
+		};
+		return labels[label];
+	},
 	toolNestedArgs: "Arguments",
 	toolNestedResult: "Result",
 	toolNestedError: "Error",
@@ -1416,6 +1489,7 @@ export const en = {
 	ompModelMaxTokens: "Max output",
 	ompModelReasoning: "Reasoning",
 	ompModelVision: "Images",
+	ompModelSettings: "Model settings",
 	ompSettingsGeneral: "General",
 	ompTabModel: "Config",
 	ompTabInteraction: "Interaction",

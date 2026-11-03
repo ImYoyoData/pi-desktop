@@ -81,6 +81,7 @@ export type ExtensionUiEvent =
 
 export type ExtensionUiReply =
   | { requestId: string; cancelled: true }
+  | { requestId: string; back: true }
   | { requestId: string; value: string }
   | { requestId: string; confirmed: boolean };
 

@@ -2,7 +2,6 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState,
   type ReactNode,
 } from "react";
 import { ToolDiffView } from "@renderer/components/ToolDiffView";
@@ -16,7 +15,6 @@ import {
 import FileChip from "@renderer/components/FileChip";
 import {
   readPreviewText,
-  clipText,
   type BashToolCard,
   type FileToolCard,
   type GenericToolCard,
@@ -27,11 +25,14 @@ import {
   type WaitJob,
   type WaitToolCard,
 } from "@renderer/utils/tool-diff";
+import { clipText } from "@renderer/utils/tool-args";
 import { formatTokenCount } from "@renderer/utils/agent-wait";
 import { sortWaitJobs, waitElapsedMs, waitJobCounts } from "@renderer/utils/tool-wait";
 import { formatDuration } from "@renderer/utils/format-duration";
 import { useNow } from "@renderer/utils/use-now";
 import WaitJobWidget from "@renderer/components/WaitJobWidget";
+import ToolDetailBody from "@renderer/components/ToolDetailBody";
+import { JsonTree } from "@renderer/components/ToolJsonTree";
 import SubagentTranscript from "@renderer/components/SubagentTranscript";
 import { grepOpenPath, type GrepLine } from "@renderer/utils/grep-card";
 import {
@@ -42,12 +43,7 @@ import {
   toolResultCount,
 } from "@renderer/utils/tool-family";
 
-import {
-  buildJsonTree,
-  defaultClosedNodeIds,
-  parseJsonPayload,
-  type JsonTreeNode,
-} from "@renderer/utils/json-tree";
+import { buildJsonTree, parseJsonPayload } from "@renderer/utils/json-tree";
 import {
   parseScriptReport,
   pathListFromOutput,
@@ -108,6 +104,8 @@ function renderToolBody({
       return <TodoBody card={card} />;
     case "wait":
       return <WaitBody card={card} streaming={streaming} />;
+    case "detail":
+      return <ToolDetailBody card={card} streaming={streaming} onOpen={onOpen} />;
     case "generic":
       return (
         <JsonBody
@@ -512,7 +510,7 @@ function WaitJobRow({
       ) : null}
       {widget ? <WaitJobWidget widget={widget} activity={activity} /> : null}
       {meta.length ? <div className={styles.waitJobMeta}>{meta.join(" · ")}</div> : null}
-      {!running && outcome ? (
+      {!running && outcome && job.type !== "task" ? (
         <div className={failed ? styles.waitJobError : styles.waitJobResult}>
           {firstOutputLine(outcome)}
         </div>
@@ -596,121 +594,11 @@ function WaitBody({
             {streaming ? t.toolWaitPending : (card.text ?? t.toolWaitEmpty)}
           </p>
         )}
-        {jobs.length && card.text ? (
-          <div className={styles.waitText}>
-            <div className={styles.waitTextHead}>{t.toolWaitResult}</div>
-            <pre className={styles.plain}>{card.text}</pre>
-          </div>
-        ) : null}
       </div>
     </>
   );
 }
 
-function jsonScalarClass(type: string): string {
-  if (type === "string") return styles.jsonStr;
-  if (type === "number") return styles.jsonNum;
-  if (type === "boolean") return styles.jsonBool;
-  return styles.jsonNull;
-}
-
-function jsonScalarText(value: string | number | boolean | null, type: string): string {
-  if (type === "string") {
-    const text = String(value);
-    return `"${text.length > 120 ? `${text.slice(0, 119)}…` : text}"`;
-  }
-  return String(value);
-}
-
-/** 树节点：容器可折叠，标量直接显示。 */
-function JsonNodeRow({
-  node,
-  closed,
-  onToggle,
-  guide,
-  isLast,
-}: {
-  node: JsonTreeNode;
-  closed: Set<string>;
-  onToggle: (id: string) => void;
-  guide: string;
-  isLast: boolean;
-}): ReactNode {
-  const t = useI18n();
-  const isContainer = node.children != null;
-  const open = isContainer && !closed.has(node.id);
-  const rowGuide = guide + (isLast ? "└─ " : "├─ ");
-  const childGuide = guide + (isLast ? "   " : "│  ");
-
-  if (!isContainer) {
-    return (
-      <div className={styles.jsonRow}>
-        <span className={styles.jsonChev} />
-        <span className={styles.jsonGuide}>{rowGuide}</span>
-        {node.key !== null ? <span className={styles.jsonKey}>{node.key}</span> : null}
-        <span className={styles.jsonPunct}>: </span>
-        <span className={`${jsonScalarClass(node.type)} ${styles.jsonValue}`}>
-          {jsonScalarText(node.value, node.type)}
-        </span>
-      </div>
-    );
-  }
-
-  const label =
-    node.type === "array" ? `[${node.children?.length ?? 0}]` : `{${node.children?.length ?? 0}}`;
-  return (
-    <>
-      <button
-        type="button"
-        className={`${styles.jsonRow} ${open ? styles.jsonOpen : ""}`}
-        aria-expanded={open}
-        onClick={() => onToggle(node.id)}
-      >
-        <span className={styles.jsonChev}>›</span>
-        <span className={styles.jsonGuide}>{rowGuide}</span>
-        {node.key !== null ? <span className={styles.jsonKey}>{node.key}</span> : null}
-        <span className={styles.jsonPunct}>: </span>
-        <span className={styles.jsonType}>{label}</span>
-        {node.truncated ? (
-          <span className={styles.jsonTruncated}>{t.toolBodyJsonTruncated}</span>
-        ) : null}
-      </button>
-      {open && node.children?.length
-        ? node.children.map((child, index) => (
-            <JsonNodeRow
-              key={child.id}
-              node={child}
-              closed={closed}
-              onToggle={onToggle}
-              guide={childGuide}
-              isLast={index === node.children!.length - 1}
-            />
-          ))
-        : null}
-    </>
-  );
-}
-
-function JsonTree({ tree }: { tree: JsonTreeNode }): ReactNode {
-  const [closed, setClosed] = useState<Set<string>>(() => defaultClosedNodeIds(tree));
-
-  function toggle(id: string): void {
-    setClosed((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  return (
-    <div className={styles.jsonTree}>
-      <JsonNodeRow node={tree} closed={closed} onToggle={toggle} guide="" isLast />
-    </div>
-  );
-}
-
-/** 路径清单条目：ls / find 的结果，带文件图标与目录标记。 */
 function PathList({ entries }: { entries: string[] }): ReactNode {
   return (
     <ul className={styles.pathList}>
@@ -831,21 +719,6 @@ function ScriptReportBody({ report }: { report: ScriptReport }): ReactNode {
         {report.error ? <div className={styles.scriptError}>{report.error}</div> : null}
       </div>
     </>
-  );
-}
-
-/** JSON 树：既用于 generic 工具结果，也用于嵌套调用的参数。 */
-export function ToolJsonTree({ value }: { value: unknown }): ReactNode {
-  const tree = useMemo(() => {
-    if (value == null || typeof value !== "object") return null;
-    return buildJsonTree(value);
-  }, [value]);
-  if (tree) return <JsonTree tree={tree} />;
-  if (value == null) return null;
-  return (
-    <pre className={styles.plain}>
-      {typeof value === "string" ? value : String(value)}
-    </pre>
   );
 }
 

@@ -8,26 +8,38 @@ import {
 } from "react";
 import { Button, Image } from "antd";
 import {
+  ArrowUndoOutline,
+  BookmarkOutline,
+  ChatbubbleEllipsesOutline,
   ChevronForwardOutline,
   CloseOutline,
   CodeSlashOutline,
   CreateOutline,
   DocumentTextOutline,
+  EarthOutline,
   EditPencilOutline,
   EllipsisHorizontalOutline,
   ExtensionPuzzleOutline,
   EyeOutline,
   FileTrayFullOutline,
+  FlagOutline,
   FolderOutline,
+  GitBranchOutline,
+  GitCompareOutline,
   GlobeOutline,
+  HardwareChipOutline,
   ListOutline,
+  PeopleOutline,
   SearchOutline,
+  SparklesOutline,
   SquareTerminalOutline,
   SyncOutline,
+  TerminalOutline,
   type IoniconProps,
 } from "@renderer/components/icons/ionicons";
 import type { ToolCard } from "@renderer/utils/tool-diff";
-import { clipText, toolCardDurationMs, toolCardExpandable } from "@renderer/utils/tool-diff";
+import { toolCardDurationMs, toolCardExpandable } from "@renderer/utils/tool-diff";
+import { clipText } from "@renderer/utils/tool-args";
 import type { ChatToolNestedCall } from "@renderer/stores/chat-reducer";
 import { isToolCardOpen } from "@renderer/utils/tool-card-open";
 import {
@@ -55,7 +67,6 @@ import {
 import { waitHeadline, waitElapsedMs, waitJobCounts } from "@renderer/utils/tool-wait";
 import { useNow } from "@renderer/utils/use-now";
 import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
-import { CODEMODE_TOOL_NAME } from "../../../shared/codemode-tool";
 import styles from "./ToolCallCard.module.css";
 
 type Props = {
@@ -124,6 +135,60 @@ function familyIconFor(family: ToolFamily): KindIconComponent | null {
       return FileTrayFullOutline;
     default:
       return null;
+  }
+}
+
+/** 详情卡按具体工具取图标：同一套卡片外壳，不同工具仍有自己的身份。 */
+function detailIconFor(tool: string): KindIconComponent {
+  switch (tool) {
+    case "ast_grep":
+      return SearchOutline;
+    case "ast_edit":
+    case "memory_edit":
+      return EditPencilOutline;
+    case "eval":
+    case "codemode":
+      return CodeSlashOutline;
+    case "task":
+    case "ask_user":
+      return PeopleOutline;
+    case "ask":
+      return ChatbubbleEllipsesOutline;
+    case "debug":
+    case "computer":
+      return TerminalOutline;
+    case "ida":
+      return HardwareChipOutline;
+    case "github":
+      return GitBranchOutline;
+    case "lsp":
+      return GitCompareOutline;
+    case "checkpoint":
+      return BookmarkOutline;
+    case "rewind":
+      return ArrowUndoOutline;
+    case "context_notes":
+      return DocumentTextOutline;
+    case "new_context":
+      return CreateOutline;
+    case "security_scan":
+      return FlagOutline;
+    case "web_search":
+      return EarthOutline;
+    case "retain":
+    case "recall":
+    case "reflect":
+    case "learn":
+      return SparklesOutline;
+    case "manage_skill":
+      return ExtensionPuzzleOutline;
+    case "tool_search":
+      return SearchOutline;
+    default:
+      if (tool.startsWith("browser_")) return GlobeOutline;
+      if (tool.startsWith("mcp__")) return ExtensionPuzzleOutline;
+      if (tool === "find" || tool === "glob" || tool === "ls") return FileTrayFullOutline;
+      return DocumentTextOutline;
   }
 }
 
@@ -199,9 +264,8 @@ export function ToolCallCard({
 
   /** 内部调用数量（codemode 脚本里发出的工具调用）。 */
   const callCount = nestedCalls?.length ?? 0;
-  /** codemode 用调用概况当标题，脚本首行代码不作标题。 */
-  const showCallCount =
-    card.kind === "generic" && (toolName === CODEMODE_TOOL_NAME || callCount > 0);
+  /** codemode 有内部调用时用调用概况当标题，脚本首行代码不作标题。 */
+  const showCallCount = callCount > 0;
 
   /** 只有还在跑的命令才有可操作对象：已结束的卡片不能绑到同名的新 run。 */
   const command = card.kind === "bash" ? (card.command?.trim() ?? "") : "";
@@ -242,7 +306,8 @@ export function ToolCallCard({
       current.kind === "grep" ||
       current.kind === "generic" ||
       current.kind === "todo" ||
-      current.kind === "wait"
+      current.kind === "wait" ||
+      current.kind === "detail"
     ) {
       return null;
     }
@@ -378,6 +443,23 @@ export function ToolCallCard({
           parts.push(t.toolWaitElapsed(formatDuration(elapsed)));
         }
       }
+    } else if (card.kind === "detail") {
+      if (statusType === "error") {
+        const line = firstLine(card.sections.find((section) => section.kind === "text")?.text ?? null);
+        if (line) parts.push(line);
+      } else {
+        for (const chip of card.chips.slice(0, 3)) {
+          parts.push(
+            chip.kind === "text"
+              ? chip.text
+              : t.toolDetailCount(chip.unit, chip.value),
+          );
+        }
+        for (const flag of card.flags.slice(0, 3)) {
+          if (flag === "ok" && statusType === "success") continue;
+          parts.push(t.toolDetailFlag(flag));
+        }
+      }
     } else if (card.kind === "generic") {
       if (statusType === "error") {
         const line = firstLine(card.preview);
@@ -410,6 +492,7 @@ export function ToolCallCard({
       return waitHeadline(card.jobs, t, Boolean(streaming));
     }
     if (card.kind === "generic") return card.summary || "";
+    if (card.kind === "detail") return card.target || card.summary || "";
     if (card.kind === "todo") {
       if (todoAction) return todoAction;
       if (card.total != null) {
@@ -463,7 +546,12 @@ export function ToolCallCard({
   }
 
   const cardImages = useMemo<string[]>(
-    () => (card.kind === "generic" ? card.images : []),
+    () =>
+      card.kind === "generic"
+        ? card.images
+        : card.kind === "detail"
+          ? card.images
+          : [],
     [card],
   );
 
@@ -472,7 +560,8 @@ export function ToolCallCard({
     card.kind === "grep" ||
     card.kind === "generic" ||
     card.kind === "todo" ||
-    card.kind === "wait"
+    card.kind === "wait" ||
+    card.kind === "detail"
       ? undefined
       : (card.path ?? undefined);
 
@@ -505,9 +594,11 @@ export function ToolCallCard({
       ? CloseOutline
       : spinning
         ? SyncOutline
-        : isDirList
-          ? FolderOutline
-          : (FamilyIcon ?? KindIcon);
+        : card.kind === "detail"
+          ? detailIconFor(card.tool)
+          : isDirList
+            ? FolderOutline
+            : (FamilyIcon ?? KindIcon);
   const iconClass = `${styles.kindIcon} ${iconTone}${spinning ? ` ${styles.spinIcon}` : ""}`;
   const stepIconClass = `${styles.stepIcon} ${iconTone}${spinning ? ` ${styles.spinIcon}` : ""}`;
 
@@ -554,6 +645,9 @@ export function ToolCallCard({
     if (card.kind === "grep" && card.pattern) {
       return <code className={styles.stepCmd}>{card.pattern}</code>;
     }
+    if (card.kind === "detail" && card.target) {
+      return <span className={styles.stepText}>{card.target}</span>;
+    }
     if (genericSummary.target) {
       if (genericSummary.isDir) {
         return <FileChip path={genericSummary.target} label={genericSummary.target} dir />;
@@ -568,7 +662,14 @@ export function ToolCallCard({
 
   /** 摘要只做次要位；目标已经用它兜底时不再重复。 */
   const stepPreview =
-    card.kind === "grep"
+    card.kind === "detail"
+      ? (card.summary ??
+        (card.chips[0]?.kind === "text"
+          ? card.chips[0].text
+          : card.chips[0]
+            ? t.toolDetailCount(card.chips[0].unit, card.chips[0].value)
+            : null))
+      : card.kind === "grep"
       ? card.matchCount
         ? t.toolBodyGrepMatches(card.matchCount, card.hits.length)
         : card.noMatches

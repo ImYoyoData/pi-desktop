@@ -35,6 +35,7 @@ function asReply(raw: unknown): ExtensionUiReply {
 	const row = raw as Record<string, unknown>;
 	const requestId = typeof row.requestId === "string" ? row.requestId : "";
 	if (row.cancelled === true) return { requestId, cancelled: true };
+	if (row.back === true) return { requestId, back: true };
 	if (typeof row.confirmed === "boolean") {
 		return { requestId, confirmed: row.confirmed };
 	}
@@ -42,6 +43,14 @@ function asReply(raw: unknown): ExtensionUiReply {
 		return { requestId, value: row.value };
 	}
 	return { requestId, cancelled: true };
+}
+
+let rewindRequested = false;
+
+export function takeExtensionUiRewind(): boolean {
+	const requested = rewindRequested;
+	rewindRequested = false;
+	return requested;
 }
 
 /**
@@ -80,7 +89,12 @@ export function createOmpDesktopExtensionUIContext(
 				: EXTENSION_UI_TIMEOUT_MS;
 		try {
 			const raw = await rpc("desktop.extensionUi", { method, ...params }, ms);
-			return extensionUiReplyResult(method, asReply(raw));
+			const reply = asReply(raw);
+			if ("back" in reply && reply.back === true) {
+				if (method === "editor") rewindRequested = true;
+				return undefined;
+			}
+			return extensionUiReplyResult(method, reply);
 		} catch {
 			return extensionUiReplyResult(method, { requestId: "", cancelled: true });
 		}
@@ -139,6 +153,14 @@ export function createOmpDesktopExtensionUIContext(
 			const result = await askDialog(
 				"input",
 				{ title, ...(placeholder != null ? { placeholder } : {}) },
+				opts?.timeout,
+			);
+			return typeof result === "string" ? result : undefined;
+		},
+		editor: async (title, prefill, opts) => {
+			const result = await askDialog(
+				"editor",
+				{ title, ...(prefill != null ? { prefill } : {}) },
 				opts?.timeout,
 			);
 			return typeof result === "string" ? result : undefined;

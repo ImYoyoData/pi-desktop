@@ -38,6 +38,7 @@ export function toolCardAutoExpandAllowed(kind: ToolCard["kind"]): boolean {
     case "grep":
     case "generic":
     case "other":
+    case "detail":
       return false;
     default: {
       const _never: never = kind;

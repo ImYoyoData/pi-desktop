@@ -1,6 +1,6 @@
 {
 	"schemaVersion": 3,
-	"ompVersion": "18.15.0",
+	"ompVersion": "18.16.0",
 	"tabs": [
 		{
 			"id": "model",
@@ -264,6 +264,22 @@
 				"immediate",
 				"wait"
 			],
+			"options": null,
+			"env": null
+		},
+		{
+			"id": "btw.inject",
+			"tab": "interaction",
+			"group": "Input",
+			"type": "boolean",
+			"label": "/btw Steering Inject",
+			"description": "When you ask /btw for a steering prompt, it drafts one in <inject> tags, highlighted in the answer; Alt+I (app.btw.inject) sends it to the main session",
+			"warning": null,
+			"condition": null,
+			"secret": false,
+			"credential": false,
+			"default": false,
+			"values": null,
 			"options": null,
 			"env": null
 		},
@@ -4449,6 +4465,22 @@
 				}
 			],
 			"env": "HINDSIGHT_SCOPING"
+		},
+		{
+			"id": "hindsight.globalScope",
+			"tab": "memory",
+			"group": "Hindsight",
+			"type": "boolean",
+			"label": "Hindsight Global Scope",
+			"description": "Let retain and learn take scope: global, which stores a memory without the project tag so every project recalls it. Needs global or per-project-tagged scoping",
+			"warning": null,
+			"condition": "hindsightActive",
+			"secret": false,
+			"credential": false,
+			"default": false,
+			"values": null,
+			"options": null,
+			"env": null
 		},
 		{
 			"id": "hindsight.autoRecall",

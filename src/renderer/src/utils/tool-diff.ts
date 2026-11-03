@@ -4,6 +4,8 @@ import type { ChatMessage } from "../stores/chat-reducer";
 import { safeStringify } from "./safe-json";
 import { languageFromPath } from "./editor-lang";
 import { parseGrepOutput, type GrepFileHits } from "./grep-card";
+import { parseDetailTool, type DetailToolCard } from "./tool-detail";
+import { isRecord, toolCommandFromArgs, toolPathFromArgs } from "./tool-args";
 import {
   isTodoToolName,
   todoActionFromPayload,
@@ -234,11 +236,8 @@ export type ToolCard =
   | GrepToolCard
   | TodoToolCard
   | WaitToolCard
+  | DetailToolCard
   | GenericToolCard;
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return Boolean(v) && typeof v === "object" && !Array.isArray(v);
-}
 
 /** 工具结果里最多渲染的图片块数（生成图可能很大，避免撑爆内存）。 */
 const MAX_TOOL_RESULT_IMAGES = 8;
@@ -314,26 +313,6 @@ function stringArg(args: unknown, key: string): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function pathFromArgs(args: unknown): string | null {
-  if (!isRecord(args)) return null;
-  const p = args.path ?? args.file_path ?? args.filePath;
-  return typeof p === "string" && p.trim() ? p.trim() : null;
-}
-
-export function toolPathFromArgs(args: unknown): string | null {
-  return pathFromArgs(args);
-}
-
-function commandFromArgs(args: unknown): string | null {
-  if (!isRecord(args)) return null;
-  const c = args.command ?? args.cmd;
-  return typeof c === "string" && c.trim() ? c.trim() : null;
-}
-
-export function toolCommandFromArgs(args: unknown): string | null {
-  return commandFromArgs(args);
-}
-
 /** 通用工具的参数里最能说明「干了什么」的字段，按优先级排列。 */
 const GENERIC_TARGET_KEYS = [
   "path",
@@ -347,11 +326,6 @@ const GENERIC_TARGET_KEYS = [
   "prompt",
   "description",
 ];
-
-/** 单行摘要截断：超长就截断加省略号，不给半截 token 之外的额外处理。 */
-export function clipText(text: string, max = 64): string {
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
-}
 
 /** 摘要截断：压掉换行、在词边界断开，避免出现半截 token。 */
 function truncateSummary(text: string, max = 64): string {
@@ -549,7 +523,7 @@ export function parseFileToolCard(
   opts?: { isError?: boolean; durationMs?: number },
 ): FileToolCard {
   const name = toolName.toLowerCase();
-  const path = pathFromArgs(args);
+  const path = toolPathFromArgs(args);
   const { details, text } = extractToolResult(result);
 
   // Blocked tools (e.g. desktop security deny) should surface the reason, not a fake diff.
@@ -624,7 +598,7 @@ export function parseReadToolCard(
   result: unknown,
   opts?: { durationMs?: number },
 ): ReadToolCard {
-  const path = pathFromArgs(args);
+  const path = toolPathFromArgs(args);
   const { details, text } = extractToolResult(result);
   const trunc = truncationFromDetails(details);
   const notice = parseLineRangeNotice(text);
@@ -703,7 +677,7 @@ export function parseBashToolCard(
   const exitCode = structuredNumber(structured, "exit_code") ?? parseExitCode(text);
   return {
     kind: "bash",
-    command: commandFromArgs(args),
+    command: toolCommandFromArgs(args),
     linesRead,
     totalLines: trunc.totalLines ?? notice.totalLines,
     truncated: trunc.truncated,
@@ -722,7 +696,7 @@ export function parseGrepToolCard(
   opts?: { durationMs?: number },
 ): GrepToolCard {
   const { text } = extractToolResult(result);
-  const searchPath = pathFromArgs(args);
+  const searchPath = toolPathFromArgs(args);
   const parsed = parseGrepOutput(text, searchPath);
   return {
     kind: "grep",
@@ -1040,10 +1014,16 @@ export function parseToolCard(
   if (isTodoToolName(toolName)) {
     return parseTodoToolCard(args, result);
   }
-  const { text, images, structured } = extractToolResult(result);
+  const extracted = extractToolResult(result);
+  const detail = parseDetailTool(toolName, args, extracted, {
+    isError: opts?.isError,
+    durationMs: opts?.durationMs,
+  });
+  if (detail) return detail;
+  const { text, images, structured } = extracted;
   const summary =
-    commandFromArgs(args) ??
-    pathFromArgs(args) ??
+    toolCommandFromArgs(args) ??
+    toolPathFromArgs(args) ??
     genericSummary(args);
   return {
     kind: "generic",
@@ -1133,6 +1113,8 @@ export function toolCardExpandable(card: ToolCard): boolean {
       return card.items.length > 0;
     case "wait":
       return card.jobs.length > 0 || Boolean(card.text) || card.startedAt != null;
+    case "detail":
+      return card.sections.length > 0 || card.transcripts.length > 0;
     default: {
       const _never: never = card;
       return Boolean(_never);

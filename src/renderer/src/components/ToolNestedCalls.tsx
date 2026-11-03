@@ -7,14 +7,16 @@ import {
   EllipseOutline,
 } from "@renderer/components/icons/ionicons";
 import type { ChatToolNestedCall } from "@renderer/stores/chat-reducer";
-import { isBashTool, toolCardForNested, toolCommandFromArgs } from "@renderer/utils/tool-diff";
+import { isBashTool, toolCardForNested } from "@renderer/utils/tool-diff";
+import { toolCommandFromArgs } from "@renderer/utils/tool-args";
 import { genericStepTarget } from "@renderer/utils/structured-text";
 import { formatDuration } from "@renderer/utils/format-duration";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import { useAgentRunsStore } from "@renderer/stores/agent-runs";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useMessage } from "@renderer/services/feedback";
-import ToolBody, { ToolJsonTree } from "@renderer/components/ToolBody";
+import ToolBody from "@renderer/components/ToolBody";
+import ToolJsonTree from "@renderer/components/ToolJsonTree";
 import styles from "./ToolNestedCalls.module.css";
 
 type Props = {

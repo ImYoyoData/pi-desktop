@@ -315,6 +315,45 @@ describe("parseSessionHistoryJsonl 断链与摘要还原", () => {
     ]);
     expect(parseSessionHistoryJsonl(raw)).toEqual([]);
   });
+
+  it("跳过 omp 的 date-cwd-reminder 自定义条目", () => {
+    const raw = jsonl([
+      header,
+      {
+        type: "message",
+        id: "u1",
+        parentId: null,
+        timestamp: "2026-01-15T12:00:01.000Z",
+        message: { role: "user", content: "hi" },
+      },
+      {
+        type: "message",
+        id: "a1",
+        parentId: "u1",
+        timestamp: "2026-01-15T12:00:02.000Z",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "hello" }],
+        },
+      },
+      {
+        type: "custom",
+        id: "c1",
+        parentId: "a1",
+        timestamp: "2026-01-15T12:00:03.000Z",
+        customType: "date-cwd-reminder",
+        data: {
+          conversation: "turn-1",
+          turn: "a1",
+          reminder: "Today is 2026-01-15.",
+          placement: "prefix",
+        },
+      },
+    ]);
+
+    const msgs = parseSessionHistoryJsonl(raw);
+    expect(msgs.map((m) => m.id)).toEqual(["u1", "a1"]);
+  });
 });
 
 describe("assistant thinking duration", () => {

@@ -1,18 +1,31 @@
-/* Shares the chat column's box (same cap + padding as the composer and the
-   message content) so extension UI lines up with them. */
 .extUiWrap {
   flex-shrink: 0;
   width: 100%;
-  max-width: var(--pi-message-max, 75%);
-  margin: 0 auto;
-  padding: 0 var(--chat-column-pad-x, 16px) 8px;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  animation: ext-ui-rise 160ms var(--ease-out, ease);
+}
+
+@keyframes ext-ui-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .extUiCard {
-  border: 1px solid color-mix(in srgb, var(--primary, #3b82f6) 28%, var(--border, #ddd));
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--bg-elevated, #fff) 94%, var(--primary, #3b82f6) 6%);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: 8px;
+  border: 1px solid var(--chat-line, var(--border));
+  background: var(--bg-elevated, #fff);
   overflow: hidden;
 }
 
@@ -20,41 +33,83 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px 6px;
+  padding: 8px 10px;
+  flex-shrink: 0;
+}
+
+.headToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
 .headBadge {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--primary, #3b82f6) 16%, transparent);
-  color: var(--primary, #3b82f6);
-}
-
-.headText {
-  min-width: 0;
+  color: var(--accent);
+  background: var(--accent-soft, rgba(65, 118, 230, 0.08));
+  flex-shrink: 0;
 }
 
 .headTitle {
-  font-size: 0.9231rem;
-  font-weight: 650;
-  color: var(--fg-strong, #111);
+  font-size: var(--chat-font-s, 12px);
+  font-weight: 600;
+  color: var(--fg-strong);
+  white-space: nowrap;
 }
 
-.headSub {
-  font-size: 0.9231rem;
-  color: var(--fg-muted, #555);
-  line-height: 1.35;
+.chevBtn {
+  display: inline-flex;
+  padding: 2px;
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--chat-desc-fg, var(--fg-muted));
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.chevBtn:hover {
+  color: var(--fg-strong);
 }
 
 .stripBody {
-  padding: 4px 12px 10px;
   display: flex;
   flex-direction: column;
+  gap: 10px;
+  padding: 2px 12px 10px;
+  min-height: 0;
+}
+
+.qPrompt {
+  display: flex;
+  align-items: center;
   gap: 8px;
+  min-width: 0;
+}
+
+.qText {
+  flex: 1;
+  min-width: 0;
+  max-height: min(40vh, 320px);
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 15px;
+  line-height: 1.45;
+  font-weight: 600;
+  color: var(--fg-strong);
 }
 
 .message {
@@ -65,34 +120,87 @@
 
 .optList {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 6px;
 }
 
-.optChip {
+.optRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
   margin: 0;
-  padding: 5px 12px;
-  border: 1px solid var(--border, #ddd);
-  border-radius: 999px;
-  background: var(--bg, #fff);
-  color: var(--fg, #222);
-  font-size: 0.9231rem;
+  padding: 9px 10px;
+  border: 1px solid var(--chat-line, var(--border));
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
   cursor: pointer;
+  transition:
+    background var(--duration-fast, 100ms) var(--ease-out, ease),
+    border-color var(--duration-fast, 100ms) var(--ease-out, ease);
 }
 
-.optChip:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--primary, #3b82f6) 50%, var(--border));
+.optRow:hover:not(:disabled) {
+  background: var(--chat-hover-bg, rgba(127, 127, 127, 0.08));
 }
 
-.optChip.active {
-  border-color: var(--primary, #3b82f6);
-  background: color-mix(in srgb, var(--primary, #3b82f6) 14%, transparent);
-  color: var(--primary, #3b82f6);
+.optRow.selected {
+  border-color: var(--accent-border, rgba(65, 118, 230, 0.32));
+  background: var(--accent-soft, rgba(65, 118, 230, 0.08));
+}
+
+.optCheck {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+}
+
+.optRing {
+  width: 15px;
+  height: 15px;
+  border-radius: 999px;
+  border: 1.5px solid var(--chat-line, var(--border-strong));
+  box-sizing: border-box;
+}
+
+.optLabel {
+  min-width: 0;
+  font-size: var(--chat-font-s, 12px);
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--fg);
+  overflow-wrap: anywhere;
 }
 
 .stripFoot {
   display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 6px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px 10px;
+  flex-shrink: 0;
+}
+
+.cancelBtn {
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.footActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .extUiWrap {
+    animation: none;
+  }
 }

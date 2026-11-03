@@ -3,7 +3,7 @@
 import ompCommands from "./omp-slash-commands.json";
 import piCommands from "./pi-slash-commands.json";
 
-/** 生成自 omp SDK 的内建命令元数据（scripts/gen-omp-slash-commands.bun.mjs）。 */
+/** 生成自 omp SDK 的命令元数据（scripts/gen-omp-slash-commands.bun.mjs）。 */
 export type OmpSlashCommand = {
   name: string;
   aliases: string[];
@@ -12,6 +12,8 @@ export type OmpSlashCommand = {
   subcommands: { name: string; description: string }[];
   /** 有 ACP handle，非终端宿主也能执行。 */
   handles: boolean;
+  /** builtin 由 worker 分发；custom 交给 AgentSession 展开。 */
+  source: "builtin" | "custom";
 };
 
 export const OMP_SLASH_COMMANDS = ompCommands as OmpSlashCommand[];

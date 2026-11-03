@@ -6,7 +6,7 @@
  */
 
 import { parseJsonPayload } from "./json-tree";
-import { clipText, toolCommandFromArgs, toolPathFromArgs } from "./tool-diff";
+import { clipText, toolCommandFromArgs, toolPathFromArgs } from "./tool-args";
 
 /** "===== src/foo.ts =====" 形式的小节标题。 */
 const FILE_SECTION_RE = /^={3,}\s*(.+?)\s*={3,}\s*$/;
