@@ -9,8 +9,6 @@ import {
 	PROXY_ENV_KEYS,
 	proxyEnvFromPacResult,
 	proxyEnvFromUrl,
-	resolveNodeProxyMode,
-	type NodeProxyMode,
 	type ProxyScope,
 	type ProxySettings,
 } from "../shared/proxy";
@@ -152,11 +150,6 @@ export function getProxySettings(): ProxySettings {
 		desktop: { ...currentSettings.desktop },
 		agent: { ...currentSettings.agent },
 	};
-}
-
-/** 主进程 Node fetch（undici）当前应使用的代理形态。 */
-export function getNodeProxyMode(): NodeProxyMode {
-	return resolveNodeProxyMode(currentSettings.desktop, systemProxyEnv);
 }
 
 function scopeProxyEnv(scope: ProxyScope): Record<string, string> {
