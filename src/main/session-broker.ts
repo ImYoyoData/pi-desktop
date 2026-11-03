@@ -1071,6 +1071,9 @@ export function createSessionBroker(deps: {
       return command;
     }
     if (hasThinkingLanguageBlock(command.message)) return command;
+    // 斜杠开头的消息（omp 命令、技能命令、文件命令）必须保持行首 `/`：
+    // 前缀块会让 worker 与 AgentSession 都无法识别。
+    if (command.message.trimStart().startsWith("/")) return command;
     const block = thinkingLanguageBlock(getThinkingLanguageSettings().language);
     if (!block) return command;
     return { ...command, message: `${block}\n\n${command.message}` };

@@ -10,6 +10,7 @@ import type { OmpWorkerInbound } from "../shared/omp-worker-messages";
 import type { AgentCommand } from "../shared/protocol";
 import { toPromptImages } from "../shared/protocol";
 import { isThinkingLevel, type ThinkingLevel } from "../shared/thinking-level";
+import { stripThinkingLanguageBlock } from "../shared/thinking-language";
 import { createOmpAskUserTool } from "./ask-user-tool";
 import { readAgentTranscript } from "./agent-transcript";
 import { forkOmpUserTurn } from "./fork";
@@ -22,6 +23,13 @@ import {
 } from "./context-usage";
 import { handleOmpRpcResponse, setRpcWorkspaceRoot } from "./main-rpc";
 import { createOmpDesktopExtensionUIContext } from "./extension-ui-context";
+import {
+	noteLoopPrompt,
+	pauseLoopMode,
+	restoreDesktopModes,
+	runDesktopSlashCommand,
+	scheduleLoopIteration,
+} from "./desktop-slash";
 import {
 	fillOmpCancelledToolResults,
 	rollbackOmpTurnEnd,
@@ -139,6 +147,7 @@ async function initSession(
 		const raw = event as unknown as Record<string, unknown>;
 		observeOmpTiming(raw);
 		sendEvent(raw);
+		if (raw.type === "agent_end") scheduleLoopIteration(created);
 		if (typeof raw.type !== "string") return;
 		if (!CONTEXT_USAGE_EVENT_TYPES.has(raw.type)) return;
 		try {
@@ -148,6 +157,7 @@ async function initSession(
 		}
 	});
 	session = created;
+	restoreDesktopModes(created);
 	post({
 		kind: "ready",
 		id: created.sessionId,
@@ -164,10 +174,34 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			post({ kind: "result", id, data: { ok: true } });
 			return;
 		case "prompt": {
+			// omp 内建命令（/plan、/goal、/loop 等）由桌面桥执行，不进入模型。
+			const active = requireSession();
+			const message = stripThinkingLanguageBlock(command.message);
+			const slash = await runDesktopSlashCommand(active, message);
+			if (slash.handled) {
+				active.emitNotice(slash.level, slash.message);
+				if (slash.openFile) {
+					post({
+						kind: "event",
+						event: { type: "desktop_open_file", path: slash.openFile },
+					});
+				}
+				if (slash.prompt) {
+					if (active.isStreaming) await active.steer(slash.prompt);
+					else await active.prompt(slash.prompt);
+				}
+				post({ kind: "result", id, data: { promptDone: true, slashHandled: true } });
+				return;
+			}
+			noteLoopPrompt(message);
 			const images = toPromptImages(command.images);
-			await requireSession().prompt(
-				command.message,
-				images?.length ? { images } : undefined,
+			await active.prompt(
+				message,
+				active.isStreaming
+					? { images, streamingBehavior: "steer" }
+					: images?.length
+						? { images }
+						: undefined,
 			);
 			post({ kind: "result", id, data: { promptDone: true } });
 			return;
@@ -186,6 +220,7 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			post({ kind: "result", id, data: { ok: true } });
 			return;
 		case "abort":
+			pauseLoopMode();
 			await requireSession().abort();
 			fillOmpCancelledToolResults(requireSession());
 			post({ kind: "result", id, data: { ok: true } });

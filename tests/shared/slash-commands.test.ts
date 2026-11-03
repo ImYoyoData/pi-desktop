@@ -36,6 +36,21 @@ describe("parseSlashContext", () => {
       slashIndex: 6,
       line: "/skill:b",
     });
+    expect(parseSlashContext("hello /com")).toBeNull();
+  });
+
+  it("allows leading whitespace before the slash", () => {
+    expect(parseSlashContext(" /com")).toEqual({
+      query: "com",
+      slashIndex: 1,
+      line: "/com",
+    });
+    expect(parseSlashContext("note\n  /compact")).toEqual({
+      query: "compact",
+      slashIndex: 7,
+      line: "/compact",
+    });
+    expect(parseSlashContext("note\n  plain")).toBeNull();
   });
 
   it("closes once args begin", () => {

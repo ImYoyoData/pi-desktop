@@ -88,6 +88,22 @@ export function serializeRichEditor(root: HTMLElement | DocumentFragment): { dra
   const chipOrder: string[] = [];
   let draft = "";
 
+  /** 末尾块元素不再补换行：浏览器给每行套 div 时，最后一行不能多出空行。 */
+  const hasFollowingSibling = (node: Node): boolean => {
+    let next = node.nextSibling;
+    while (next) {
+      if (
+        next.nodeType === Node.TEXT_NODE &&
+        !(next.textContent ?? "").replace(/\u200B/g, "")
+      ) {
+        next = next.nextSibling;
+        continue;
+      }
+      return true;
+    }
+    return false;
+  };
+
   const walk = (node: Node): void => {
     if (node.nodeType === Node.TEXT_NODE) {
       draft += node.textContent ?? "";
@@ -110,7 +126,11 @@ export function serializeRichEditor(root: HTMLElement | DocumentFragment): { dra
       const child = children[i];
       if (child) walk(child);
     }
-    if (el !== root && (el.tagName === "DIV" || el.tagName === "P")) {
+    if (
+      el !== root &&
+      (el.tagName === "DIV" || el.tagName === "P") &&
+      hasFollowingSibling(el)
+    ) {
       draft += "\n";
     }
   };

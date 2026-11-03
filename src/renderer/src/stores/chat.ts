@@ -36,6 +36,8 @@ import { useCheckpointStore } from "./checkpoint";
 import { useComposerStore } from "./composer";
 import { useNotifyStore } from "./notify";
 import { useSessionWidgetsStore } from "./session-widgets";
+import { usePreviewStore } from "./preview";
+import { useLayoutStore } from "./layout";
 import { useWorkspaceStore } from "./workspace";
 import { extractToolResult } from "../utils/tool-diff";
 import { isTodoToolName } from "../utils/session-todos";
@@ -762,6 +764,9 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 				result?: unknown;
 				partialResult?: unknown;
 				isError?: unknown;
+				level?: unknown;
+				message?: unknown;
+				path?: unknown;
 			};
 			if (payload.type === "agent_start" || payload.type === "turn_start") {
 				softHangReported.delete(sessionId);
@@ -787,6 +792,32 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 					const { details } = extractToolResult(payload.result);
 					// Prefer details; fall back to the whole result when details is missing.
 					widgets.applyTodoToolResult(sessionId, details ?? payload.result);
+				}
+			}
+			if (
+				payload.type === "model_changed" ||
+				payload.type === "thinking_level_changed"
+			) {
+				window.dispatchEvent(new Event("pi-models-changed"));
+			}
+			if (payload.type === "desktop_open_file" && typeof payload.path === "string") {
+				if (useLayoutStore.getState().rightCollapsed) {
+					useLayoutStore.getState().toggleRightCollapsed();
+				}
+				usePreviewStore.getState().openPreview(payload.path);
+			}
+			if (payload.type === "notice" && typeof payload.message === "string") {
+				const level =
+					payload.level === "error"
+						? "error"
+						: payload.level === "warning"
+							? "warning"
+							: "info";
+				const message = payload.message.trim();
+				if (message) {
+					getMessage()[level](
+						message.length > 2000 ? `${message.slice(0, 2000)}…` : message,
+					);
 				}
 			}
 			// Recover banner must clear when the agent loop finishes (prompt IPC may still lag).

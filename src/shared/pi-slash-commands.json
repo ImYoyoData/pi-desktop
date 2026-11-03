@@ -1,0 +1,122 @@
+[
+	{
+		"name": "settings",
+		"description": "Open settings menu",
+		"hint": null
+	},
+	{
+		"name": "model",
+		"description": "Select model (opens selector UI)",
+		"hint": "<provider/model>"
+	},
+	{
+		"name": "tree",
+		"description": "Navigate session tree (switch branches)",
+		"hint": null
+	},
+	{
+		"name": "thinking",
+		"description": "Set thinking level",
+		"hint": "<level>"
+	},
+	{
+		"name": "scoped-models",
+		"description": "Enable/disable models for Ctrl+P cycling",
+		"hint": null
+	},
+	{
+		"name": "export",
+		"description": "Export session (HTML default, or specify path: .html/.jsonl)",
+		"hint": null
+	},
+	{
+		"name": "import",
+		"description": "Import a JSONL session, preserving its ID and working directory",
+		"hint": null
+	},
+	{
+		"name": "share",
+		"description": "Share session via a Radius artifact or a GitHub gist",
+		"hint": null
+	},
+	{
+		"name": "bug",
+		"description": "Report a bug to the Pi developers",
+		"hint": "<description>"
+	},
+	{
+		"name": "copy",
+		"description": "Copy last agent message to clipboard",
+		"hint": null
+	},
+	{
+		"name": "name",
+		"description": "Set session display name",
+		"hint": null
+	},
+	{
+		"name": "session",
+		"description": "Show session info and stats",
+		"hint": null
+	},
+	{
+		"name": "changelog",
+		"description": "Show changelog entries",
+		"hint": null
+	},
+	{
+		"name": "hotkeys",
+		"description": "Show all keyboard shortcuts",
+		"hint": null
+	},
+	{
+		"name": "fork",
+		"description": "Create a new fork from a previous user message",
+		"hint": null
+	},
+	{
+		"name": "clone",
+		"description": "Duplicate the current session at the current position",
+		"hint": null
+	},
+	{
+		"name": "trust",
+		"description": "Save project trust decision for future sessions",
+		"hint": null
+	},
+	{
+		"name": "login",
+		"description": "Configure provider authentication",
+		"hint": "<provider>"
+	},
+	{
+		"name": "logout",
+		"description": "Remove provider authentication",
+		"hint": null
+	},
+	{
+		"name": "new",
+		"description": "Start a new session",
+		"hint": null
+	},
+	{
+		"name": "compact",
+		"description": "Manually compact the session context",
+		"hint": null
+	},
+	{
+		"name": "resume",
+		"description": "Resume another session",
+		"hint": null
+	},
+	{
+		"name": "reload",
+		"description": "Reload keybindings, extensions, skills, prompts, themes, and context files",
+		"hint": null
+	},
+	{
+		"name": "quit",
+		"description": "Quit pi",
+		"hint": null
+	}
+]

@@ -157,6 +157,7 @@ export const ComposerRichEditor = forwardRef<
   function rebuildFromStore(): void {
     const root = surfaceRef.current;
     if (!root) return;
+    const hadFocus = root.contains(document.activeElement);
     const state = useComposerStore.getState();
     applyingRef.current = true;
     root.replaceChildren();
@@ -186,6 +187,8 @@ export const ComposerRichEditor = forwardRef<
       root.appendChild(document.createTextNode("\u200B"));
     }
     applyingRef.current = false;
+    // 重建会丢掉浏览器选区；正在输入时把光标留在末尾，避免后续文字插到命令前。
+    if (hadFocus) focusEnd();
   }
 
   /** Append plain text after chips / existing content, sync draft, scroll into view. */
