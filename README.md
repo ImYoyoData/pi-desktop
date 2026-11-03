@@ -4,7 +4,7 @@
 
 # Pi Desktop
 
-**A desktop workbench for [Pi](https://github.com/badlogic/pi-mono) coding agents** — multi-session chat, live tool streaming, embedded browser, terminal, file preview and a full Git panel in one Electron window.
+**The desktop agent workbench for [Pi](https://github.com/earendil-works/pi) and [OMP](https://github.com/can1357/oh-my-pi)**
 
 [中文说明](./README.zh-CN.md) · [Releases](https://github.com/ImYoyoData/pi-desktop/releases) · [Issues](https://github.com/ImYoyoData/pi-desktop/issues)
 
@@ -40,17 +40,61 @@
 
 <br /><br />
 
+```text
+┌───────────────────┬──────────────────────┬───────────────────┐
+│ Sessions · Models │ Agent streaming chat │ Files · Changes   │
+│ Skills · Todos    │ Tools · Ask user     │ Browser · Preview │
+│ Engine Pi / OMP   │ Quoted screenshots   │ Terminal (bottom) │
+└───────────────────┴──────────────────────┴───────────────────┘
+```
+
 </div>
 
 ---
 
 <h2 align="center">Screenshots</h2>
 
-**Chat workbench** — run a task and watch the agent think, call tools and stream results in real time:
-
 <p align="center">
-  <img src="docs/screenshots/chat-git-panel.png" alt="Pi Desktop chat workbench with streaming tool calls" width="760" />
+  <img src="docs/screenshots/new-session.png" alt="Pi Desktop new session" width="760" />
 </p>
+
+---
+
+### Why Pi Desktop?
+
+- Drives agents with the Pi SDK directly, without an RPC bridge to the CLI
+- Switch between the Pi and OMP (oh-my-pi) engines in one window, each with its own config directory and sessions
+- Actively maintained
+
+| Layer | What it provides |
+| --- | --- |
+| **Agent core** | Multi-session Pi / OMP runtimes, streaming turns, tool cards with diffs, ask_user wizard, skills and slash commands, session-level todo list |
+| **Workbench** | Files / Changes / Browser right pane, bottom terminal, Markdown preview (edit / split / preview) and a full Git panel (branches, staging, commit, push, history) |
+| **Trust & safety** | Project trust gate; tools run with the app's own OS permissions |
+| **Release pipeline** | A push to main builds NSIS (x64 / arm64), DMG (Apple Silicon / Intel) and AppImage (x64) and publishes a Release |
+
+---
+
+## Getting started
+
+### Download
+
+Get the latest installer from [Releases](https://github.com/ImYoyoData/pi-desktop/releases): Windows x64 / arm64, macOS Apple Silicon / Intel, Linux x64 (AppImage).
+
+### Build from source
+
+Requires Node.js 24+.
+
+```bash
+npm install        # install dependencies
+npm run dev        # run in development
+npm run build      # build
+npm run dist       # package for the current platform
+```
+
+## Interface languages
+
+English, Simplified Chinese, Traditional Chinese and Japanese.
 
 ## License
 
