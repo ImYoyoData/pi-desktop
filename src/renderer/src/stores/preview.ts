@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import * as prefs from "@renderer/utils/prefs";
+import { stripLineSelector } from "@renderer/utils/fs-path";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 
 type PreviewState = {
@@ -20,7 +21,7 @@ export const usePreviewStore = create<PreviewState>()((set, get) => {
   let openNonce = 0;
 
   function openPreview(path: string): void {
-    const normalized = path.replace(/\\/g, "/");
+    const normalized = stripLineSelector(path).replace(/\\/g, "/");
     const root = useWorkspaceStore.getState().root;
     // 记到偏好里：另一窗口打开别的文件时跟着切。
     if (root) {
@@ -37,7 +38,7 @@ export const usePreviewStore = create<PreviewState>()((set, get) => {
   function refreshFromPrefs(): void {
     const root = useWorkspaceStore.getState().root;
     if (!root) return;
-    const next = prefs.getItem(previewKey(root)) ?? "";
+    const next = stripLineSelector(prefs.getItem(previewKey(root)) ?? "");
     if (next === get().filePath) return;
     openNonce += 1;
     set({ filePath: next, openSignal: openNonce });
