@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { subscribeLocale, t } from "@renderer/i18n";
 import { clearTabHistory } from "@renderer/stores/browser-library";
 import { useRightDockStore } from "@renderer/stores/right-dock";
+import { stripLineSelector } from "@renderer/utils/fs-path";
 import { uniquePreviewTabLabel } from "@renderer/utils/preview-tab-label";
 import { localizedTabLabel } from "@renderer/utils/right-tab-labels";
 import * as prefs from "@renderer/utils/prefs";
@@ -349,7 +350,7 @@ export const useRightTabsStore = create<RightTabsState>()((set, get) => {
   function addPreviewTab(filePath: string): RightTab {
     useRightDockStore.getState().show("files");
     const state = get();
-    const normalized = filePath.replace(/\\/g, "/");
+    const normalized = stripLineSelector(filePath).replace(/\\/g, "/");
     const existing = state.tabs.find(
       (t) => t.kind === "preview" && t.filePath === normalized,
     );
@@ -551,7 +552,10 @@ export const useRightTabsStore = create<RightTabsState>()((set, get) => {
         label:
           row.label ||
           (row.kind === "running" ? t.runningTab : row.kind),
-        filePath: row.filePath,
+        filePath:
+          row.kind === "preview" && row.filePath
+            ? stripLineSelector(row.filePath).replace(/\\/g, "/")
+            : row.filePath,
         dirty: false,
         missing: false,
         labelLocked: row.labelLocked === true,

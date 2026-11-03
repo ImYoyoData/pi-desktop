@@ -35,6 +35,7 @@
 - **修复 OMP 的 grep 结果没有语法高亮**：omp 的 grep 输出是 `*12|文本`（命中）与 ` 12|文本`（上下文），目录搜索时还带 `# 目录/` 层级头，解析器此前只认 pi 后端的 `path:12: 文本`，命中一条都解析不出来就整块退化成纯文本；现在两种格式都能解析，命中行按文件类型高亮并可点击打开所在文件，被跳过的上下文保留为 `…` 间隔提示。
 - **修复已结束的工具卡被迟到进度复活**：omp 的异步 `task` 在工具返回后仍会持续上报 `Running agent …`，渲染层把已完成的卡片重新标记为运行中并覆盖最终结果；现在已结束的工具（含嵌套调用）忽略迟到更新，保留「Spawned N background agents」结果，空闲会话也不会被重新点亮。
 - **修复安装包与 dev 的设置文件仍各存一份**：模型选择、代理、Pi CLI 偏好、工作区与引擎选择此前写在 Electron userData 下，而 dev 使用独立的 `pi-desktop-dev` 目录，两端各读各的文件；现在统一落到 agent 目录（`~/.pi/agent`），启动时从旧 userData 补齐缺失文件。`~` 也统一按系统主目录展开，从 Git Bash 启动 dev 时不再因 `HOME` 与安装包不同而解析出另一套配置目录。
+- **修复带行号选择器的文件芯片打不开文件**：read 工具把选择器内联在路径里（`runtime.ts:110-170`），文件芯片原样把它当文件路径打开，预览页报「File not found」，标签页标题也带着行号；现在打开预览、恢复标签页与跨窗口同步都会剥离选择器，只保存真实文件路径。
 
 ### Fixes
 
@@ -53,6 +54,7 @@
 - **Fixed OMP grep results losing syntax highlighting**: omp prints grep hits as `*12|text` (match) and ` 12|text` (context), with `# dir/` tree headers for directory searches, while the parser only understood pi's `path:12: text`. No hit was recognised, so the whole result degraded to plain text. Both formats are parsed now: matches are highlighted per file type and open the file on click, and skipped context runs are kept as `…` separators.
 - **Fixed finished tool cards being revived by late progress**: an asynchronous omp `task` keeps emitting `Running agent …` after the tool already returned, and the renderer marked the completed card as running again and overwrote its result. Finished tools (including nested calls) now ignore late updates, keep the "Spawned N background agents" result, and no longer flip an idle session back to running.
 - **Fixed packaged and dev builds still keeping separate settings files**: model selection, proxy settings, Pi CLI preferences, the workspace list, and the engine choice were stored under the Electron userData directory, while dev runs from its own `pi-desktop-dev` directory, so each build read its own copy. They now live in the agent directory (`~/.pi/agent`), with missing files copied over from the old userData on startup. `~` also resolves against the OS home directory, so starting dev from Git Bash no longer picks a different config directory because of `HOME`.
+- **Fixed file chips with an inline line selector failing to open**: the read tool embeds its selector in the path (`runtime.ts:110-170`), and the chip treated that string as the file path, so the preview reported "File not found" and the tab title kept the range. Preview opening, tab restore, and cross-window sync now strip the selector and keep only the real file path.
 
 ## v0.3.7-rc.4 (2026-11-02)
 
