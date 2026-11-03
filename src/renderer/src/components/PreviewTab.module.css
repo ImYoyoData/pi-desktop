@@ -120,7 +120,7 @@
   overflow: hidden;
 }
 
-.docBody.mdSplit .editor {
+.docBody.mdSplit .editorPane {
   flex: 1;
   min-width: 0;
   border-right: 1px solid var(--border);
@@ -133,6 +133,13 @@
 
 .docBody.mdPreviewOnly .mdPreview {
   flex: 1;
+}
+
+.editorPane {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
 }
 
 .editor {

@@ -1,26 +1,34 @@
 # Changelog
 
-## Unreleased
+## v0.3.8-rc.1 (2026-11-03)
+
+本版引入 OMP（oh-my-pi）18.16.0 引擎并适配 Pi 1.5.0：同一窗口内全局切换 Pi / OMP，配置目录、模型与会话各自独立；设置页去掉胶囊卡片，左栏并入标题栏并新增 Pi / OMP 二级页签。更新下载改走自建 CONNECT 隧道池，实测同一 GitHub 安装包从 11 MB/s 升到 35–40 MB/s，更新检查复用本地 gh 登录态；补全 OMP / Pi 的斜杠命令菜单与执行链路。此外移除内置浏览器自动化（右栏浏览器与元素引用保留），统一安装包与 dev 的设置文件位置，修复工具卡片、待办清单跨回合、OMP 图片与 grep 高亮、文件芯片路径等一批细节问题。
 
 ### 变更 Changes
 
 - **加速应用更新下载**：分片并发改用自建 CONNECT 隧道池，最多 128 条连接、每片最小 1 MB，并一次性解析重定向直链、按 origin 缓存代理路由。此前用的 undici `ProxyAgent` 即使设置 1024 并发也只会建立 6 条隧道，是更新下载卡在 11 MB/s 的根因；实测同一 GitHub 安装包从 11 MB/s 提升到 35–40 MB/s。分片中断后从已写入位置重试，服务器不支持 Range 时回退单连接，保留取消和 SHA-256 校验。
 - **移除内置浏览器自动化**：桌面不再向模型提供 `browser_*` 工具，设置页的「浏览器」分区与内置浏览器技能一并删除；右栏浏览器与元素选择/引用保留。
 - **升级 omp SDK 到 18.16.0**：`@oh-my-pi/pi-coding-agent`、`@oh-my-pi/pi-tui`、`@oh-my-pi/pi-utils` 从 18.15.0 升到 18.16.0（pi-agent-core / pi-ai / pi-catalog / pi-natives / pi-wire / snapcompact / omptype / omp-stats / pi-mnemopi 同步）。桌面端直接依赖的 SDK 子路径（`session-loader`、`agent-registry`、`acp-builtins`、`slash-commands/helpers/parse`、`loop-limit`、`loop-condition`、`plan-files`）与 `pi-tui/status-line/loop`、`pi-tui/thinking`、`pi-utils/dirs` 均无变化；会话条目只新增可选的 `mountedTools`，18.16 写入的 `date-cwd-reminder` 自定义条目由历史解析跳过（已加回归测试），picker 的 `PickerListing` 变更桌面端未使用。设置 schema 与斜杠命令清单按新版本重新生成，设置页新增 `btw.inject`（/btw 引导注入）与 `hindsight.globalScope`（Hindsight 全局作用域）两项并补齐中文文案；类型检查、worker 构建与测试均通过，并实测了新版 worker 的会话初始化、斜杠命令与落盘解析。
+- **设置页布局调整**：去掉左栏与模型页的描边圆角，删除「智能体设置」浮动标题，分组切换上移到标题栏；配置管理下新增 Pi / OMP 二级页签。
 
 ### Changes (English)
 
 - **Faster app update downloads**: segmented downloads now run over a purpose-built CONNECT tunnel pool (up to 128 connections, 1 MB minimum segments) with the redirect chain resolved once and proxy routes cached per origin. The previous undici `ProxyAgent` opened only 6 tunnels no matter how high the concurrency was set, which capped updates at 11 MB/s; the same GitHub asset now measures 35–40 MB/s. Interrupted segments resume from written bytes, unsupported Range requests fall back to a single connection, and cancellation and SHA-256 verification are unchanged.
 - **Removed the built-in browser automation**: the desktop no longer exposes the `browser_*` tools, and the browser section in Settings plus the built-in browser skill are gone; the right-pane browser and element selection/citation remain.
 - **Upgraded the omp SDK to 18.16.0**: `@oh-my-pi/pi-coding-agent`, `@oh-my-pi/pi-tui` and `@oh-my-pi/pi-utils` moved from 18.15.0 to 18.16.0 (pi-agent-core / pi-ai / pi-catalog / pi-natives / pi-wire / snapcompact / omptype / omp-stats / pi-mnemopi follow). The SDK subpaths the desktop imports (`session-loader`, `agent-registry`, `acp-builtins`, `slash-commands/helpers/parse`, `loop-limit`, `loop-condition`, `plan-files`) plus `pi-tui/status-line/loop`, `pi-tui/thinking` and `pi-utils/dirs` are unchanged; session entries only gained the optional `mountedTools`, the new `date-cwd-reminder` custom entry 18.16 writes is skipped by the history parser (covered by a regression test), and the picker's `PickerListing` change is unused here. The settings schema and slash-command catalog were regenerated, adding the `btw.inject` and `hindsight.globalScope` settings with Chinese copy; typecheck, the worker build and the test suite pass, and the new worker was exercised for session init, slash commands and write/parse round-trips.
+- **Settings page layout**: the outlined rounded panels are gone, the floating "Agent settings" title is removed and group switching moved into the title bar; Config gained Pi / OMP sub-tabs.
 
 ### 新功能 Features
 
+- **引入 OMP 引擎**：侧栏顶部全局切换 Pi / OMP，切换后重载对应引擎的会话列表；OMP 使用独立的配置目录（`~/.omp/agent`）与会话记录。设置页新增 OMP 左栏（模型 / 配置 / MCP），改动自动保存，并补齐 ask_user、上下文用量、回退、审批与扩展 UI。
+- **适配 Pi 1.5.0**：`@earendil-works/pi-coding-agent` 从 1.4.0 升到 1.5.0，斜杠命令清单按新版 SDK 重新生成。
 - **通知页新增更新检查设置**：自动检查更新开关与 1 / 6 / 12 / 24 小时的检查间隔；关闭后启动时不再检查，修改设置立即按新间隔重新计时。
 - **开发者页显示 omp 版本**：运行时分区新增「omp SDK」（应用内置 `@oh-my-pi/pi-coding-agent` 版本）与「omp CLI」（系统 PATH 中 `omp --version` 的探测结果，未安装显示「未安装」）。
 
 ### Features
 
+- **Introduced the OMP engine**: the sidebar switches the whole app between Pi and OMP and reloads that engine's session list; OMP keeps its own config directory (`~/.omp/agent`) and sessions. Settings gained an OMP side column (Models / Config / MCP) with auto-save, plus ask_user, context usage, rollback, approvals and the extension UI.
+- **Pi 1.5.0 support**: `@earendil-works/pi-coding-agent` moved from 1.4.0 to 1.5.0, and the slash-command catalog is regenerated from the new SDK.
 - **Update check settings on the Notifications page**: an automatic update check toggle and a 1 / 6 / 12 / 24 hour interval; turning it off skips the startup check, and changing the setting reschedules immediately.
 - **Developer page shows omp versions**: the Runtime section now lists "omp SDK" (the bundled `@oh-my-pi/pi-coding-agent` version) and "omp CLI" (probed via `omp --version` on PATH, "Not installed" when absent).
 

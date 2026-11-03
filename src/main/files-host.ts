@@ -119,6 +119,22 @@ export function createWorkspaceDir(
 	return toRel(relativeDir, safe);
 }
 
+/** 目标名与原名只有大小写差异时（Windows/macOS 大小写不敏感），确认指向同一文件。 */
+function isCaseOnlySameEntry(abs: string, nextAbs: string): boolean {
+	if (
+		path.basename(abs).toLowerCase() !== path.basename(nextAbs).toLowerCase()
+	) {
+		return false;
+	}
+	try {
+		const from = fs.statSync(abs);
+		const to = fs.statSync(nextAbs);
+		return from.dev === to.dev && from.ino === to.ino;
+	} catch {
+		return false;
+	}
+}
+
 export function renameWorkspaceEntry(
 	root: string,
 	relativePath: string,
@@ -126,13 +142,15 @@ export function renameWorkspaceEntry(
 ): string {
 	const safe = assertSafeName(newName);
 	const abs = resolveWorkspacePath(root, relativePath);
-	const parent = path.dirname(abs);
-	const nextAbs = path.join(parent, safe);
-	resolveWorkspacePath(root, path.relative(root, nextAbs));
-	if (workspaceExists(nextAbs)) throw new Error("That name already exists");
-	withoutAsar(() => fs.renameSync(abs, nextAbs));
 	const parentRel = path.dirname(relativePath.replace(/\\/g, "/"));
 	const parentKey = parentRel === "." ? "" : parentRel;
+	if (safe === path.basename(abs)) return toRel(parentKey, safe);
+	const nextAbs = path.join(path.dirname(abs), safe);
+	resolveWorkspacePath(root, path.relative(root, nextAbs));
+	if (workspaceExists(nextAbs) && !isCaseOnlySameEntry(abs, nextAbs)) {
+		throw new Error("That name already exists");
+	}
+	withoutAsar(() => fs.renameSync(abs, nextAbs));
 	return toRel(parentKey, safe);
 }
 
