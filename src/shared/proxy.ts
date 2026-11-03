@@ -128,21 +128,3 @@ export function normalizeProxyScope(raw: unknown): ProxyScope | null {
 	return normalized ? { mode, url: normalized } : null;
 }
 
-export type NodeProxyMode =
-	| { kind: "direct" }
-	| { kind: "http"; url: string }
-	| { kind: "socks" };
-
-/** 主进程 Node fetch（undici）的代理形态：socks 无法走 undici，调用方需回退 Chromium。 */
-export function resolveNodeProxyMode(scope: ProxyScope, systemProxyEnv: Record<string, string>): NodeProxyMode {
-	if (scope.mode === "custom") {
-		const url = normalizeProxyUrl(scope.url);
-		if (!url) return { kind: "direct" };
-		return NODE_PROXY_PROTOCOLS.test(url) ? { kind: "http", url } : { kind: "socks" };
-	}
-	if (scope.mode === "system") {
-		const url = systemProxyEnv.HTTP_PROXY ?? systemProxyEnv.ALL_PROXY;
-		return url ? { kind: "http", url } : { kind: "direct" };
-	}
-	return { kind: "direct" };
-}
