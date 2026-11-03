@@ -4,6 +4,7 @@ import type { AgentTranscriptEntry } from "./protocol";
 
 const MAX_ENTRIES = 200;
 const MAX_TEXT = 4000;
+const MAX_PROMPT_TEXT = 16000;
 const MAX_THINKING = 2000;
 const MAX_ARGS = 600;
 
@@ -51,6 +52,26 @@ function argsText(value: unknown): string | undefined {
   }
 }
 
+/** 工具参数/结果只保留卡片需要的字段，长字符串与深层结构按上限裁剪。 */
+function compactValue(value: unknown, depth = 0): unknown {
+  if (depth > 4) return "[…]";
+  if (typeof value === "string") return clip(value, MAX_ARGS);
+  if (Array.isArray(value)) {
+    return value.slice(0, 50).map((item) => compactValue(item, depth + 1));
+  }
+  if (typeof value === "object" && value !== null) {
+    const out: Record<string, unknown> = {};
+    let count = 0;
+    for (const [key, item] of Object.entries(value)) {
+      if (count >= 50) break;
+      out[key] = compactValue(item, depth + 1);
+      count += 1;
+    }
+    return out;
+  }
+  return value;
+}
+
 /**
  * 工具调用与结果合并成一条：assistant 的 ToolCall 先落条目，随后的
  * toolResult 按 toolCallId 补上结果；找不到调用记录的结果单独成条。
@@ -67,7 +88,12 @@ export function normalizeAgentMessages(messages: readonly unknown[]): AgentTrans
     if (record.role === "user") {
       const text = textFromContent(record.content);
       if (text.trim()) {
-        entries.push({ kind: "message", role: "user", text: clip(text, MAX_TEXT), ...(timestamp ? { timestamp } : {}) });
+        entries.push({
+          kind: "message",
+          role: "user",
+          text: clip(text, MAX_PROMPT_TEXT),
+          ...(timestamp ? { timestamp } : {}),
+        });
       }
       continue;
     }
@@ -93,7 +119,10 @@ export function normalizeAgentMessages(messages: readonly unknown[]): AgentTrans
         const entry: ToolEntry = {
           kind: "tool",
           toolName,
-          ...(call.arguments != null ? { args: argsText(call.arguments) } : {}),
+          ...(typeof call.id === "string" && call.id ? { callId: call.id } : {}),
+          ...(call.arguments != null
+            ? { args: argsText(call.arguments), argsValue: compactValue(call.arguments) }
+            : {}),
           ...(timestamp ? { timestamp } : {}),
         };
         entries.push(entry);
@@ -107,18 +136,22 @@ export function normalizeAgentMessages(messages: readonly unknown[]): AgentTrans
         typeof record.toolName === "string" && record.toolName ? record.toolName : "tool";
       const text = clip(textFromContent(record.content), MAX_TEXT);
       const isError = record.isError === true;
+      const details = record.details != null ? compactValue(record.details) : undefined;
       const callId = typeof record.toolCallId === "string" ? record.toolCallId : "";
       const pending = callId ? calls.get(callId) : undefined;
       if (pending) {
         if (text) pending.text = text;
+        if (details !== undefined) pending.resultDetails = details;
         if (isError) pending.isError = true;
         continue;
       }
-      if (text || isError) {
+      if (text || details !== undefined || isError) {
         entries.push({
           kind: "tool",
           toolName,
+          ...(callId ? { callId } : {}),
           ...(text ? { text } : {}),
+          ...(details !== undefined ? { resultDetails: details } : {}),
           ...(isError ? { isError: true } : {}),
           ...(timestamp ? { timestamp } : {}),
         });
@@ -126,5 +159,11 @@ export function normalizeAgentMessages(messages: readonly unknown[]): AgentTrans
     }
   }
 
+  if (entries.length <= MAX_ENTRIES) return entries;
+  const prompt = entries.find(
+    (entry) => entry.kind === "message" && entry.role === "user",
+  );
+  const tail = entries.slice(-(MAX_ENTRIES - (prompt ? 1 : 0)));
+  if (prompt && !tail.includes(prompt)) return [prompt, ...tail];
   return entries.slice(-MAX_ENTRIES);
 }

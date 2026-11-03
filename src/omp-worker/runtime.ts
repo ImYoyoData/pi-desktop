@@ -22,7 +22,8 @@ import {
 	restoreOmpTiming,
 } from "./context-usage";
 import { handleOmpRpcResponse, setRpcWorkspaceRoot } from "./main-rpc";
-import { createOmpDesktopExtensionUIContext } from "./extension-ui-context";
+import { activateExtensionUI } from "./extension-runner";
+import { createOmpDesktopExtensionUIContext, takeExtensionUiRewind } from "./extension-ui-context";
 import {
 	noteLoopPrompt,
 	pauseLoopMode,
@@ -137,7 +138,8 @@ async function initSession(
 			customTools: [createOmpAskUserTool()],
 		});
 	// 扩展与工具审批的对话都走桌面卡片。
-	setToolUIContext(createOmpDesktopExtensionUIContext(), true);
+	const uiContext = createOmpDesktopExtensionUIContext();
+	setToolUIContext(uiContext, true);
 	if (modelFallbackMessage) {
 		process.stderr.write(`[omp-worker] ${modelFallbackMessage}\n`);
 	}
@@ -158,6 +160,7 @@ async function initSession(
 	});
 	session = created;
 	restoreDesktopModes(created);
+	await activateExtensionUI(created, uiContext);
 	post({
 		kind: "ready",
 		id: created.sessionId,
@@ -195,14 +198,15 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			}
 			noteLoopPrompt(message);
 			const images = toPromptImages(command.images);
-			await active.prompt(
-				message,
-				active.isStreaming
-					? { images, streamingBehavior: "steer" }
-					: images?.length
-						? { images }
-						: undefined,
-			);
+			const options = active.isStreaming
+				? { images, streamingBehavior: "steer" as const }
+				: images?.length
+					? { images }
+					: undefined;
+			for (;;) {
+				await active.prompt(message, options);
+				if (!takeExtensionUiRewind() || !message.startsWith("/")) break;
+			}
 			post({ kind: "result", id, data: { promptDone: true } });
 			return;
 		}

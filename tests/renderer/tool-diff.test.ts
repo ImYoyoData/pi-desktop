@@ -102,10 +102,11 @@ describe("generic tool summary", () => {
     expect(card.summary).toBe("src/a.ts");
   });
 
-  it("falls back to the first line of a script", () => {
+  it("parses a script call into a detail card", () => {
     const card = parseToolCard("codemode", { code: "\nconst a = 1;\n" }, "done");
-    if (card.kind !== "generic") throw new Error("expected generic card");
-    expect(card.summary).toBe("const a = 1;");
+    if (card.kind !== "detail") throw new Error("expected detail card");
+    expect(card.target).toBe("const a = 1;");
+    expect(card.sections.some((section) => section.kind === "text")).toBe(true);
   });
 
   it("flags a preview that came from args instead of output", () => {

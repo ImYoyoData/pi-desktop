@@ -1,12 +1,28 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronForwardOutline } from "@renderer/components/icons/ionicons";
+import {
+  Suspense,
+  lazy,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { BrainOutline, ChevronForwardOutline } from "@renderer/components/icons/ionicons";
+import ThinkingBlock from "@renderer/components/ThinkingBlock";
 import { useI18n } from "@renderer/i18n/use-i18n";
-import type { Messages } from "@renderer/i18n";
+import { toolStatus, type ToolMessage } from "@renderer/utils/message-metrics";
+import { toolCardFor } from "@renderer/utils/tool-diff";
+import { usePreviewStore } from "@renderer/stores/preview";
+import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import type { AgentTranscript, AgentTranscriptEntry } from "../../../shared/protocol";
 import styles from "./SubagentTranscript.module.css";
 
 const POLL_MS = 1500;
+const NEAR_BOTTOM_PX = 40;
+
+const MarkdownView = lazy(() => import("@renderer/components/MarkdownView"));
+const ToolCallCard = lazy(() => import("@renderer/components/ToolCallCard"));
 
 type Props = {
   agentId: string;
@@ -14,58 +30,91 @@ type Props = {
   active: boolean;
 };
 
-function TranscriptEntry({
-  entry,
-  t,
-}: {
-  entry: AgentTranscriptEntry;
-  t: Messages;
-}): ReactNode {
-  if (entry.kind === "tool") {
-    return (
-      <div className={`${styles.entry} ${styles.tool}`}>
-        <div className={styles.toolHead}>
-          <span className={styles.toolName}>{entry.toolName}</span>
-          {entry.isError ? (
-            <span className={styles.toolError}>{t.agentTranscriptError}</span>
-          ) : null}
-        </div>
-        {entry.args ? <pre className={styles.args}>{entry.args}</pre> : null}
-        {entry.text ? (
-          <pre className={entry.isError ? styles.toolErrorText : styles.toolText}>
-            {entry.text}
-          </pre>
-        ) : null}
-      </div>
-    );
+type ToolEntry = Extract<AgentTranscriptEntry, { kind: "tool" }>;
+
+function entryKey(entry: AgentTranscriptEntry, index: number): string {
+  if (entry.kind === "tool" && entry.callId) return `tool:${entry.callId}`;
+  if (entry.timestamp != null) {
+    const name = entry.kind === "tool" ? entry.toolName : entry.role;
+    return `${entry.kind}:${entry.timestamp}:${name}`;
   }
-  const isUser = entry.role === "user";
+  return `${entry.kind}:${index}`;
+}
+
+function argsOf(entry: ToolEntry): unknown {
+  if (entry.argsValue !== undefined) return entry.argsValue;
+  if (!entry.args) return undefined;
+  try {
+    return JSON.parse(entry.args);
+  } catch {
+    return entry.args;
+  }
+}
+
+function toolMessageOf(entry: ToolEntry, agentId: string, key: string): ToolMessage {
+  const id = `${agentId}:${key}`;
+  return {
+    id,
+    role: "tool",
+    toolCallId: id,
+    toolName: entry.toolName,
+    args: argsOf(entry),
+    result:
+      entry.text != null || entry.resultDetails !== undefined
+        ? {
+            content: entry.text ? [{ type: "text", text: entry.text }] : [],
+            details: entry.resultDetails,
+            isError: entry.isError === true,
+          }
+        : undefined,
+    isError: entry.isError,
+  };
+}
+
+function ToolEntryView({
+  entry,
+  agentId,
+  entryKey: key,
+  onOpen,
+}: {
+  entry: ToolEntry;
+  agentId: string;
+  entryKey: string;
+  onOpen: (path: string) => void;
+}): ReactNode {
+  const message = useMemo(
+    () => toolMessageOf(entry, agentId, key),
+    [agentId, entry, key],
+  );
+  const status = toolStatus(message);
   return (
-    <div className={`${styles.entry} ${isUser ? styles.user : styles.assistant}`}>
-      <div className={styles.role}>
-        {isUser ? t.agentTranscriptUser : t.agentTranscriptAssistant}
-      </div>
-      {entry.thinking ? (
-        <details className={styles.thinking}>
-          <summary>{t.agentTranscriptThinking}</summary>
-          <pre>{entry.thinking}</pre>
-        </details>
-      ) : null}
-      {entry.text ? <pre className={styles.text}>{entry.text}</pre> : null}
+    <div className={styles.toolRow}>
+      <Suspense fallback={null}>
+        <ToolCallCard
+          card={toolCardFor(message)}
+          toolName={entry.toolName}
+          statusLabel={status.label}
+          statusType={status.type}
+          onOpen={onOpen}
+        />
+      </Suspense>
     </div>
   );
 }
 
-/** 子代理对话：独立卡片，展开后按需读取并在运行期间轮询。 */
+/** 子代理对话：复用主消息区的气泡、Markdown 与工具卡，只是缩在独立小卡片里。 */
 export function SubagentTranscript({ agentId, active }: Props): ReactNode {
   const t = useI18n();
   const sessionId = useSessionsStore((state) => state.activeId);
-  const [open, setOpen] = useState(false);
+  const previewStore = usePreviewStore();
+  const rightTabs = useRightTabsStore();
+  const [open, setOpen] = useState(true);
   const [transcript, setTranscript] = useState<AgentTranscript | null>(null);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const bodyRef = useRef<HTMLDivElement | null>(null);
+  const stickToBottom = useRef(true);
 
   useEffect(() => {
     if (!open) return;
@@ -107,10 +156,18 @@ export function SubagentTranscript({ agentId, active }: Props): ReactNode {
   }, [active, agentId, open, reloadKey, sessionId]);
 
   useEffect(() => {
-    if (!open || !active) return;
+    if (!open || !active || !stickToBottom.current) return;
     const el = bodyRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [active, open, transcript]);
+
+  function openPreview(path: string): void {
+    previewStore.openPreview(path);
+    rightTabs.addTab("preview", {
+      filePath: path,
+      label: path.split(/[/\\]/).pop() ?? t.preview,
+    });
+  }
 
   return (
     <div className={styles.card}>
@@ -132,7 +189,16 @@ export function SubagentTranscript({ agentId, active }: Props): ReactNode {
         ) : null}
       </button>
       {open ? (
-        <div className={styles.body} ref={bodyRef} data-inner-scroll="">
+        <div
+          className={styles.body}
+          ref={bodyRef}
+          data-inner-scroll=""
+          onScroll={(event) => {
+            const el = event.currentTarget;
+            stickToBottom.current =
+              el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
+          }}
+        >
           {failed ? (
             <div className={styles.empty}>
               <span>{t.agentTranscriptFailed}</span>
@@ -149,9 +215,47 @@ export function SubagentTranscript({ agentId, active }: Props): ReactNode {
           ) : !transcript || transcript.messages.length === 0 ? (
             <div className={styles.empty}>{t.agentTranscriptEmpty}</div>
           ) : (
-            transcript?.messages.map((entry, index) => (
-              <TranscriptEntry key={index} entry={entry} t={t} />
-            ))
+            transcript.messages.map((entry, index) => {
+              const key = entryKey(entry, index);
+              if (entry.kind === "tool") {
+                return (
+                  <ToolEntryView
+                    key={key}
+                    entry={entry}
+                    agentId={agentId}
+                    entryKey={key}
+                    onOpen={openPreview}
+                  />
+                );
+              }
+              if (entry.role === "user") {
+                return (
+                  <div key={key} className={styles.userRow}>
+                    <div className={styles.userBubble}>{entry.text}</div>
+                  </div>
+                );
+              }
+              return (
+                <div key={key} className={styles.assistantRow}>
+                  {entry.thinking ? (
+                    <ThinkingBlock
+                      thinking={entry.thinking}
+                      autoCollapse
+                      leadingIcon={<BrainOutline size={13} aria-hidden="true" />}
+                    />
+                  ) : null}
+                  {entry.text ? (
+                    <Suspense fallback={<pre className={styles.plain}>{entry.text}</pre>}>
+                      <MarkdownView
+                        content={entry.text}
+                        variant="chat"
+                        className="assistant-md"
+                      />
+                    </Suspense>
+                  ) : null}
+                </div>
+              );
+            })
           )}
         </div>
       ) : null}

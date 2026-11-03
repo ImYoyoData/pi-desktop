@@ -11,7 +11,10 @@ import type {
 import { toIpcPlain } from "../../../shared/protocol";
 import { agentBackendOf, type AgentBackend } from "../../../shared/agent-backend";
 import { currentBackend } from "@renderer/utils/current-backend";
-import { isUnstartedSession } from "@renderer/utils/session-started";
+import {
+  isUnstartedSession,
+  visibleSessionRows,
+} from "@renderer/utils/session-started";
 import { useComposerStore } from "./composer";
 import { useWorkspaceStore } from "./workspace";
 
@@ -380,10 +383,7 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
     if (get().draftRoot && get().draftRoot !== cwd) commit({ draftRoot: null });
     // 预热草稿与崩溃残留的空会话不上侧栏；活动会话始终保留。
     const rows = await window.api.sessions.list(cwd, currentBackend());
-    const activeId = get().activeId;
-    const kept = rows.filter(
-      (row) => row.id === activeId || !isUnstartedSession(row),
-    );
+    const kept = visibleSessionRows(rows, get().activeId);
     commit({
       sessions: kept,
       listRoot: cwd,
@@ -494,8 +494,12 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
   }
 
   async function selectSession(sessionId: string, cwd: string): Promise<void> {
-    // 切到历史会话即放弃草稿，顺带释放预热出来的空会话。
-    await releasePreparedDraft();
+    // 切到历史会话即放弃草稿，顺带释放预热出来的空会话；选中的就是预热草稿时直接认领。
+    if (preparedDraft?.summary.id === sessionId) {
+      preparedDraft = null;
+    } else {
+      await releasePreparedDraft();
+    }
     // 列表已知文件路径时直接用它打开，主进程不必再扫整个会话目录。
     const knownFilePath = get().sessions.find((s) => s.id === sessionId)?.filePath;
     // Open/register in the broker BEFORE flipping activeId.

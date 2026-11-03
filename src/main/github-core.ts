@@ -67,6 +67,21 @@ export function ghEnv(): NodeJS.ProcessEnv {
 	};
 }
 
+/** 读取 gh CLI 里 github.com 的登录令牌；未安装或未登录时返回 null。 */
+export async function readGhToken(): Promise<string | null> {
+	try {
+		const { stdout } = await execFileAsync(
+			"gh",
+			["auth", "token", "--hostname", "github.com"],
+			{ env: ghEnv(), timeout: DEFAULT_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES },
+		);
+		const token = String(stdout).trim();
+		return token || null;
+	} catch {
+		return null;
+	}
+}
+
 const ApiErrorSchema = z.object({
 	message: z.string().catch(""),
 	errors: z

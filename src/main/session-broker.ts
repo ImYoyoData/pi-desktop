@@ -741,12 +741,14 @@ export function createSessionBroker(deps: {
         }
         rec.pendingCommands.delete(msg.id);
         if (msg.error) {
-          // Prompt/command failure ends the turn — UI should not stay "running".
-          setStatus(
-            sessionId,
-            pending.command.type === "prompt" ? "idle" : "error",
-          );
-          emit({ type: "prompt_error", sessionId, errorMessage: msg.error });
+          // 转录读取是只读查询，失败只回给调用方，不能把整个会话标成错误。
+          if (pending.command.type !== "get_agent_transcript") {
+            setStatus(
+              sessionId,
+              pending.command.type === "prompt" ? "idle" : "error",
+            );
+            emit({ type: "prompt_error", sessionId, errorMessage: msg.error });
+          }
           pending.reject(new Error(msg.error));
           return;
         }
@@ -1150,7 +1152,8 @@ export function createSessionBroker(deps: {
       command.type === "rollback_user" ||
       command.type === "rollback_turn_end" ||
       command.type === "abort" ||
-      command.type === "get_state";
+      command.type === "get_state" ||
+      command.type === "get_agent_transcript";
     const outbound = { kind: "command" as const, id: cmdId, command };
 
     if (!awaitsResult) {

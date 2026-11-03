@@ -12,15 +12,6 @@
   margin-top: 14px;
 }
 
-/* 模型行：与 SettingsGroup 卡片同一套行距，控件横向排开 */
-.modelRow {
-  display: grid;
-  grid-template-columns: minmax(150px, 1.6fr) minmax(120px, 1.3fr) 110px 110px auto auto 32px;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-}
-
 .modelActions {
   display: flex;
   justify-content: flex-start;

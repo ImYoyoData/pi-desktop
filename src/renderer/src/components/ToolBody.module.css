@@ -414,16 +414,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.waitText {
-  border-top: 1px solid var(--border);
-}
-
-.waitTextHead {
-  padding: 4px 12px 0;
-  font-size: var(--chat-font-xs, 11px);
-  color: var(--fg-muted);
-}
-
 /* --- 路径清单 --- */
 .pathList {
   padding: 4px 0;
@@ -661,3 +651,131 @@ button.jsonRow:hover { background: color-mix(in srgb, var(--fg) 3%, transparent)
 .jsonType { color: var(--fg-muted); font-size: 0.7692rem; }
 .jsonTruncated { color: var(--warning, #bf8803); font-size: 0.7692rem; }
 .jsonValue { overflow: hidden; text-overflow: ellipsis; }
+
+/* --- 详情卡：每种工具共用同一套头部与小节，内容按 section 分型。 --- */
+.detailSection {
+  min-width: 0;
+}
+
+.detailSection + .detailSection {
+  border-top: 1px solid var(--border);
+  margin-top: 0;
+}
+
+.detailSectionHead {
+  padding: 5px 12px 2px;
+  font-size: var(--chat-font-xs, 11px);
+  color: var(--chat-desc-fg, var(--fg-muted));
+  font-family: var(--font-mono);
+}
+
+.detailDiffs {
+  display: flex;
+  flex-direction: column;
+}
+
+.detailDiff + .detailDiff {
+  border-top: 1px solid var(--border);
+}
+
+.detailItems {
+  margin: 0;
+  padding: 2px 0;
+  list-style: none;
+}
+
+.detailItem {
+  padding: 6px 12px;
+}
+
+.detailItem + .detailItem {
+  border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+.detailItemTitle {
+  font-size: var(--chat-font-s, 12px);
+  color: var(--fg);
+  word-break: break-word;
+}
+
+.detailItemSubtitle {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--chat-font-xs, 11px);
+  color: var(--fg-muted);
+  word-break: break-word;
+}
+
+.detailItem .plain {
+  padding: 4px 0 0;
+}
+
+.detailOk .detailItemTitle { color: var(--success, #587c0c); }
+.detailError .detailItemTitle { color: var(--error, #d03050); }
+.detailMuted .detailItemTitle { color: var(--fg-muted); }
+
+.detailLinks {
+  margin: 0;
+  padding: 2px 0;
+  list-style: none;
+}
+
+.detailLinkItem {
+  padding: 6px 12px;
+}
+
+.detailLinkItem + .detailLinkItem {
+  border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+.detailLink {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.detailLinkTitle {
+  font-size: var(--chat-font-s, 12px);
+  color: var(--accent, #4f8cff);
+}
+
+.detailLinkTitle:hover {
+  text-decoration: underline;
+}
+
+.detailLink:disabled {
+  cursor: default;
+}
+
+.detailLink:disabled .detailLinkTitle {
+  color: var(--fg-muted);
+  text-decoration: none;
+}
+
+.detailLinkUrl {
+  font-family: var(--font-mono);
+  font-size: var(--chat-font-xs, 11px);
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detailLinkSnippet {
+  margin: 3px 0 0;
+  font-size: var(--chat-font-xs, 11px);
+  line-height: 1.5;
+  color: var(--fg-muted);
+  word-break: break-word;
+}
+
+.detailTranscript {
+  border-top: 1px solid var(--border);
+  padding-bottom: 4px;
+}

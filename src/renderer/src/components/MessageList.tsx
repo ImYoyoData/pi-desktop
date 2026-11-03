@@ -38,6 +38,7 @@ import { useAppearanceStore } from "@renderer/stores/appearance";
 import ThinkingBlock from "@renderer/components/ThinkingBlock";
 import ToolCallCard from "@renderer/components/ToolCallCard";
 import AskUserStrip from "@renderer/components/AskUserStrip";
+import ExtensionUiStrip from "@renderer/components/ExtensionUiStrip";
 import TurnDiffSummary from "@renderer/components/TurnDiffSummary";
 import WorkSectionGroup from "@renderer/components/WorkSectionGroup";
 import AgentWaitIndicator from "@renderer/components/AgentWaitIndicator";
@@ -1575,7 +1576,8 @@ export function MessageList({
    * 尾部提示（排队卡片 / 等待 / 重试）是 .inner 里的非虚拟元素，高度变化不会触发
    * virtua 的 resize；贴底时单独收敛一次，否则它们会被裁在视口外。
    */
-  const tailMarkers = `${pendingCards.length}:${dockAsk ? 1 : 0}:${retryHint ? 1 : 0}:${waitState ? 1 : 0}`;
+  const extUiOpen = Boolean(chat.activePendingExtensionUi);
+  const tailMarkers = `${pendingCards.length}:${dockAsk ? 1 : 0}:${extUiOpen ? 1 : 0}:${retryHint ? 1 : 0}:${waitState ? 1 : 0}`;
   useEffect(() => {
     scheduleBottomScroll();
   }, [tailMarkers]);
@@ -1952,6 +1954,7 @@ export function MessageList({
           </Virtualizer>
 
           {dockAsk ? <AskUserStrip /> : null}
+          {chat.activePendingExtensionUi ? <ExtensionUiStrip /> : null}
 
           {showJumpLatest ? null : (
             <>

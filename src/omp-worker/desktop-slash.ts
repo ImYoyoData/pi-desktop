@@ -482,6 +482,8 @@ export async function runDesktopSlashCommand(
 	if (!parsed) return notHandled;
 	const entry = findOmpSlashCommand(parsed.name);
 	if (!entry) return notHandled;
+	// 随包自定义命令由 AgentSession 展开为提示词，worker 不拦截。
+	if (entry.source === "custom") return notHandled;
 	switch (entry.name) {
 		case "settings":
 			return info("Open settings from the desktop settings page.");

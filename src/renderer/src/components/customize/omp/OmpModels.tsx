@@ -1,9 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, Input, InputNumber, Select, Spin } from "antd";
 import {
 	AddOutline,
 	TrashOutline,
 } from "@renderer/components/icons/ionicons";
+import CodiconIcon from "@renderer/components/icons/CodiconIcon";
 import {
 	SettingsGroup,
 	SettingsRow,
@@ -41,6 +42,10 @@ export function OmpModels(): ReactNode {
 	const [providers, setProviders] = useState<OmpProviderRow[]>([]);
 	const [selectedIndex, setSelectedIndex] = useState(0);
 	const [saving, setSaving] = useState(false);
+	/** 模型行用稳定 key，删除行时不串展开状态。 */
+	const [rowKeys, setRowKeys] = useState<string[]>([]);
+	const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
+	const rowKeySeq = useRef(0);
 
 	useEffect(() => {
 		void (async () => {
@@ -48,6 +53,7 @@ export function OmpModels(): ReactNode {
 				const next = await window.api.ompModels.get();
 				setSnapshot(next);
 				setProviders(next.providers);
+				resetRowKeys(next.providers[0]?.models.length ?? 0);
 			} catch (err) {
 				message.error(err instanceof Error ? err.message : String(err));
 			}
@@ -56,6 +62,26 @@ export function OmpModels(): ReactNode {
 
 	const selected = providers[selectedIndex] ?? null;
 	const dirty = snapshot ? draftKey(providers) !== draftKey(snapshot.providers) : false;
+
+	function nextRowKey(): string {
+		rowKeySeq.current += 1;
+		return `m-${rowKeySeq.current}`;
+	}
+
+	function resetRowKeys(count: number): void {
+		const keys: string[] = [];
+		for (let i = 0; i < count; i += 1) keys.push(nextRowKey());
+		setRowKeys(keys);
+	}
+
+	function toggleRow(key: string): void {
+		setExpandedRows((prev) => ({ ...prev, [key]: !prev[key] }));
+	}
+
+	function selectProvider(index: number): void {
+		setSelectedIndex(index);
+		resetRowKeys(providers[index]?.models.length ?? 0);
+	}
 
 	function patchProvider(index: number, patch: Partial<OmpProviderRow>): void {
 		setProviders((prev) =>
@@ -85,20 +111,29 @@ export function OmpModels(): ReactNode {
 	}
 
 	function addProvider(): void {
+		const index = providers.length;
 		setProviders((prev) => [...prev, newOmpProvider()]);
-		setSelectedIndex(providers.length);
+		setSelectedIndex(index);
+		resetRowKeys(0);
 	}
 
 	function removeProvider(index: number): void {
-		setProviders((prev) => prev.filter((_, i) => i !== index));
-		setSelectedIndex((prev) => (prev > 0 && prev >= index ? prev - 1 : prev));
+		const remaining = providers.filter((_, i) => i !== index);
+		const nextIndex =
+			selectedIndex > 0 && selectedIndex >= index ? selectedIndex - 1 : selectedIndex;
+		const clamped = Math.min(Math.max(nextIndex, 0), Math.max(remaining.length - 1, 0));
+		setProviders(remaining);
+		setSelectedIndex(clamped);
+		resetRowKeys(remaining[clamped]?.models.length ?? 0);
 	}
 
 	function addModel(): void {
 		if (!selected) return;
+		const key = nextRowKey();
 		patchProvider(selectedIndex, {
 			models: [...selected.models, newOmpModel()],
 		});
+		setRowKeys((prev) => [...prev, key]);
 	}
 
 	function removeModel(modelIndex: number): void {
@@ -106,11 +141,13 @@ export function OmpModels(): ReactNode {
 		patchProvider(selectedIndex, {
 			models: selected.models.filter((_, i) => i !== modelIndex),
 		});
+		setRowKeys((prev) => prev.filter((_, i) => i !== modelIndex));
 	}
 
 	function reset(): void {
 		if (!snapshot) return;
 		setProviders(snapshot.providers);
+		resetRowKeys(snapshot.providers[selectedIndex]?.models.length ?? 0);
 	}
 
 	async function save(): Promise<void> {
@@ -119,6 +156,7 @@ export function OmpModels(): ReactNode {
 			const next = await window.api.ompModels.save(providers);
 			setSnapshot(next);
 			setProviders(next.providers);
+			resetRowKeys(next.providers[selectedIndex]?.models.length ?? 0);
 			message.success(t.ompSaved);
 		} catch (err) {
 			message.error(err instanceof Error ? err.message : String(err));
@@ -156,7 +194,7 @@ export function OmpModels(): ReactNode {
 											? `${modelsStyles.providerItem} ${modelsStyles.selected}`
 											: modelsStyles.providerItem
 									}
-									onClick={() => setSelectedIndex(index)}
+									onClick={() => selectProvider(index)}
 								>
 									<span className={modelsStyles.providerHead}>
 										<span className={modelsStyles.providerName}>
@@ -277,79 +315,164 @@ export function OmpModels(): ReactNode {
 											{t.ompEmptyModels}
 										</p>
 									) : (
-											selected.models.map((model, modelIndex) => (
-												<div key={modelIndex} className={styles.modelRow}>
-													<Input
-														size="small"
-														value={model.id}
-														placeholder={t.ompModelId}
-														onChange={(event) =>
-															patchModel(selectedIndex, modelIndex, {
-																id: event.target.value,
-															})
-														}
-													/>
-													<Input
-														size="small"
-														value={model.name}
-														placeholder={t.ompModelName}
-														onChange={(event) =>
-															patchModel(selectedIndex, modelIndex, {
-																name: event.target.value,
-															})
-														}
-													/>
-													<InputNumber
-														size="small"
-														value={model.contextWindow}
-														placeholder={t.ompModelContext}
-														min={1}
-														onChange={(value) =>
-															patchModel(selectedIndex, modelIndex, {
-																contextWindow:
-																	typeof value === "number" ? value : null,
-															})
-														}
-													/>
-													<InputNumber
-														size="small"
-														value={model.maxTokens}
-														placeholder={t.ompModelMaxTokens}
-														min={1}
-														onChange={(value) =>
-															patchModel(selectedIndex, modelIndex, {
-																maxTokens:
-																	typeof value === "number" ? value : null,
-															})
-														}
-													/>
-													<SettingsSwitch
-														checked={model.reasoning}
-														label={t.ompModelReasoning}
-														onChange={(reasoning) =>
-															patchModel(selectedIndex, modelIndex, {
-																reasoning,
-															})
-														}
-													/>
-													<SettingsSwitch
-														checked={model.vision}
-														label={t.ompModelVision}
-														onChange={(vision) =>
-															patchModel(selectedIndex, modelIndex, { vision })
-														}
-													/>
-													<button
-														type="button"
-														className={modelsStyles.detailRemove}
-														title={t.ompModelRemove}
-														aria-label={t.ompModelRemove}
-														onClick={() => removeModel(modelIndex)}
-													>
-														<TrashOutline size={14} />
-													</button>
-												</div>
-											))
+											selected.models.map((model, modelIndex) => {
+												const rowKey =
+													rowKeys[modelIndex] ?? String(modelIndex);
+												const expanded = Boolean(expandedRows[rowKey]);
+												return (
+													<div key={rowKey} className={modelsStyles.modelRow}>
+														<div className={modelsStyles.modelRowMain}>
+															<button
+																type="button"
+																className={
+																	expanded
+																		? `${modelsStyles.modelExpander} ${modelsStyles.modelExpanderOpen}`
+																		: modelsStyles.modelExpander
+																}
+																title={t.ompModelSettings}
+																aria-label={t.ompModelSettings}
+																aria-expanded={expanded}
+																onClick={() => toggleRow(rowKey)}
+															>
+																<CodiconIcon
+																	name={
+																		expanded
+																			? "chevronDown"
+																			: "chevronRight"
+																	}
+																	size={14}
+																/>
+															</button>
+															<Input
+																size="small"
+																value={model.id}
+																aria-label={t.ompModelId}
+																placeholder={t.ompModelId}
+																onChange={(event) =>
+																	patchModel(
+																		selectedIndex,
+																		modelIndex,
+																		{ id: event.target.value },
+																	)
+																}
+															/>
+															<Input
+																size="small"
+																value={model.name}
+																aria-label={t.ompModelName}
+																placeholder={t.ompModelName}
+																onChange={(event) =>
+																	patchModel(
+																		selectedIndex,
+																		modelIndex,
+																		{ name: event.target.value },
+																	)
+																}
+															/>
+															<span className={modelsStyles.modelToggle}>
+																<span className={modelsStyles.modelToggleLabel}>
+																	{t.ompModelReasoning}
+																</span>
+																<SettingsSwitch
+																	checked={model.reasoning}
+																	label={t.ompModelReasoning}
+																	onChange={(reasoning) =>
+																		patchModel(
+																			selectedIndex,
+																			modelIndex,
+																			{ reasoning },
+																		)
+																	}
+																/>
+															</span>
+															<span className={modelsStyles.modelToggle}>
+																<span className={modelsStyles.modelToggleLabel}>
+																	{t.ompModelVision}
+																</span>
+																<SettingsSwitch
+																	checked={model.vision}
+																	label={t.ompModelVision}
+																	onChange={(vision) =>
+																		patchModel(
+																			selectedIndex,
+																			modelIndex,
+																			{ vision },
+																		)
+																	}
+																/>
+															</span>
+															<button
+																type="button"
+																className={`${modelsStyles.modelAction} ${modelsStyles.modelRemove}`}
+																title={t.ompModelRemove}
+																aria-label={t.ompModelRemove}
+																onClick={() => removeModel(modelIndex)}
+															>
+																<TrashOutline size={14} />
+															</button>
+														</div>
+
+														{expanded ? (
+															<div className={modelsStyles.modelRowBody}>
+																<label className={modelsStyles.modelField}>
+																	<span
+																		className={modelsStyles.modelFieldLabel}
+																	>
+																		{t.ompModelContext}
+																	</span>
+																	<InputNumber
+																		size="small"
+																		controls={false}
+																		value={model.contextWindow}
+																		placeholder={t.ompModelContext}
+																		min={1}
+																		onChange={(value: number | null) =>
+																			patchModel(
+																				selectedIndex,
+																				modelIndex,
+																				{
+																					contextWindow:
+																						typeof value ===
+																						"number"
+																							? value
+																							: null,
+																				},
+																			)
+																		}
+																	/>
+																</label>
+																<label className={modelsStyles.modelField}>
+																	<span
+																		className={modelsStyles.modelFieldLabel}
+																	>
+																		{t.ompModelMaxTokens}
+																	</span>
+																	<InputNumber
+																		size="small"
+																		controls={false}
+																		value={model.maxTokens}
+																		placeholder={t.ompModelMaxTokens}
+																		min={1}
+																		onChange={(value: number | null) =>
+																			patchModel(
+																				selectedIndex,
+																				modelIndex,
+																				{
+																					maxTokens:
+																						typeof value ===
+																						"number"
+																							? value
+																							: null,
+																				},
+																			)
+																		}
+																	/>
+																</label>
+															</div>
+														) : null}
+													</div>
+												);
+											})
 										)}
 										<div className={styles.modelActions}>
 											<Button type="text" size="small" onClick={addModel}>

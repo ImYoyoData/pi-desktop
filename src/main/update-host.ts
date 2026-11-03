@@ -7,8 +7,16 @@ import {
 	APP_GITHUB_URL,
 	APP_RELEASES_URL,
 } from "../shared/app-meta";
-import type { AppUpdateProgress, AppUpdateState } from "../shared/update";
+import {
+	AUTO_UPDATE_CHECK_PREF,
+	UPDATE_CHECK_INTERVAL_PREF,
+	isAutoUpdateCheckEnabled,
+	parseUpdateCheckIntervalHours,
+	type AppUpdateProgress,
+	type AppUpdateState,
+} from "../shared/update";
 import { isOfflineMode } from "../shared/offline";
+import { onPrefsChanged, prefsPath, readPrefs } from "./prefs-store";
 import {
 	checkForAppUpdate,
 	launchAppUpdate,
@@ -29,6 +37,9 @@ let state: AppUpdateState = {
 let downloadedPath: string | null = null;
 let download: AppUpdateDownload | null = null;
 let cancelRequested = false;
+let autoCheckTimer: NodeJS.Timeout | null = null;
+
+const HOUR_MS = 60 * 60 * 1000;
 
 function errorMessage(err: unknown): string {
 	return err instanceof Error ? err.message : String(err);
@@ -56,6 +67,63 @@ async function runCheck(): Promise<AppUpdateState> {
 		publish({ status: "idle", info: null, progress: null, error: errorMessage(err) });
 	}
 	return state;
+}
+
+/** 读取自动检查的间隔；关闭或离线时返回 null。 */
+function autoCheckIntervalMs(): number | null {
+	if (isOfflineMode()) return null;
+	const prefs = readPrefs(prefsPath());
+	if (!isAutoUpdateCheckEnabled(prefs)) return null;
+	return parseUpdateCheckIntervalHours(prefs[UPDATE_CHECK_INTERVAL_PREF]) * HOUR_MS;
+}
+
+function clearAutoCheckTimer(): void {
+	if (autoCheckTimer === null) return;
+	clearTimeout(autoCheckTimer);
+	autoCheckTimer = null;
+}
+
+function scheduleAutoCheck(delayMs: number): void {
+	clearAutoCheckTimer();
+	autoCheckTimer = setTimeout(() => {
+		autoCheckTimer = null;
+		void runScheduledCheck();
+	}, delayMs);
+	autoCheckTimer.unref();
+}
+
+/** 定时检查：已有更新或正在检查、下载时不再打扰当前流程。 */
+async function runScheduledCheck(): Promise<void> {
+	const busy =
+		state.status === "checking" ||
+		state.status === "available" ||
+		state.status === "downloading" ||
+		state.status === "ready";
+	if (!busy) await runCheck();
+	const interval = autoCheckIntervalMs();
+	if (interval !== null && autoCheckTimer === null) scheduleAutoCheck(interval);
+}
+
+/** 按当前偏好启动自动检查；启动时延迟检查，避开首屏加载。 */
+function startAutoCheck(delayMs = AUTO_CHECK_DELAY_MS): void {
+	if (autoCheckIntervalMs() === null) {
+		clearAutoCheckTimer();
+		return;
+	}
+	scheduleAutoCheck(delayMs);
+}
+
+/** 自动检查相关偏好变化后立即生效：关闭时停表，开启或改间隔时重新计时。 */
+function applyAutoCheckPrefs(keys: string[]): void {
+	if (!keys.includes(AUTO_UPDATE_CHECK_PREF) && !keys.includes(UPDATE_CHECK_INTERVAL_PREF)) {
+		return;
+	}
+	const interval = autoCheckIntervalMs();
+	if (interval === null) {
+		clearAutoCheckTimer();
+		return;
+	}
+	scheduleAutoCheck(keys.includes(AUTO_UPDATE_CHECK_PREF) ? AUTO_CHECK_DELAY_MS : interval);
 }
 
 /** 下载新版本，过程与结果通过状态广播给渲染层。 */
@@ -161,8 +229,6 @@ export function registerUpdateIpc(): void {
 	ipcMain.handle(IpcChannels.update.install, () => runInstall());
 
 	registerUpdateToastIpc();
-
-	setTimeout(() => {
-		void runCheck();
-	}, AUTO_CHECK_DELAY_MS);
+	onPrefsChanged(applyAutoCheckPrefs);
+	startAutoCheck();
 }

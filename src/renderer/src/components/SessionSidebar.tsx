@@ -67,7 +67,10 @@ import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useWorkspaceStore, type WorkspaceState } from "@renderer/stores/workspace";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useKeybindingsStore } from "@renderer/stores/keybindings";
-import { isUnstartedSession } from "@renderer/utils/session-started";
+import {
+  isUnstartedSession,
+  visibleSessionRows,
+} from "@renderer/utils/session-started";
 import { isTextEntryTarget } from "@renderer/utils/keyboard-target";
 import { buildSessionTree, type SessionTreeItem } from "@renderer/utils/session-tree";
 import {
@@ -626,7 +629,12 @@ export function SessionSidebar(): ReactNode {
 
   async function loadSessions(root: string): Promise<SessionSummary[]> {
     markRendererStartup("renderer:sessions-request");
-    const list = await window.api.sessions.list(root, currentBackend());
+    const rows = await window.api.sessions.list(root, currentBackend());
+    // 预热草稿是主进程里的活动记录，会混进列表；侧栏只展示正式会话。
+    const list = visibleSessionRows(
+      rows,
+      useSessionsStore.getState().activeId,
+    );
     setSessionsByRoot((prev) => ({ ...prev, [root]: list }));
     pruneSessionRanks(root, new Set(list.map((s) => s.id)));
     useSessionsStore.getState().replaceList(root, list);

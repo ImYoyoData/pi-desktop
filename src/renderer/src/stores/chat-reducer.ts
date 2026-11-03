@@ -250,6 +250,59 @@ export function capStoredToolResult(result: ToolResultValue): ToolResultValue {
 	return `${result.slice(0, RESULT_STORE_HEAD_CHARS)}\n\u2026 [output truncated, ${countResultLines(result)} lines total]\n${result.slice(-RESULT_STORE_TAIL_CHARS)}`;
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const WAIT_JOB_METRICS = [
+	"requests",
+	"cost",
+	"contextTokens",
+	"contextWindow",
+] as const;
+
+/** 完成时的 wait 快照会丢掉运行期指标；用最后一份 partial 补齐，避免任务行越跑越空。 */
+export function mergeWaitJobSnapshot(
+	prior: ToolResultValue,
+	next: ToolResultValue,
+): ToolResultValue {
+	if (!isPlainRecord(prior) || !isPlainRecord(next)) return next;
+	const priorDetails = isPlainRecord(prior.details) ? prior.details : null;
+	const nextDetails = isPlainRecord(next.details) ? next.details : null;
+	if (!priorDetails || !nextDetails) return next;
+	const priorJobs = Array.isArray(priorDetails.jobs) ? priorDetails.jobs : null;
+	const nextJobs = Array.isArray(nextDetails.jobs) ? nextDetails.jobs : null;
+	if (!priorJobs || !nextJobs) return next;
+	const byId = new Map<string, Record<string, unknown>>();
+	for (const job of priorJobs) {
+		if (isPlainRecord(job) && typeof job.id === "string") byId.set(job.id, job);
+	}
+	const jobs = nextJobs.map((job) => {
+		if (!isPlainRecord(job) || typeof job.id !== "string") return job;
+		const previous = byId.get(job.id);
+		if (!previous) return job;
+		const merged: Record<string, unknown> = { ...job };
+		for (const key of WAIT_JOB_METRICS) {
+			if (merged[key] === undefined && previous[key] !== undefined) {
+				merged[key] = previous[key];
+			}
+		}
+		const nextWidget = isPlainRecord(job.widget) ? job.widget : null;
+		const previousWidget = isPlainRecord(previous.widget) ? previous.widget : null;
+		if (
+			nextWidget &&
+			previousWidget &&
+			(!Array.isArray(nextWidget.blocks) || nextWidget.blocks.length === 0) &&
+			Array.isArray(previousWidget.blocks) &&
+			previousWidget.blocks.length > 0
+		) {
+			merged.widget = { ...nextWidget, blocks: previousWidget.blocks };
+		}
+		return merged;
+	});
+	return { ...next, details: { ...nextDetails, jobs } };
+}
+
 /** Keep / clear turn clocks after a reducer step. */
 export function withRunClock(
 	state: ChatState,
@@ -1561,13 +1614,20 @@ function reduceAgentPayload(
 		const existing = idx >= 0 ? state.messages[idx] : undefined;
 		const prior = stream ?? (existing?.role === "tool" ? existing : null);
 		const recordedMs = recordedDurationMs(payload);
+		const finalResult = toToolResultValue(payload.result);
+		const finalToolName = String(payload.toolName ?? prior?.toolName ?? "tool");
+		const priorResult = prior ? toToolResultValue(prior.result) : undefined;
+		const result =
+			finalToolName === "wait" && priorResult !== undefined
+				? mergeWaitJobSnapshot(priorResult, finalResult)
+				: finalResult;
 		const toolMsg: ChatMessage = {
 			id: prior?.id ?? id,
 			role: "tool",
 			toolCallId,
-			toolName: String(payload.toolName ?? prior?.toolName ?? "tool"),
+			toolName: finalToolName,
 			args: prior?.args ?? payload.args,
-			result: capStoredToolResult(toToolResultValue(payload.result)),
+			result: capStoredToolResult(result),
 			isError: Boolean(payload.isError),
 			streaming: false,
 			order: prior?.order,

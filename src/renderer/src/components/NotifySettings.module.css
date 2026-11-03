@@ -3,3 +3,8 @@
   flex-direction: column;
   gap: 16px;
 }
+
+.settingSelect {
+  flex-shrink: 0;
+  width: 160px;
+}

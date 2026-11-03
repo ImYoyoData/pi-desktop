@@ -50,7 +50,8 @@
 				"description": "Set a finding disposition with rationale"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "settings",
@@ -58,7 +59,8 @@
 		"description": "Open settings menu",
 		"hint": null,
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "setup",
@@ -73,7 +75,8 @@
 				"description": "Configure sign-in and web search providers"
 			}
 		],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "plan",
@@ -81,7 +84,8 @@
 		"description": "Toggle plan mode (agent plans before executing)",
 		"hint": "[prompt]",
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "plan-review",
@@ -89,7 +93,8 @@
 		"description": "Re-open the plan review for the latest plan (plan mode only)",
 		"hint": null,
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "vibe",
@@ -97,7 +102,8 @@
 		"description": "Toggle vibe mode (direct persistent fast/good worker sessions; read-only toolset)",
 		"hint": "[prompt]",
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "goal",
@@ -130,7 +136,8 @@
 				"description": "Adjust the token budget"
 			}
 		],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "guided-goal",
@@ -138,7 +145,8 @@
 		"description": "Have the agent interview you in chat, then set up goal mode",
 		"hint": "[rough objective]",
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "loop",
@@ -146,7 +154,8 @@
 		"description": "Toggle loop mode. While enabled, the next prompt you send re-submits after every yield. Bound it with a count/duration, or gate it with `--until '<cmd>'` / `--while '<cmd>'` — the command's exit status decides whether the next iteration runs. Esc suspends the ongoing loop; /loop again to disable.",
 		"hint": "[count|duration] [--while|--until '<cmd>'] [prompt]",
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "queue",
@@ -154,7 +163,8 @@
 		"description": "Queue a message for after the agent yields",
 		"hint": "<message>",
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "model",
@@ -164,7 +174,8 @@
 		"description": "Switch model for this session",
 		"hint": null,
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "switch",
@@ -172,7 +183,8 @@
 		"description": "Switch model for this session (same as Alt+P); accepts fuzzy ids, provider/id, @role, :level",
 		"hint": "[model]",
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "fast",
@@ -197,7 +209,8 @@
 				"description": "Show fast mode status"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "slow",
@@ -218,7 +231,8 @@
 				"description": "Show slow mode status"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "skillful",
@@ -239,7 +253,8 @@
 				"description": "Show skill listing status"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "extended-context",
@@ -260,7 +275,8 @@
 				"description": "Show extended context status"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "computer",
@@ -281,7 +297,8 @@
 				"description": "Show computer use status"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "ratchet",
@@ -289,7 +306,8 @@
 		"description": "Build (or reuse) an eval for an LLM flow, then hillclimb it unattended",
 		"hint": "[flow and goal]",
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "prewalk",
@@ -306,7 +324,8 @@
 				"description": "Cancel this session's handoff without changing the active model"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "modelpreset",
@@ -331,7 +350,8 @@
 				"description": "Delete a saved preset"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "effort",
@@ -372,7 +392,8 @@
 				"description": "Auto-detect per prompt"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "advisor",
@@ -401,7 +422,8 @@
 				"description": "Open the advisor configuration editor (TUI)"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "export",
@@ -409,7 +431,8 @@
 		"description": "Export session to HTML file",
 		"hint": "[--themes] [path]",
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "trace",
@@ -417,7 +440,8 @@
 		"description": "Open this session's trace in the stats dashboard",
 		"hint": null,
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "dump",
@@ -434,7 +458,8 @@
 				"description": "Write a zip of anonymized session JSONL (contents redacted, metadata kept) plus subagents"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "share",
@@ -442,7 +467,8 @@
 		"description": "Share session via an encrypted link (share server or secret gist)",
 		"hint": null,
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "collab",
@@ -467,7 +493,8 @@
 				"description": "Stop sharing"
 			}
 		],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "join",
@@ -475,7 +502,8 @@
 		"description": "Join a shared collab session",
 		"hint": "<link>",
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "leave",
@@ -483,7 +511,8 @@
 		"description": "Leave the collab session",
 		"hint": null,
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "browser",
@@ -500,7 +529,8 @@
 				"description": "Switch to visible mode"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "copy",
@@ -508,7 +538,8 @@
 		"description": "Pick text or code from the conversation to copy",
 		"hint": null,
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "open",
@@ -516,7 +547,8 @@
 		"description": "Open the last link from the conversation in your browser (or pick one with /copy)",
 		"hint": null,
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "todo",
@@ -569,7 +601,8 @@
 				"description": "Remove task/phase/all (fuzzy-matched)"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "session",
@@ -590,7 +623,8 @@
 				"description": "Pin a stored OAuth account to the current provider for this session"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "jobs",
@@ -607,7 +641,8 @@
 				"description": "Cancel a running background job"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "usage",
@@ -624,7 +659,8 @@
 				"description": "Spend a saved provider rate-limit reset"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "stats",
@@ -632,7 +668,8 @@
 		"description": "Launch the local stats dashboard",
 		"hint": "[--port <port>] [--host <host>]",
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "changelog",
@@ -649,7 +686,8 @@
 				"description": "Show the last N releases (default 1)"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "hotkeys",
@@ -657,7 +695,8 @@
 		"description": "Show all keyboard shortcuts",
 		"hint": null,
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "tools",
@@ -665,7 +704,8 @@
 		"description": "Show tools currently visible to the agent",
 		"hint": null,
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "context",
@@ -673,7 +713,8 @@
 		"description": "Browse context usage and detailed content",
 		"hint": null,
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "extensions",
@@ -683,7 +724,8 @@
 		"description": "Open Extension Control Center dashboard",
 		"hint": null,
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "agents",
@@ -691,7 +733,8 @@
 		"description": "Open the agents hub (per-agent model, prewalk, and advisor)",
 		"hint": null,
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "git",
@@ -699,7 +742,8 @@
 		"description": "Open the git UI (split diff viewer, staging, commit composer)",
 		"hint": "[revision]",
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "local",
@@ -707,7 +751,8 @@
 		"description": "Open a session local:// file in $EDITOR (picker when no name given)",
 		"hint": "[name]",
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "hub",
@@ -717,7 +762,8 @@
 		"description": "Open the live Agent Hub (subagents, including finished ones)",
 		"hint": null,
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "branch",
@@ -727,7 +773,8 @@
 		"description": "Rewind to a previous message, keeping the old path as a branch",
 		"hint": null,
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "fork",
@@ -748,7 +795,8 @@
 				"description": "Alias for window"
 			}
 		],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "tree",
@@ -756,7 +804,8 @@
 		"description": "Navigate session tree (switch branches)",
 		"hint": null,
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "login",
@@ -764,7 +813,8 @@
 		"description": "Login with OAuth provider",
 		"hint": "[provider|redirect URL]",
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "logout",
@@ -772,7 +822,8 @@
 		"description": "Logout from OAuth provider",
 		"hint": "[provider]",
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "mcp",
@@ -849,7 +900,8 @@
 				"description": "Show help message"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "ssh",
@@ -874,7 +926,8 @@
 				"description": "Show help message"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "new",
@@ -882,7 +935,8 @@
 		"description": "Start a new session",
 		"hint": null,
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "fresh",
@@ -890,7 +944,8 @@
 		"description": "Reset provider stream state without changing the local transcript",
 		"hint": null,
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "clear",
@@ -898,7 +953,8 @@
 		"description": "Clear the conversation context in place, keeping the session",
 		"hint": null,
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "delete",
@@ -906,7 +962,8 @@
 		"description": "Delete the current session and start a new one",
 		"hint": null,
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "compact",
@@ -927,7 +984,8 @@
 				"description": "Archive history onto dense bitmap images the model reads back (no LLM call)"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "shake",
@@ -948,7 +1006,8 @@
 				"description": "Drop all thinking blocks"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "handoff",
@@ -956,7 +1015,8 @@
 		"description": "Summarize the session into a handoff document and compact in place",
 		"hint": "[focus instructions]",
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "seance",
@@ -964,7 +1024,8 @@
 		"description": "Consult a saved session without resuming it",
 		"hint": "[session id|path] [--model selector]",
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "resume",
@@ -972,7 +1033,8 @@
 		"description": "Resume a different session",
 		"hint": "[session id|@claude|@codex]",
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "pin",
@@ -980,7 +1042,8 @@
 		"description": "Pin or unpin a session at the top of the resume list",
 		"hint": "[session id]",
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "btw",
@@ -988,7 +1051,8 @@
 		"description": "Ask a side question, or browse this session's BTW history",
 		"hint": "[question]",
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "tan",
@@ -996,7 +1060,8 @@
 		"description": "Run a full background agent on tangential work",
 		"hint": "<work>",
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "omfg",
@@ -1004,7 +1069,8 @@
 		"description": "Forge a TTSR rule from a complaint to stop a recurring behavior",
 		"hint": "<complaint>",
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "cleanse",
@@ -1012,7 +1078,8 @@
 		"description": "Detect and fix project diagnostics with weighted parallel subagents",
 		"hint": "[request] [--all]",
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "retry",
@@ -1020,7 +1087,8 @@
 		"description": "Retry the last failed agent turn",
 		"hint": null,
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "debug",
@@ -1028,7 +1096,8 @@
 		"description": "Open debug tools selector",
 		"hint": null,
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "memory",
@@ -1101,7 +1170,8 @@
 				"description": "Re-pull the cached <mental_models> block"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "rename",
@@ -1109,7 +1179,8 @@
 		"description": "Rename the current session (omit title to generate)",
 		"hint": "[title]",
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "move",
@@ -1117,7 +1188,8 @@
 		"description": "Move the current session to a different directory",
 		"hint": "[<path>]",
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "wt",
@@ -1127,7 +1199,8 @@
 		"description": "Move this session into a new worktree, changes included",
 		"hint": "[<branch>]",
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "add-dir",
@@ -1135,7 +1208,8 @@
 		"description": "Add a workspace directory to this session (multi-root)",
 		"hint": "<path>",
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "remove-dir",
@@ -1143,7 +1217,8 @@
 		"description": "Remove a workspace directory from this session",
 		"hint": "<path>",
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "dirs",
@@ -1151,7 +1226,8 @@
 		"description": "List this session's workspace directories",
 		"hint": null,
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "exit",
@@ -1159,7 +1235,8 @@
 		"description": "Exit the application",
 		"hint": null,
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "restart",
@@ -1167,7 +1244,8 @@
 		"description": "Restart omp with the same launch flags, resuming this session",
 		"hint": null,
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "marketplace",
@@ -1216,7 +1294,8 @@
 				"description": "Show usage guide"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "plugins",
@@ -1239,7 +1318,8 @@
 				"description": "Disable an installed plugin"
 			}
 		],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "reload-plugins",
@@ -1247,7 +1327,8 @@
 		"description": "Reload all plugins (skills, commands, hooks, tools, agents, MCP)",
 		"hint": null,
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "skills",
@@ -1272,7 +1353,8 @@
 				"description": "Update registry skills within their ranges"
 			}
 		],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "force",
@@ -1282,7 +1364,8 @@
 		"description": "Force next turn to use a specific tool",
 		"hint": "<tool-name> [prompt]",
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "live",
@@ -1290,7 +1373,8 @@
 		"description": "Start Codex-backed realtime voice mode",
 		"hint": null,
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "record",
@@ -1298,7 +1382,8 @@
 		"description": "Start or stop recording this screen to a replayable file (omp play)",
 		"hint": null,
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "pause",
@@ -1306,7 +1391,8 @@
 		"description": "Freeze all agents (main, subagents, advisor) until resumed",
 		"hint": null,
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
 	},
 	{
 		"name": "forget-approvals",
@@ -1314,7 +1400,8 @@
 		"description": "Forget every file and folder approval Ask and remember has recorded",
 		"hint": null,
 		"subcommands": [],
-		"handles": true
+		"handles": true,
+		"source": "builtin"
 	},
 	{
 		"name": "quit",
@@ -1324,6 +1411,34 @@
 		"description": "Quit the application",
 		"hint": null,
 		"subcommands": [],
-		"handles": false
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "green",
+		"aliases": [],
+		"description": "Generate a prompt to iterate on CI failures until the branch is green",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "custom"
+	},
+	{
+		"name": "review",
+		"aliases": [],
+		"description": "Launch interactive code review",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "custom"
+	},
+	{
+		"name": "annotate",
+		"aliases": [],
+		"description": "Annotate a diff or text from a file, prompt, latest reply, or session",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "custom"
 	}
 ]

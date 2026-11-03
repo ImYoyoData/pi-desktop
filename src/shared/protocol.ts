@@ -489,8 +489,15 @@ export type AgentTranscriptEntry =
 	| {
 			kind: "tool";
 			toolName: string;
+			/** 模型给这次调用的 id，用于稳定渲染 key。 */
+			callId?: string;
+			/** 参数 JSON 文本，解析失败或超长时作展示兜底。 */
 			args?: string;
+			/** 裁剪后的参数对象，供工具卡片复用主消息区的解析。 */
+			argsValue?: unknown;
 			text?: string;
+			/** 裁剪后的工具结果 details，供 read/grep/task 等卡片解析。 */
+			resultDetails?: unknown;
 			isError?: boolean;
 			timestamp?: number;
 	  };

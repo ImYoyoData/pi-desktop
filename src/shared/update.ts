@@ -159,3 +159,30 @@ export type AppUpdateState = {
 	progress: AppUpdateProgress | null;
 	error: string | null;
 };
+
+/** 自动检查更新的桌面偏好键：缺省为开启。 */
+export const AUTO_UPDATE_CHECK_PREF = "update:autoCheck";
+
+/** 检查更新间隔（小时）的桌面偏好键。 */
+export const UPDATE_CHECK_INTERVAL_PREF = "update:checkIntervalHours";
+
+/** 可选的检查更新间隔（小时）。 */
+export const UPDATE_CHECK_INTERVAL_HOURS = [1, 6, 12, 24] as const;
+
+/** 默认检查更新间隔（小时）。 */
+export const DEFAULT_UPDATE_CHECK_INTERVAL_HOURS = 24;
+
+/** 只有显式写成 off 才关闭自动检查。 */
+export function isAutoUpdateCheckEnabled(
+	prefs: Record<string, string | undefined>,
+): boolean {
+	return prefs[AUTO_UPDATE_CHECK_PREF] !== "off";
+}
+
+/** 解析检查间隔：非法值退回默认值，避免 0 或异常间隔造成高频请求。 */
+export function parseUpdateCheckIntervalHours(raw: string | undefined): number {
+	const hours = Number(raw);
+	return (UPDATE_CHECK_INTERVAL_HOURS as readonly number[]).includes(hours)
+		? hours
+		: DEFAULT_UPDATE_CHECK_INTERVAL_HOURS;
+}
