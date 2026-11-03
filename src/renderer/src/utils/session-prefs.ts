@@ -65,22 +65,37 @@ export function forgetPrefKey(prefs: SessionPrefs, key: string): SessionPrefs {
  * 逐层校验，缺字段或非字符串一律视为无值。
  */
 export function modelKeyFromState(data: unknown): string | null {
-  if (!data || typeof data !== "object") return null;
-  const model = (data as { model?: unknown }).model;
+  if (!data || typeof data !== "object" || !("model" in data)) return null;
+  const model = data.model;
   if (!model || typeof model !== "object") return null;
-  const m = model as { provider?: unknown; id?: unknown };
-  if (typeof m.provider !== "string" || typeof m.id !== "string") return null;
-  if (!m.provider || !m.id) return null;
-  return `${m.provider}/${m.id}`;
+  if (!("provider" in model) || !("id" in model)) return null;
+  const { provider, id } = model;
+  if (typeof provider !== "string" || typeof id !== "string") return null;
+  if (!provider || !id) return null;
+  return `${provider}/${id}`;
 }
 
 export function thinkingFromState(
   data: unknown,
   isThinkingLevel: (v: unknown) => v is ThinkingLevel,
 ): ThinkingLevel | null {
-  if (!data || typeof data !== "object") return null;
-  const level = (data as { thinkingLevel?: unknown }).thinkingLevel;
-  return isThinkingLevel(level) ? level : null;
+  if (!data || typeof data !== "object" || !("thinkingLevel" in data)) return null;
+  return isThinkingLevel(data.thinkingLevel) ? data.thinkingLevel : null;
+}
+
+/** 从 worker 的 get_state / set_thinking_level 结果读取真实可用档位。 */
+export function thinkingLevelsFromWorker(
+  data: unknown,
+  isThinkingLevel: (v: unknown) => v is ThinkingLevel,
+): ThinkingLevel[] | null {
+  if (!data || typeof data !== "object" || !("thinkingLevels" in data)) return null;
+  const raw = data.thinkingLevels;
+  if (!Array.isArray(raw)) return null;
+  const levels: ThinkingLevel[] = [];
+  for (const value of raw) {
+    if (isThinkingLevel(value) && !levels.includes(value)) levels.push(value);
+  }
+  return levels;
 }
 
 /**

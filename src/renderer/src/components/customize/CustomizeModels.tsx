@@ -36,7 +36,11 @@ import {
   withProviderDisabled,
   type ModelSelection,
 } from "../../../../shared/model-selection";
-import { THINKING_LEVELS, type ThinkingLevel } from "../../../../shared/thinking-level";
+import {
+  DEFAULT_SUPPORTED_THINKING_LEVELS,
+  THINKING_LEVELS,
+  type ThinkingLevel,
+} from "../../../../shared/thinking-level";
 import { useDialog, useMessage } from "@renderer/services/feedback";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./CustomizeModels.module.css";
@@ -291,9 +295,10 @@ export function CustomizeModels(): ReactNode {
     return modelRowKeys[index] ?? String(index);
   }
 
-  /** 未配置过 thinkingLevelMap 的模型按全档位可用处理。 */
+  /** 未配置 thinkingLevelMap 时按 Pi 默认档位显示；xhigh/max 需显式开启。 */
   function modelThinkingLevels(model: CustomModelEntry): ThinkingLevel[] {
-    return model.thinkingLevels ?? THINKING_LEVELS.map((level) => level.value);
+    if (!model.reasoning) return ["off"];
+    return model.thinkingLevels ?? [...DEFAULT_SUPPORTED_THINKING_LEVELS];
   }
 
   function toggleSampling(index: number): void {
@@ -914,7 +919,9 @@ export function CustomizeModels(): ReactNode {
                                   updateModel(index, {
                                     thinkingLevels: THINKING_LEVELS.map(
                                       (level) => level.value,
-                                    ).filter((value) => values.includes(value)),
+                                    ).filter(
+                                      (value) => value === "off" || values.includes(value),
+                                    ),
                                   })
                                 }
                               />

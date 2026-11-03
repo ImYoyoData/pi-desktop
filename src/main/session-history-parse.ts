@@ -7,11 +7,13 @@
  * huge sessions does not ship megabytes of unused base64 over IPC.
  */
 import { stripInjectedBlocks } from "../shared/injected-blocks";
+import { readOmpBlobBase64 } from "./omp-blob-image";
 import { stripThinkingLanguageBlock } from "../shared/thinking-language";
 import {
   stripAttachedImagesBlock,
   stripSelectionCitationsBlock,
   type ChatMessageTag,
+  type SessionChatMetaEntry,
 } from "../shared/chat-meta";
 import type { SessionHistoryMessage, SessionHistoryPage } from "../shared/protocol";
 
@@ -195,14 +197,28 @@ function imagesFromAgentMessage(message: Record<string, unknown>): HistoryImage[
     if (!part || typeof part !== "object") continue;
     const row = part as { type?: unknown; data?: unknown; mimeType?: unknown };
     if (row.type !== "image" || typeof row.data !== "string" || !row.data) continue;
+    // omp 落盘时把 base64 换成 blob 引用，这里还原成图片数据。
+    const data = row.data.startsWith("blob:")
+      ? readOmpBlobBase64(row.data)
+      : row.data;
+    if (!data) continue;
     const mimeType =
       typeof row.mimeType === "string" && row.mimeType.trim() ? row.mimeType.trim() : "image/png";
-    const dataUrl = row.data.startsWith("data:")
-      ? row.data
-      : `data:${mimeType};base64,${row.data}`;
+    const dataUrl = data.startsWith("data:")
+      ? data
+      : `data:${mimeType};base64,${data}`;
     out.push({ mimeType, dataUrl });
   }
   return out;
+}
+
+function isImagePart(value: unknown): boolean {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "type" in value &&
+    value.type === "image"
+  );
 }
 
 /** Move image payloads into `pending` and drop them from the message object. */
@@ -211,15 +227,10 @@ function extractImagesToPending(
   message: Record<string, unknown>,
   pending: Map<string, HistoryImage[]>,
 ): void {
-  const images = imagesFromAgentMessage(message);
-  if (!images.length) return;
-  pending.set(entryId, images);
-  if (Array.isArray(message.content)) {
-    message.content = message.content.filter((part) => {
-      if (!part || typeof part !== "object") return true;
-      return (part as { type?: unknown }).type !== "image";
-    });
-  }
+  if (message.role !== "user" || !Array.isArray(message.content)) return;
+  if (!message.content.some(isImagePart)) return;
+  pending.set(entryId, imagesFromAgentMessage(message));
+  message.content = message.content.filter((part) => !isImagePart(part));
 }
 
 function thinkingFromAgentMessage(message: Record<string, unknown>): string {
@@ -341,7 +352,7 @@ function collectEntries(raw: string): {
 function buildMessagesFromEntries(
   entries: ParsedEntry[],
   pendingImages: Map<string, HistoryImage[]>,
-  chatMeta?: { text: string; tags: ChatMessageTag[] }[],
+  chatMeta?: SessionChatMetaEntry[],
 ): SessionHistoryMessage[] {
   const byId = new Map(entries.map((entry) => [entry.id, entry]));
   let leafId = findLeafId(entries);
@@ -414,7 +425,7 @@ function buildMessagesFromEntries(
     const role = entry.message.role;
     if (role === "user") {
       const rawText = textFromAgentMessage(entry.message);
-      const hasImages = (pendingImages.get(entry.id)?.length ?? 0) > 0;
+      const hasImages = pendingImages.has(entry.id);
       const cleanText = stripInjectedBlocks(
         stripSelectionCitationsBlock(stripAttachedImagesBlock(rawText)),
       );
@@ -422,10 +433,12 @@ function buildMessagesFromEntries(
       // 附件 chips 的 sidecar 按发送时文本（无思考语言块）写入，匹配前先剥离注入块。
       const metaText = stripThinkingLanguageBlock(agentText);
       let elementTags: ChatMessageTag[] | undefined;
+      let displayText: string | undefined;
       if (chatMeta && chatMeta.length > 0) {
         for (let i = metaCursor; i < chatMeta.length; i++) {
           if (stripThinkingLanguageBlock(chatMeta[i]!.text) === metaText) {
             elementTags = chatMeta[i]!.tags;
+            displayText = chatMeta[i]!.displayText;
             metaCursor = i + 1;
             break;
           }
@@ -439,7 +452,8 @@ function buildMessagesFromEntries(
         messages.push({
           id: entry.id,
           role: "user",
-          text: truncateForUi(cleanText),
+          text: truncateForUi(displayText ?? cleanText),
+          ...(displayText ? { agentText: cleanText } : {}),
           ...(elementTags ? { elementTags } : {}),
         });
       }
@@ -564,7 +578,7 @@ function materializePageImages(
 export type ParseSessionHistoryPageOpts = {
   limit: number;
   beforeId?: string | null;
-  chatMeta?: { text: string; tags: ChatMessageTag[] }[];
+  chatMeta?: SessionChatMetaEntry[];
   /** Override for tests — production uses the default 24MB budget. */
   imageBudgetBytes?: number;
 };
@@ -617,7 +631,7 @@ export function parseSessionHistoryPageFromJsonl(
 /** Parse a session jsonl string (+ optional UI meta) into leaf-path UI messages. */
 export function parseSessionHistoryJsonl(
   raw: string,
-  chatMeta?: { text: string; tags: ChatMessageTag[] }[],
+  chatMeta?: SessionChatMetaEntry[],
 ): SessionHistoryMessage[] {
   const { entries, pendingImages } = collectEntries(raw);
   const all = buildMessagesFromEntries(entries, pendingImages, chatMeta);
@@ -646,7 +660,7 @@ export type ParseSessionHistoryReverseOpts = {
   readBackward: (fromByte: number) => BackwardChunk | null;
   limit: number;
   beforeId?: string | null;
-  chatMeta?: { text: string; tags: ChatMessageTag[] }[];
+  chatMeta?: SessionChatMetaEntry[];
   /** Override for tests — production uses the default 24MB budget. */
   imageBudgetBytes?: number;
 };

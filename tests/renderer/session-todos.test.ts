@@ -118,6 +118,55 @@ describe("session-todos", () => {
 		).toBeNull();
 	});
 
+	it("accepts omp todo phases/details and init list args", () => {
+		const list = todosFromToolDetails("pi-deck-todo", {
+			op: "start",
+			phases: [
+				{
+					name: "实现",
+					tasks: [
+						{ content: "读源码", status: "completed" },
+						{ content: "改解析", status: "in_progress" },
+						{ content: "放弃项", status: "abandoned" },
+						{ content: "写测试", status: "pending" },
+					],
+				},
+			],
+			storage: "session",
+		});
+		expect(list?.items).toEqual([
+			{ id: "1", text: "读源码", done: true },
+			{ id: "2", text: "改解析", done: false, active: true },
+			{ id: "3", text: "放弃项", done: true },
+			{ id: "4", text: "写测试", done: false },
+		]);
+		expect(
+			todosFromToolDetails("pi-deck-todo", { op: "view", phases: [] }),
+		).toBeNull();
+		const blocked = todosFromToolDetails("pi-deck-todo", {
+			op: "block",
+			phases: [
+				{
+					name: "A",
+					tasks: [{ content: "卡住", status: "blocked", blocker: "缺依赖" }],
+				},
+			],
+		});
+		expect(blocked?.items[0]?.blocker).toBe("缺依赖");
+		const init = todosFromToolArgs("todo", {
+			op: "init",
+			list: [
+				{ phase: "A", items: ["一", "二"] },
+				{ phase: "B", items: ["三"] },
+			],
+		});
+		expect(init?.items).toEqual([
+			{ id: "1", text: "一", done: false, active: true },
+			{ id: "2", text: "二", done: false },
+			{ id: "3", text: "三", done: false },
+		]);
+	});
+
 	it("parses a dedicated todo tool card", () => {
 		const card = parseToolCard(
 			"todo",

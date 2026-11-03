@@ -8,8 +8,10 @@ import {
 import { ToolDiffView } from "@renderer/components/ToolDiffView";
 import {
   CheckmarkCircleOutline,
+  CloseOutline,
   EllipseOutline,
   FolderOutline,
+  SyncOutline,
 } from "@renderer/components/icons/ionicons";
 import FileChip from "@renderer/components/FileChip";
 import {
@@ -22,7 +24,15 @@ import {
   type ReadToolCard,
   type TodoToolCard,
   type ToolCard,
+  type WaitJob,
+  type WaitToolCard,
 } from "@renderer/utils/tool-diff";
+import { formatTokenCount } from "@renderer/utils/agent-wait";
+import { sortWaitJobs, waitElapsedMs, waitJobCounts } from "@renderer/utils/tool-wait";
+import { formatDuration } from "@renderer/utils/format-duration";
+import { useNow } from "@renderer/utils/use-now";
+import WaitJobWidget from "@renderer/components/WaitJobWidget";
+import SubagentTranscript from "@renderer/components/SubagentTranscript";
 import { grepOpenPath, type GrepLine } from "@renderer/utils/grep-card";
 import {
   browserResultHead,
@@ -96,6 +106,8 @@ function renderToolBody({
       return <GrepBody card={card} onOpen={onOpen} />;
     case "todo":
       return <TodoBody card={card} />;
+    case "wait":
+      return <WaitBody card={card} streaming={streaming} />;
     case "generic":
       return (
         <JsonBody
@@ -294,6 +306,14 @@ function GrepLineRow({
   onOpen?: () => void;
 }): ReactNode {
   const html = useMemo(() => highlightToSafeHtml(row.text, lang), [row.text, lang]);
+  if (row.gap) {
+    return (
+      <div className={`${styles.grepLine} ${styles.grepGap}`}>
+        <span className={styles.grepLineNo} />
+        <span className={styles.grepLineText}>…</span>
+      </div>
+    );
+  }
   return (
     <button
       type="button"
@@ -334,7 +354,7 @@ function GrepBody({
         {card.hits.length ? (
           <div className={styles.grepFiles}>
             {card.hits.map((group) => {
-              const path = grepOpenPath(card.searchPath, group.path);
+              const path = grepOpenPath(card.searchPath, group.path, group.pathBase);
               const lang = languageFromPath(group.path);
               return (
                 <div key={path} className={styles.grepFile}>
@@ -374,6 +394,10 @@ function GrepBody({
 }
 
 function TodoBody({ card }: { card: TodoToolCard }): ReactNode {
+  const t = useI18n();
+  if (!card.items.length) {
+    return <p className={styles.todoEmpty}>{t.toolTodoEmpty}</p>;
+  }
   return (
     <ul className={styles.todoList}>
       {card.items.map((item) => (
@@ -387,6 +411,199 @@ function TodoBody({ card }: { card: TodoToolCard }): ReactNode {
         </li>
       ))}
     </ul>
+  );
+}
+
+/** wait 的运行中计时：只在流式期间每秒重渲染，任务耗时仍以 500ms 快照为准。 */
+function firstOutputLine(text: string): string {
+  return (
+    text
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .find((line) => line.trim())
+      ?.trim() ?? ""
+  );
+}
+
+function WaitJobRow({
+  job,
+  now,
+  streaming,
+  observedAt,
+}: {
+  job: WaitJob;
+  now: number;
+  streaming: boolean;
+  observedAt: number | null;
+}): ReactNode {
+  const t = useI18n();
+  const running = job.status === "running";
+  const failed = job.status === "failed";
+  const Icon = running
+    ? SyncOutline
+    : failed
+      ? CloseOutline
+      : job.status === "completed"
+        ? CheckmarkCircleOutline
+        : EllipseOutline;
+  const iconClass = [
+    styles.waitJobIcon,
+    running ? styles.waitJobIconRunning : "",
+    failed ? styles.waitJobIconFailed : "",
+    job.status === "completed" ? styles.waitJobIconDone : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const meta: string[] = [];
+  if (job.requests != null && job.requests > 0) {
+    meta.push(t.toolWaitRequests(job.requests));
+  }
+  if (job.cost != null && job.cost > 0) {
+    meta.push(t.toolWaitCost(job.cost < 0.005 ? "<0.01" : job.cost.toFixed(2)));
+  }
+  if (job.contextTokens != null && job.contextTokens > 0) {
+    meta.push(
+      t.toolWaitContext(
+        formatTokenCount(job.contextTokens),
+        job.contextWindow ? formatTokenCount(job.contextWindow) : null,
+      ),
+    );
+  }
+  if (job.exitCode != null && job.exitCode !== 0) {
+    meta.push(t.toolBodyExitCode(job.exitCode));
+  }
+
+  const percent =
+    running && job.completionPercent != null
+      ? Math.max(0, Math.min(100, Math.round(job.completionPercent)))
+      : null;
+  const outcome = failed ? job.errorText : job.resultText;
+  const activity = job.widget?.stage ?? job.stage;
+  const widget =
+    job.widget && (job.widget.headline || job.widget.blocks.length)
+      ? job.widget
+      : null;
+  const jobDurationMs =
+    streaming && observedAt != null
+      ? job.durationMs + Math.max(0, now - observedAt)
+      : job.durationMs;
+
+  return (
+    <li className={styles.waitJob}>
+      <div className={styles.waitJobHead}>
+        <Icon size={13} className={iconClass} aria-hidden="true" />
+        <span className={styles.waitJobType}>{job.type}</span>
+        <span className={styles.waitJobLabel} title={job.label}>
+          {job.intent || job.label}
+        </span>
+        {percent != null ? <span className={styles.waitJobPercent}>{percent}%</span> : null}
+        <span className={styles.waitJobTime}>{formatDuration(jobDurationMs)}</span>
+      </div>
+      {percent != null ? (
+        <div className={styles.waitMeter}>
+          <span className={styles.waitMeterFill} style={{ width: `${percent}%` }} />
+        </div>
+      ) : null}
+      {activity ? (
+        <div className={styles.waitJobActivity} title={activity}>
+          {activity}
+        </div>
+      ) : null}
+      {widget ? <WaitJobWidget widget={widget} activity={activity} /> : null}
+      {meta.length ? <div className={styles.waitJobMeta}>{meta.join(" · ")}</div> : null}
+      {!running && outcome ? (
+        <div className={failed ? styles.waitJobError : styles.waitJobResult}>
+          {firstOutputLine(outcome)}
+        </div>
+      ) : null}
+      {job.type === "task" && job.agentId ? (
+        <SubagentTranscript agentId={job.agentId} active={running} />
+      ) : null}
+    </li>
+  );
+}
+
+/** wait 的进度全在 details.jobs：等待哪些任务、各自的完成度与阶段。 */
+function WaitBody({
+  card,
+  streaming,
+}: {
+  card: WaitToolCard;
+  streaming?: boolean;
+}): ReactNode {
+  const t = useI18n();
+  const counts = waitJobCounts(card.jobs);
+  const now = useNow(
+    Boolean(streaming) && (card.jobs.length > 0 || card.startedAt != null),
+  );
+  const elapsed = waitElapsedMs(
+    card.startedAt,
+    card.durationMs,
+    Boolean(streaming),
+    now,
+  );
+  const jobs = useMemo(() => sortWaitJobs(card.jobs), [card.jobs]);
+
+  return (
+    <>
+      <div className={styles.head}>
+        <span className={styles.langBadge}>wait</span>
+        {card.jobs.length ? (
+          <span className={styles.meta}>{t.toolWaitJobs(card.jobs.length)}</span>
+        ) : null}
+        {counts.running ? (
+          <span className={styles.waitCountRunning}>
+            {t.toolWaitRunningCount(counts.running)}
+          </span>
+        ) : null}
+        {counts.completed ? (
+          <span className={styles.waitCountDone}>
+            {t.toolWaitDoneCount(counts.completed)}
+          </span>
+        ) : null}
+        {counts.failed ? (
+          <span className={styles.waitCountFailed}>
+            {t.toolWaitFailedCount(counts.failed)}
+          </span>
+        ) : null}
+        {counts.cancelled ? (
+          <span className={styles.waitCountCancelled}>
+            {t.toolWaitCancelledCount(counts.cancelled)}
+          </span>
+        ) : null}
+        {elapsed != null ? (
+          <span className={styles.waitElapsed}>
+            {t.toolWaitElapsed(formatDuration(elapsed))}
+          </span>
+        ) : null}
+      </div>
+      <div className={styles.body} data-inner-scroll="">
+        {jobs.length ? (
+          <ul className={styles.waitJobs}>
+            {jobs.map((job) => (
+              <WaitJobRow
+                key={job.id}
+                job={job}
+                now={now}
+                streaming={Boolean(streaming)}
+                observedAt={card.observedAt}
+              />
+            ))}
+          </ul>
+        ) : (
+          <p className={styles.plain}>
+            {streaming ? t.toolWaitPending : (card.text ?? t.toolWaitEmpty)}
+          </p>
+        )}
+        {jobs.length && card.text ? (
+          <div className={styles.waitText}>
+            <div className={styles.waitTextHead}>{t.toolWaitResult}</div>
+            <pre className={styles.plain}>{card.text}</pre>
+          </div>
+        ) : null}
+      </div>
+    </>
   );
 }
 

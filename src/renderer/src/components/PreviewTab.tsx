@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Alert, Button, Empty, Spin, Typography } from "antd";
+import { Alert, Button, Empty, Image, Spin, Typography } from "antd";
 import { fontSizeRem } from "../../../shared/appearance";
 import { FolderOpenOutline, SaveOutline } from "@renderer/components/icons/ionicons";
 import type { PreviewResult } from "../../../shared/preview-types";
@@ -763,7 +763,21 @@ export const PreviewTab = memo(forwardRef<PreviewTabHandle, Props>(function Prev
                   </>
                 ) : result.kind === "image" && !missing ? (
                   <div className={styles.mediaWrap}>
-                    <img className={styles.img} src={result.dataUrl} alt={result.path} />
+                    <Image
+                      className={styles.img}
+                      src={result.dataUrl}
+                      alt={result.path}
+                      styles={{
+                        root: { maxWidth: "100%" },
+                        image: {
+                          width: "auto",
+                          height: "auto",
+                          maxWidth: "100%",
+                          display: "block",
+                          margin: 8,
+                        },
+                      }}
+                    />
                   </div>
                 ) : result.kind === "video" && !missing ? (
                   <div className={styles.mediaWrap}>

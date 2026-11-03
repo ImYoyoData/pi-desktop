@@ -1,108 +1,234 @@
 import { describe, expect, it } from "vitest";
 import {
-	TODO_WRITE_TOOL_NAME,
-	buildTodoWriteDetails,
-	normalizeTodoWriteRows,
-	parseTodoStatus,
-	summarizeTodoWrite,
+	applyTodoParams,
+	formatTodoResult,
+	resolveTodoParams,
 	todoProgressLine,
+	type TodoPhase,
+	type TodoToolParams,
 } from "../../src/shared/todo-tool";
 
-describe("todo-tool (builtin todo_write)", () => {
-	it("exposes the tool name the renderer routes as a todo tool", () => {
-		// session-todos.isTodoToolName must accept it.
-		expect(TODO_WRITE_TOOL_NAME).toBe("todo_write");
-	});
+function run(phases: TodoPhase[], params: TodoToolParams) {
+	return applyTodoParams(phases, params);
+}
 
-	it("normalizes content/status rows with derived ids", () => {
-		const rows = normalizeTodoWriteRows([
-			{ content: "Read AGENTS.md", status: "completed" },
-			{ text: "Fix bug", status: "in_progress" },
-			{ content: "Run tests", status: "pending" },
-		]);
-		expect(rows).toEqual([
-			{ id: "1", text: "Read AGENTS.md", status: "completed" },
-			{ id: "2", text: "Fix bug", status: "in_progress" },
-			{ id: "3", text: "Run tests", status: "pending" },
-		]);
-	});
+const INIT: TodoToolParams = {
+	op: "init",
+	list: [
+		{ phase: "实现", items: ["读源码", "改实现"] },
+		{ phase: "验证", items: ["跑测试"] },
+	],
+};
 
-	it("keeps explicit ids and skips empty rows", () => {
-		const rows = normalizeTodoWriteRows([
-			{ id: "a", text: "  ", status: "pending" },
-			{ id: "b", content: "Real step", status: "pending" },
-			{ content: "   ", status: "done" },
-		]);
-		expect(rows).toEqual([{ id: "b", text: "Real step", status: "pending" }]);
-	});
-
-	it("maps heterogeneous statuses onto pending/in_progress/completed", () => {
-		expect(parseTodoStatus("DONE")).toBe("completed");
-		expect(parseTodoStatus("in-progress")).toBe("in_progress");
-		expect(parseTodoStatus("running")).toBe("in_progress");
-		expect(parseTodoStatus("whatever")).toBe("pending");
-	});
-
-	it("treats done:true without status as completed", () => {
-		const rows = normalizeTodoWriteRows([
-			{ id: "x", text: "Legacy row", done: true },
-		]);
-		expect(rows).toEqual([
-			{ id: "x", text: "Legacy row", status: "completed" },
+describe("todo-tool (OMP-compatible phases)", () => {
+	it("init builds phases and starts the first task", () => {
+		const result = run([], INIT);
+		expect(result.errors).toEqual([]);
+		expect(result.phases).toEqual([
+			{
+				name: "实现",
+				tasks: [
+					{ content: "读源码", status: "in_progress" },
+					{ content: "改实现", status: "pending" },
+				],
+			},
+			{ name: "验证", tasks: [{ content: "跑测试", status: "pending" }] },
 		]);
 	});
 
-	it("returns null for empty/invalid input (full replace means no ghost rows)", () => {
-		expect(normalizeTodoWriteRows([])).toBeNull();
-		expect(normalizeTodoWriteRows(undefined)).toBeNull();
-		expect(normalizeTodoWriteRows("nope")).toBeNull();
+	it("init accepts a flat items list with an optional phase", () => {
+		const result = run([], {
+			op: "init",
+			phase: "单阶段",
+			items: ["甲", "乙"],
+		});
+		expect(result.phases).toEqual([
+			{
+				name: "单阶段",
+				tasks: [
+					{ content: "甲", status: "in_progress" },
+					{ content: "乙", status: "pending" },
+				],
+			},
+		]);
 	});
 
-	it("builds details with the active id pinned", () => {
-		const rows = [
-			{ id: "1", text: "A", status: "completed" as const },
-			{ id: "2", text: "B", status: "in_progress" as const },
-			{ id: "3", text: "C", status: "pending" as const },
-		];
-		const details = buildTodoWriteDetails(rows, 1234);
-		expect(details).toEqual({
-			todos: rows,
-			activeId: "2",
-			nowMs: 1234,
+	it("rejects duplicate phases or tasks without applying anything", () => {
+		const result = run([], {
+			op: "init",
+			list: [
+				{ phase: "A", items: ["x"] },
+				{ phase: "A", items: ["x"] },
+			],
+		});
+		expect(result.errors.join(" ")).toContain("Duplicate phase");
+		expect(result.errors.join(" ")).toContain("Duplicate task");
+	});
+
+	it("treats an empty init list as a clear", () => {
+		const empty = run([], { op: "init", list: [] });
+		expect(empty.errors).toEqual([]);
+		expect(empty.phases).toEqual([]);
+		const emptyPhase = run([], { op: "init", list: [{ phase: "A", items: [] }] });
+		expect(emptyPhase.errors).toEqual([]);
+		expect(emptyPhase.phases).toEqual([{ name: "A", tasks: [] }]);
+	});
+
+	it("start moves the in-progress pointer", () => {
+		const started = run(run([], INIT).phases, {
+			op: "start",
+			task: "跑测试",
+		});
+		const statuses = started.phases.flatMap((phase) =>
+			phase.tasks.map((task) => `${task.content}:${task.status}`),
+		);
+		expect(statuses).toEqual([
+			"读源码:pending",
+			"改实现:pending",
+			"跑测试:in_progress",
+		]);
+	});
+
+	it("done targets a task by content or a whole phase", () => {
+		const one = run(run([], INIT).phases, { op: "done", task: "读源码" });
+		expect(one.phases[0]?.tasks[0]?.status).toBe("completed");
+		const all = run(one.phases, { op: "done", phase: "验证" });
+		expect(all.phases[1]?.tasks[0]?.status).toBe("completed");
+	});
+
+	it("drop and block/unblock keep the list consistent", () => {
+		const dropped = run(run([], INIT).phases, {
+			op: "drop",
+			task: "改实现",
+		});
+		expect(dropped.phases[0]?.tasks[1]?.status).toBe("abandoned");
+
+		const blocked = run(dropped.phases, {
+			op: "block",
+			task: "跑测试",
+			reason: "缺 依赖\n 版本",
+		});
+		expect(blocked.phases[1]?.tasks[0]).toEqual({
+			content: "跑测试",
+			status: "blocked",
+			blocker: "缺 依赖 版本",
+		});
+
+		const unblocked = run(blocked.phases, {
+			op: "unblock",
+			task: "跑测试",
+		});
+		expect(unblocked.phases[1]?.tasks[0]).toEqual({
+			content: "跑测试",
+			status: "pending",
 		});
 	});
 
-	it("summarizes counts for the model", () => {
-		const text = summarizeTodoWrite([
-			{ id: "1", text: "A", status: "completed" },
-			{ id: "2", text: "B", status: "completed" },
-			{ id: "3", text: "C", status: "in_progress" },
-			{ id: "4", text: "D", status: "pending" },
+	it("done and drop accept tasks in any open state", () => {
+		const phases = run([], INIT).phases;
+		const donePending = run(phases, { op: "done", task: "改实现" });
+		expect(donePending.errors).toEqual([]);
+		expect(donePending.phases[0]?.tasks).toEqual([
+			{ content: "读源码", status: "in_progress" },
+			{ content: "改实现", status: "completed" },
 		]);
-		expect(text).toContain("4 items");
-		expect(text).toContain("2 completed");
-		expect(text).toContain("1 in progress");
+
+		const droppedActive = run(phases, { op: "drop", task: "读源码" });
+		expect(droppedActive.errors).toEqual([]);
+		expect(droppedActive.phases[0]?.tasks).toEqual([
+			{ content: "读源码", status: "abandoned" },
+			{ content: "改实现", status: "in_progress" },
+		]);
 	});
 
-	it("builds a one-line digest that points at the current step", () => {
-		expect(
-			todoProgressLine([
-				{ id: "1", text: "A", status: "completed" },
-				{ id: "2", text: "B", status: "in_progress" },
-				{ id: "3", text: "C", status: "pending" },
-			]),
-		).toBe("1/3 completed · in progress: #2 B");
-		expect(
-			todoProgressLine([
-				{ id: "1", text: "A", status: "completed" },
-				{ id: "3", text: "C", status: "pending" },
-			]),
-		).toBe("1/2 completed · next: #3 C");
+	it("block without a reason keeps the task blocked", () => {
+		const blocked = run(run([], INIT).phases, {
+			op: "block",
+			task: "跑测试",
+		});
+		expect(blocked.errors).toEqual([]);
+		expect(blocked.phases[1]?.tasks[0]).toEqual({
+			content: "跑测试",
+			status: "blocked",
+		});
 	});
 
-	it("has no digest left once every item is completed", () => {
-		expect(
-			todoProgressLine([{ id: "1", text: "A", status: "completed" }]),
-		).toBeNull();
+	it("append adds items to an existing or new phase", () => {
+		const result = run(run([], INIT).phases, {
+			op: "append",
+			phase: "验证",
+			items: ["补文档"],
+		});
+		expect(result.phases[1]?.tasks.map((task) => task.content)).toEqual([
+			"跑测试",
+			"补文档",
+		]);
+	});
+
+	it("rm clears a task, a phase, or everything", () => {
+		const one = run(run([], INIT).phases, { op: "rm", task: "读源码" });
+		expect(one.phases[0]?.tasks.map((task) => task.content)).toEqual(["改实现"]);
+		const phase = run(one.phases, { op: "rm", phase: "验证" });
+		expect(phase.phases[1]?.tasks).toEqual([]);
+		const all = run(phase.phases, { op: "rm" });
+		expect(all.phases.every((entry) => entry.tasks.length === 0)).toBe(true);
+	});
+
+	it("view returns the current list without changes", () => {
+		const phases = run([], INIT).phases;
+		const viewed = run(phases, { op: "view" });
+		expect(viewed.phases).toEqual(phases);
+	});
+
+	it("reports unknown task and phase targets", () => {
+		const phases = run([], INIT).phases;
+		expect(run(phases, { op: "done", task: "task-1" }).errors[0]).toContain(
+			"not found",
+		);
+		expect(run(phases, { op: "done", phase: "不存在" }).errors[0]).toContain(
+			"not found",
+		);
+	});
+
+	it("infers a missing op from the payload", () => {
+		const init = resolveTodoParams({ list: [{ phase: "A", items: ["x"] }] }, false);
+		expect(init?.op).toBe("init");
+		const append = resolveTodoParams(
+			{ phase: "A", items: ["y"] },
+			true,
+		);
+		expect(append?.op).toBe("append");
+		expect(resolveTodoParams({ task: "x" }, true)).toBeNull();
+		expect(resolveTodoParams({ op: "nope" }, true)).toBeNull();
+	});
+
+	it("summarizes open work and progress for the model", () => {
+		const phases = run([], INIT).phases;
+		expect(formatTodoResult(phases, [])).toContain("Remaining items (3)");
+		expect(formatTodoResult(phases, [])).toContain("Overall: 0/3 done, 3 open.");
+		expect(todoProgressLine(phases)).toBe(
+			"0/3 completed · in progress: 读源码",
+		);
+		const done = run(phases, { op: "done" }).phases;
+		expect(todoProgressLine(done)).toBeNull();
+		expect(formatTodoResult(done, [])).toContain("Remaining items: none.");
+	});
+
+	it("reports blocked work separately and drops the note after start", () => {
+		const phases = run([], INIT).phases;
+		const blocked = run(phases, {
+			op: "block",
+			task: "跑测试",
+			reason: "缺依赖",
+		});
+		const text = formatTodoResult(blocked.phases, []);
+		expect(text).toContain("Overall: 0/3 done, 2 open, 1 blocked.");
+		expect(text).toContain("(blocked: 缺依赖)");
+		const started = run(blocked.phases, { op: "start", task: "跑测试" });
+		expect(started.phases[1]?.tasks[0]).toEqual({
+			content: "跑测试",
+			status: "in_progress",
+		});
+		expect(formatTodoResult(started.phases, [])).not.toContain("blocked");
 	});
 });

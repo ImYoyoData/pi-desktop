@@ -22,6 +22,8 @@ export type OmpWorkerOutbound =
 			cwd: string;
 			/** omp SDK 实际使用的配置目录，主进程据此定位会话与模型配置。 */
 			agentDir: string;
+			/** omp SDK 实际写入 blob 的目录，主进程据此还原历史与实时图片。 */
+			blobsDir: string;
 	  }
 	| { kind: "result"; id: string; data?: unknown; error?: string }
 	| { kind: "event"; event: Record<string, unknown> }

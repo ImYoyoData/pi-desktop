@@ -32,6 +32,7 @@ export function toolCardAutoExpandAllowed(kind: ToolCard["kind"]): boolean {
     case "edit":
     case "bash":
     case "todo":
+    case "wait":
       return true;
     case "read":
     case "grep":

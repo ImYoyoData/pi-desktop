@@ -1,6 +1,6 @@
-/** Desktop slash-command catalog (Skills + builtins we already support). */
+/** Desktop slash-command catalog (builtins, skills, and file commands). */
 
-export type SlashItemKind = "builtin" | "skill";
+export type SlashItemKind = "builtin" | "skill" | "command";
 
 export type SlashItem = {
   id: string;
@@ -9,6 +9,26 @@ export type SlashItem = {
   command: string;
   title: string;
   description: string;
+};
+
+/** 文件型斜杠命令：来自 .claude/commands 或 .opencode/commands。 */
+export type ExternalSlashCommand = {
+  name: string;
+  description: string;
+  argumentHint?: string;
+  content: string;
+  source:
+    | "claude-user"
+    | "claude-project"
+    | "opencode-user"
+    | "opencode-project";
+  filePath: string;
+};
+
+export type SlashCatalog = {
+  /** skills.enableSkillCommands：技能是否注册为 `/skill:name`。 */
+  skillCommands: boolean;
+  commands: ExternalSlashCommand[];
 };
 
 export type SlashBuiltinId = "new" | "compact" | "model";

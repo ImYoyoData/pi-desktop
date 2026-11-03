@@ -18,6 +18,7 @@ export type AskUserAskResult = {
 type PendingAsk = {
   sessionId: string;
   questions: AskUserQuestion[];
+  toolCallId?: string;
   resolve: (result: AskUserAskResult) => void;
   reject: (err: Error) => void;
 };
@@ -27,7 +28,12 @@ const pendingAsks = new Map<string, PendingAsk>();
 function snapshotAskUser(): AskUserAskPrompt[] {
   const out: AskUserAskPrompt[] = [];
   for (const [requestId, row] of pendingAsks) {
-    out.push({ sessionId: row.sessionId, requestId, questions: row.questions });
+    out.push({
+      sessionId: row.sessionId,
+      requestId,
+      questions: row.questions,
+      ...(row.toolCallId ? { toolCallId: row.toolCallId } : {}),
+    });
   }
   return out;
 }
@@ -59,8 +65,9 @@ export function askRendererAskUser(input: {
   sessionId: string;
   requestId: string;
   questions: AskUserQuestion[];
+  toolCallId?: string;
 }): Promise<AskUserAskResult> {
-  const { requestId, sessionId, questions } = input;
+  const { requestId, sessionId, questions, toolCallId } = input;
 
   return new Promise((resolve, reject) => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -76,12 +83,19 @@ export function askRendererAskUser(input: {
       return;
     }
 
-    pendingAsks.set(requestId, { sessionId, questions, resolve, reject });
+    pendingAsks.set(requestId, {
+      sessionId,
+      questions,
+      ...(toolCallId ? { toolCallId } : {}),
+      resolve,
+      reject,
+    });
 
     const payload: AskUserAskPrompt = {
       sessionId,
       requestId,
       questions,
+      ...(toolCallId ? { toolCallId } : {}),
     };
     broadcastAskUser(payload);
   });
@@ -110,7 +124,12 @@ export function cancelAskUserAsksForSession(
 export function snapshotPendingAskUserAsks(): AskUserAskPrompt[] {
   const out: AskUserAskPrompt[] = [];
   for (const [requestId, row] of pendingAsks) {
-    out.push({ sessionId: row.sessionId, requestId, questions: row.questions });
+    out.push({
+      sessionId: row.sessionId,
+      requestId,
+      questions: row.questions,
+      ...(row.toolCallId ? { toolCallId: row.toolCallId } : {}),
+    });
   }
   return out;
 }

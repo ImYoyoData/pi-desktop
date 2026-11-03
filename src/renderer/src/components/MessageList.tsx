@@ -1,6 +1,7 @@
 import {
   lazy,
   Suspense,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -13,7 +14,7 @@ import {
   Virtualizer,
   type CustomContainerComponentProps,
 } from "virtua";
-import { Button, Tag, Typography } from "antd";
+import { Button, Image, Tag, Typography } from "antd";
 import { fontSizeRem } from "../../../shared/appearance";
 import {
   ArrowDownOutline,
@@ -37,17 +38,16 @@ import { useAppearanceStore } from "@renderer/stores/appearance";
 import ThinkingBlock from "@renderer/components/ThinkingBlock";
 import ToolCallCard from "@renderer/components/ToolCallCard";
 import AskUserStrip from "@renderer/components/AskUserStrip";
-import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
 import TurnDiffSummary from "@renderer/components/TurnDiffSummary";
 import WorkSectionGroup from "@renderer/components/WorkSectionGroup";
 import AgentWaitIndicator from "@renderer/components/AgentWaitIndicator";
-import ImageLightbox from "@renderer/components/ImageLightbox";
 import { toolCardFor as toolCard } from "@renderer/utils/tool-diff";
 import {
   buildFinalAnswerIds,
   buildRoundUserByRow,
   buildSettledRowIds,
   buildWorkSectionMembership,
+  findPendingAskRowId,
   isLatestUserRead,
   lastIdPerRound,
   type UserMessage,
@@ -142,8 +142,6 @@ type Props = {
   visible?: boolean;
 };
 
-type ImagePreview = { dataUrl: string; mimeType: string };
-
 /** 自动重试行：重试倒计时 + 重试请求已发出时的网络阶段。 */
 function RetryHintRow({
   hint,
@@ -213,6 +211,45 @@ function SendReceipt({ read }: { read: boolean }): ReactElement {
         />
       ))}
     </svg>
+  );
+}
+
+/**
+ * 用户气泡正文：长卡片才折叠四行，并测量是否真的溢出。
+ * 折叠由字符阈值决定，展开入口由实际渲染高度决定，避免短消息被静默截断。
+ */
+function UserPlainText({
+  id,
+  text,
+  collapsed,
+  onOverflowChange,
+}: {
+  id: string;
+  text: string;
+  collapsed: boolean;
+  onOverflowChange: (id: string, overflowing: boolean) => void;
+}): ReactElement {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !collapsed) return;
+    const measure = (): void => {
+      onOverflowChange(id, el.scrollHeight > el.clientHeight + 1);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [id, text, collapsed, onOverflowChange]);
+
+  return (
+    <div
+      ref={ref}
+      className={`${styles.userPlain}${collapsed ? ` ${styles.clamped}` : ""}`}
+    >
+      {text}
+    </div>
   );
 }
 
@@ -330,14 +367,10 @@ export function MessageList({
     [allMessages, workSectionMembership],
   );
 
-  const pendingAskRowId = useMemo(() => {
-    if (!chat.activePendingAskUser) return null;
-    for (let i = allMessages.length - 1; i >= 0; i--) {
-      const m = allMessages[i]!;
-      if (m.role === "tool" && m.toolName === ASK_USER_TOOL_NAME) return m.id;
-    }
-    return null;
-  }, [allMessages, chat.activePendingAskUser]);
+  const pendingAskRowId = useMemo(
+    () => findPendingAskRowId(allMessages, chat.activePendingAskUser),
+    [allMessages, chat.activePendingAskUser],
+  );
 
   const dockAsk = Boolean(chat.activePendingAskUser) && !pendingAskRowId;
 
@@ -415,6 +448,22 @@ export function MessageList({
 
   /** User cards the user explicitly expanded (id → true). Default: collapsed. */
   const [expandedUserIds, setExpandedUserIds] = useState<Set<string>>(new Set());
+
+  /** 折叠态下真正被四行截断的行；按钮只在内容确实看不全时出现。 */
+  const [overflowUserIds, setOverflowUserIds] = useState<Set<string>>(new Set());
+
+  const markUserOverflow = useCallback(
+    (id: string, overflowing: boolean): void => {
+      setOverflowUserIds((current) => {
+        if (current.has(id) === overflowing) return current;
+        const next = new Set(current);
+        if (overflowing) next.add(id);
+        else next.delete(id);
+        return next;
+      });
+    },
+    [],
+  );
 
   function isUserExpanded(id: string): boolean {
     return expandedUserIds.has(id);
@@ -1531,17 +1580,6 @@ export function MessageList({
     scheduleBottomScroll();
   }, [tailMarkers]);
 
-  /** 当前放大的图片；灯箱本身的交互与样式都在 ImageLightbox 里。 */
-  const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null);
-
-  function openImagePreview(img: ImagePreview): void {
-    setImagePreview({ dataUrl: img.dataUrl, mimeType: img.mimeType });
-  }
-
-  function closeImagePreview(): void {
-    setImagePreview(null);
-  }
-
   const jumpVisible = showJumpLatest && !settlingUi && !historyLoading;
   const [jumpMounted, setJumpMounted] = useState(false);
   const [jumpEntered, setJumpEntered] = useState(false);
@@ -1593,27 +1631,32 @@ export function MessageList({
               {msg.images?.length ? (
                 <div className={styles.userImages}>
                   {msg.images.map((img, idx) => (
-                    <img
+                    <Image
                       key={`${msg.id}-img-${idx}`}
                       className={styles.userImage}
                       src={img.dataUrl}
                       alt={t.imageAttachment}
-                      loading="lazy"
-                      draggable="false"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        openImagePreview(img);
+                      styles={{
+                        root: {
+                          width: 72,
+                          height: 72,
+                          borderRadius: 4,
+                          overflow: "hidden",
+                          border: "1px solid var(--border)",
+                        },
+                        image: { width: "100%", height: "100%", objectFit: "cover" },
                       }}
                     />
                   ))}
                 </div>
               ) : null}
               {view.text ? (
-                <div
-                  className={`${styles.userPlain}${expanded ? "" : ` ${styles.clamped}`}`}
-                >
-                  {view.text}
-                </div>
+                <UserPlainText
+                  id={msg.id}
+                  text={view.text}
+                  collapsed={!expanded && view.needsToggle}
+                  onOverflowChange={markUserOverflow}
+                />
               ) : null}
               {view.tags.length ? (
                 <div className={styles.userTags}>
@@ -1645,7 +1688,7 @@ export function MessageList({
                   </button>
                 </div>
               ) : null}
-              {view.needsToggle ? (
+              {view.needsToggle && overflowUserIds.has(msg.id) ? (
                 <button
                   type="button"
                   className={styles.userCardToggle}
@@ -1956,11 +1999,6 @@ export function MessageList({
         </button>
       ) : null}
       </div>
-      <ImageLightbox
-        dataUrl={imagePreview?.dataUrl ?? null}
-        mimeType={imagePreview?.mimeType ?? ""}
-        onClose={closeImagePreview}
-      />
     </>
   );
 }

@@ -214,7 +214,6 @@ html[data-theme][data-wallpaper="on"]
   opacity: 1 !important;
 }
 
-html[data-theme][data-wallpaper="on"] .preview-context-menu,
 html[data-theme][data-wallpaper="on"] .app-context-menu {
   backdrop-filter: blur(14px) saturate(1.15);
 }

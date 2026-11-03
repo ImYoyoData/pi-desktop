@@ -32,8 +32,9 @@ export function appendChatMeta(
   filePath: string,
   text: string,
   tags: ChatMessageTag[],
+  displayText?: string,
 ): void {
-  if (!text || !Array.isArray(tags) || tags.length === 0) return;
+  if (!text || (!tags.length && !displayText)) return;
   const path = chatMetaPath(filePath);
   let meta: SessionChatMeta = { version: 1, entries: [] };
   if (existsSync(path)) {
@@ -44,10 +45,18 @@ export function appendChatMeta(
       // corrupt sidecar — start fresh
     }
   }
-  if (!meta.entries.some((e) => e.text === text)) {
-    meta.entries.push({ text, tags });
-    writeFileSync(path, JSON.stringify(meta, null, 2), { encoding: "utf8" });
+  const existing = meta.entries.find((e) => e.text === text);
+  if (existing) {
+    if (tags.length) existing.tags = tags;
+    if (displayText) existing.displayText = displayText;
+  } else {
+    meta.entries.push({
+      text,
+      tags,
+      ...(displayText ? { displayText } : {}),
+    });
   }
+  writeFileSync(path, JSON.stringify(meta, null, 2), { encoding: "utf8" });
 }
 
 export function deleteChatMeta(filePath: string): void {

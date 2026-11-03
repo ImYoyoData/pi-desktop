@@ -1,5 +1,4 @@
 import type { AgentCommand } from "./protocol";
-import type { BrowserRpcMethod } from "./browser-automation";
 import type { StreamRenderSettings } from "./stream-render";
 import type { WorkerResourceSummary } from "./worker-resources";
 import type { BashNoticeLocale } from "./bash-notice-i18n";
@@ -54,6 +53,6 @@ export type WorkerOutbound =
   | {
       kind: "rpc_request";
       id: string;
-      method: BrowserRpcMethod | string;
+      method: string;
       params: Record<string, unknown>;
     };

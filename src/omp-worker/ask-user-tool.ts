@@ -26,6 +26,7 @@ export type OmpAskUserAnswers = {
 export type OmpAskUserWaitForAnswers = (
 	questions: AskUserQuestion[],
 	signal?: AbortSignal,
+	toolCallId?: string,
 ) => Promise<string | OmpAskUserAnswers>;
 
 function normalizeAnswers(raw: string | OmpAskUserAnswers): OmpAskUserAnswers {
@@ -36,9 +37,15 @@ function normalizeAnswers(raw: string | OmpAskUserAnswers): OmpAskUserAnswers {
 async function defaultWaitForAnswers(
 	questions: AskUserQuestion[],
 	signal?: AbortSignal,
+	toolCallId?: string,
 ): Promise<string | OmpAskUserAnswers> {
 	// 不设自动超时：提问一直等到用户回答或回合被中止。
-	const raw = await rpcToMain("desktop.askUser", { questions }, null, signal);
+	const raw = await rpcToMain(
+		"desktop.askUser",
+		{ questions, ...(toolCallId ? { toolCallId } : {}) },
+		null,
+		signal,
+	);
 
 	if (typeof raw === "string") {
 		if (!raw.trim()) throw new Error("ask_user: no answers from user");
@@ -151,11 +158,11 @@ export function createOmpAskUserTool(deps?: {
 			required: ["questions"],
 		},
 		async execute(
-			_toolCallId: string,
+			toolCallId: string,
 			params: unknown,
-			signal: AbortSignal | undefined,
 			_onUpdate: unknown,
 			_ctx: unknown,
+			signal: AbortSignal | undefined,
 		): Promise<AgentToolResult<unknown>> {
 			const parsed = parseAskUserArgs(params);
 			if (!parsed) {
@@ -164,7 +171,7 @@ export function createOmpAskUserTool(deps?: {
 				);
 			}
 			const answers = normalizeAnswers(
-				await waitForAnswers(parsed.questions, signal),
+				await waitForAnswers(parsed.questions, signal, toolCallId),
 			);
 			if (!answers.text) {
 				throw new Error("ask_user: no answers from user");

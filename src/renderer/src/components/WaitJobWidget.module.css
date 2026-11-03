@@ -1,0 +1,205 @@
+/* 后台任务的活动视图：omp 的 JobWidgetView 各块的轻量渲染。 */
+
+.widget {
+  margin: 4px 0 0 19px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.headline {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+
+.headlineText {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.headlineLabel,
+.blockLabel {
+  flex-shrink: 0;
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
+.trend {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 10px;
+  font-size: 11px;
+}
+
+.stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+}
+
+.statLabel {
+  color: var(--fg-muted);
+}
+
+.statValue {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.statTrend {
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.spark {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sparkBars {
+  flex: 1;
+  min-width: 60px;
+  max-width: 240px;
+  height: 20px;
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+}
+
+.sparkBar {
+  flex: 1;
+  min-width: 1px;
+  border-radius: 1px 1px 0 0;
+  background: currentColor;
+  opacity: 0.75;
+}
+
+.sparkLast {
+  flex-shrink: 0;
+  color: var(--fg);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.meter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.meterTrack {
+  flex: 1;
+  max-width: 220px;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+
+.meterFill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: currentColor;
+  transition: width 0.4s linear;
+}
+
+.meterText {
+  flex-shrink: 0;
+  color: var(--fg);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.barRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+}
+
+.barLabel {
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-muted);
+}
+
+.barTrack {
+  flex: 1;
+  max-width: 180px;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+
+.barFill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: currentColor;
+}
+
+.barText {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 6px;
+  font-size: 11px;
+}
+
+.gridCell {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+
+.gridLabel {
+  color: var(--fg-muted);
+}
+
+.toneSuccess { color: var(--success, #587c0c); }
+.toneError { color: var(--error, #d03050); }
+.toneWarning { color: var(--warning, #f0a020); }
+.toneAccent { color: var(--accent, #4f8cff); }
+.toneMuted { color: var(--fg-muted); }

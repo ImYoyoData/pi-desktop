@@ -36,6 +36,8 @@ export type AskUserPrompt = {
   /** Present when the strip is driven by a blocking worker RPC. */
   sessionId?: string;
   requestId?: string;
+  /** 发起这次提问的工具调用 id，用于把问答卡挂到对应的工具行。 */
+  toolCallId?: string;
 };
 
 /** 回答时随附的截图：作为 image content 交给模型。 */
@@ -69,6 +71,7 @@ export type AskUserAskPrompt = {
   sessionId: string;
   requestId: string;
   questions: AskUserQuestion[];
+  toolCallId?: string;
 };
 
 export type AskUserAskCancelled = {

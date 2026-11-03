@@ -38,6 +38,7 @@ import {
   invalidateSessionHistoryCache,
 } from "./session-history";
 import { appendChatMeta } from "./session-chat-meta";
+import { hydrateOmpEventImages } from "./omp-blob-image";
 import type { ChatMessageTag } from "../shared/chat-meta";
 import { downloadImageToCache, saveImageDataUrl } from "./session-image-cache";
 import { deleteImageFile } from "./session-image-cache";
@@ -187,11 +188,12 @@ export type SessionBroker = {
     sessionId: string,
     source: SessionImageCacheSource,
   ) => Promise<SessionImageCacheResult>;
-  /** Persist attachment tags for a sent user message (chat reload restores chips). */
+  /** Persist attachment tags / display text for a sent user message (chat reload restores them). */
   persistUserMessageMeta: (
     sessionId: string,
     text: string,
     tags: ChatMessageTag[],
+    displayText?: string,
   ) => void;
   /** Update in-memory session metadata (e.g. after rename on disk). */
   patchSummary: (
@@ -681,6 +683,7 @@ export function createSessionBroker(deps: {
           });
           return;
         }
+        hydrateOmpEventImages(msg.event);
         emit({ type: "agent_event", sessionId, event: msg.event });
         // Keep broker status aligned with agent lifecycle (not only prompt IPC result).
         // Do not mark idle while a prompt command is still awaiting session.prompt() —
@@ -917,11 +920,12 @@ export function createSessionBroker(deps: {
     sessionId: string,
     text: string,
     tags: ChatMessageTag[],
+    displayText?: string,
   ): void {
     const rec = sessions.get(sessionId);
     const filePath = rec?.summary.filePath;
-    if (!filePath || !text || !tags.length) return;
-    appendChatMeta(filePath, text, tags);
+    if (!filePath || !text || (!tags.length && !displayText)) return;
+    appendChatMeta(filePath, text, tags, displayText);
     // Tags were written after the jsonl message append — drop the history
     // cache so the next reload picks them up immediately.
     invalidateSessionHistoryCache(filePath);
