@@ -1,5 +1,57 @@
 # Changelog
 
+## Unreleased
+
+### 变更 Changes
+
+- **移除内置浏览器自动化**：桌面不再向模型提供 `browser_*` 工具，设置页的「浏览器」分区与内置浏览器技能一并删除；右栏浏览器与元素选择/引用保留。
+
+### Changes (English)
+
+- **Removed the built-in browser automation**: the desktop no longer exposes the `browser_*` tools, and the browser section in Settings plus the built-in browser skill are gone; the right-pane browser and element selection/citation remain.
+
+### 新功能 Features
+
+- **开发者页显示 omp 版本**：运行时分区新增「omp SDK」（应用内置 `@oh-my-pi/pi-coding-agent` 版本）与「omp CLI」（系统 PATH 中 `omp --version` 的探测结果，未安装显示「未安装」）。
+
+### Features
+
+- **Developer page shows omp versions**: the Runtime section now lists "omp SDK" (the bundled `@oh-my-pi/pi-coding-agent` version) and "omp CLI" (probed via `omp --version` on PATH, "Not installed" when absent).
+
+### 修复 Fixes
+
+- **修复 `wait` 工具卡片只剩空壳**：`wait` 没有调用参数，等待进度全在 `tool_execution_update` 的 `details.jobs` 里，卡片此前把空参数 `{}` 当成结果，等待期间既没有标题也没有正文；现在标题显示正在等待的任务数，展开体按任务列出状态、耗时、完成度进度条、当前阶段、请求数/成本/上下文，并渲染 omp 为任务生成的实时活动视图（task 的当前阶段、bash 的最后一行输出与行速率、headline 及 meter/spark/stat/grid 指标块）；每个 task 任务还挂一张独立的子代理对话卡片，展开后从运行中的 AgentRegistry 或落盘 transcript 读取，按用户/助手/工具调用展示，运行期间自动刷新；没有任务的等待显示「等待响应…」并按秒累计等待时长。
+- **待办清单跨回合保留**：`todo` 清单改为会话级状态，普通新回合不再清空；worker 空闲退出或重启后从会话分支里最后一个 `todo` 结果恢复，`details.storage` 随之如实报告 `session`。只有编辑消息或回滚改写历史时，清单才随被丢弃的轮次一起清空。
+- **修复待办卡片点不开**：todo 的增量操作（完成、添加等）只带本次涉及的条目，卡片此前解析不出条目就渲染成一行没有展开体的空行，标题只剩工具名；现在卡片从调用参数派生本次条目，标题直接显示动作（新建/开始/完成/添加/移除/放弃/阻塞），只有拿到全量快照时才显示进度。
+- **修复工具卡片标题行能被拖选**：折叠行此前允许选中文字，点击时容易拖出选区并丢掉点击，表现为「点了没反应」；现在标题行与时间线步骤一致禁止选中，并补上按钮语义与键盘展开。
+- **修复文件类型图标识别失败**：read 工具会把行号选择器内联进路径（`a.ts:1-15,194-215`、`a.ts:raw`、`a.ts:raw:50-100`），取 basename 时把后缀当成了扩展名，图标回落成默认文件图标；现在统一剥离选择器后再查扩展名，语言徽章与图标共用同一份剥离逻辑。
+- **统一待办工具**：移除桌面自建的 `todo_write`，pi 与 omp 两个后端都使用 `todo`（阶段/任务、按任务内容定位的 op 语义）；渲染层改为消费 `phases` 快照，omp 下的清单面板、计时与「未回写」标记恢复正常。
+- **修复开发者页 CLI 版本探测命中项目 shim**：dev 下主进程 PATH 含 `node_modules/.bin`，`where.exe` 先命中项目依赖的 bin shim——pi CLI 显示成内置 1.4.0 而非系统安装的 1.5.0，omp 探测则被损坏的本地 bun 启动链带出一段错误文本；现在剥离 `node_modules` 路径后只解析系统安装的 CLI。
+- **修复 OMP 会话图片显示为破图**：omp 落盘时把用户图片换成 `blob:sha256:` 引用，历史解析与实时事件都只认 base64，于是拼出 `data:image/...;base64,blob:sha256:...` 的坏地址；现在按引用从 `<agentDir>/blobs` 读回字节并还原为 base64，缺失的 blob 不再渲染破图。
+- **修复 ask_user 问答卡挂错工具行**：提问请求现在携带发起它的工具调用 id，主进程与渲染层按 id 定位，历史里旧的 ask_user 卡片不会再被新问答替换；匹配不到时只回退到仍在流式输出的 ask_user 行。
+- **工具卡片渲染细节**：没有展开体时不再渲染空展开壳，箭头方向与实际展开状态一致；嵌套调用从标题行移到单独一行，点击标题行不会误触内部调用列表；空标题不再占位。
+- **清理**：删除无引用的 `ToolFileCard`、`CitationCard` 及各自样式；`toolCardHasBody` 更名为 `toolCardExpandable`。
+- **修复 OMP 的 grep 结果没有语法高亮**：omp 的 grep 输出是 `*12|文本`（命中）与 ` 12|文本`（上下文），目录搜索时还带 `# 目录/` 层级头，解析器此前只认 pi 后端的 `path:12: 文本`，命中一条都解析不出来就整块退化成纯文本；现在两种格式都能解析，命中行按文件类型高亮并可点击打开所在文件，被跳过的上下文保留为 `…` 间隔提示。
+- **修复已结束的工具卡被迟到进度复活**：omp 的异步 `task` 在工具返回后仍会持续上报 `Running agent …`，渲染层把已完成的卡片重新标记为运行中并覆盖最终结果；现在已结束的工具（含嵌套调用）忽略迟到更新，保留「Spawned N background agents」结果，空闲会话也不会被重新点亮。
+- **修复安装包与 dev 的设置文件仍各存一份**：模型选择、代理、Pi CLI 偏好、工作区与引擎选择此前写在 Electron userData 下，而 dev 使用独立的 `pi-desktop-dev` 目录，两端各读各的文件；现在统一落到 agent 目录（`~/.pi/agent`），启动时从旧 userData 补齐缺失文件。`~` 也统一按系统主目录展开，从 Git Bash 启动 dev 时不再因 `HOME` 与安装包不同而解析出另一套配置目录。
+
+### Fixes
+
+- **Fixed the `wait` tool card rendering as an empty shell**: `wait` takes no arguments and reports progress in `details.jobs` of each `tool_execution_update`, but the card treated the empty arguments as output, leaving it with neither a title nor a body while waiting. The title now states the number of tracked jobs, and the body lists each job's state, elapsed time, completion meter, current stage, requests/cost/context, and renders the live activity view omp builds for the job (a task's current stage, a bash job's latest output line and line rate, plus headline and meter/spark/stat/grid blocks). Each task job also carries its own subagent conversation card: expanding it reads the live AgentRegistry entry or the persisted transcript, lists user/assistant/tool entries, and refreshes while the agent runs; a wait with no jobs shows "Waiting for a background job or reply…" with a live elapsed clock.
+- **Todo lists now survive new turns**: the `todo` list is session-level state, so a plain new prompt no longer clears it; a restarted idle worker restores the latest `todo` result from the session branch, and `details.storage` reports `session`. Only message edits or rollbacks (history rewrites) drop the list along with the discarded turns.
+- **Fixed the todo card refusing to expand**: incremental todo ops (done, append, …) only carry the entries they touched, and the card could not derive any entries from them, so it rendered as a row without an expandable body and the title degraded to the bare tool name. The card now derives the touched entries from the call arguments, the title states the action (create/start/complete/add/remove/drop/block), and the progress counter only shows up when a full snapshot is available.
+- **Fixed tool card title rows being selectable**: the title row allowed text selection, so a click often dragged out a selection and lost the click, which read as "nothing happens". Title rows now forbid selection like timeline steps do, and carry button semantics plus keyboard toggling.
+- **Fixed file-type icons failing to resolve**: the read tool inlines its line selector into the path (`a.ts:1-15,194-215`, `a.ts:raw`, `a.ts:raw:50-100`), so the basename lookup treated the suffix as the extension and fell back to the generic file icon; the selector is now stripped before resolving the extension, and the language badge and icon share one stripping helper.
+- **Unified the todo tool**: removed the desktop-built `todo_write`; both the pi and omp backends now use `todo` (phase/task list, ops addressed by task content). The renderer consumes the `phases` snapshot, so the panel, timers, and "not reported" markers work under omp again.
+- **Fixed CLI version probes hitting project bin shims on the developer page**: in dev the main process PATH includes `node_modules/.bin`, so `where.exe` resolved the project's shim first — pi CLI showed the bundled 1.4.0 instead of the system-installed 1.5.0, and the omp probe leaked an error line from the broken local bun launch chain; the probe now strips `node_modules` entries and resolves only system-installed CLIs.
+- **Fixed user images rendering as broken in OMP sessions**: omp persists user images as `blob:sha256:` references, while history parsing and live events only understood base64, producing invalid `data:image/...;base64,blob:sha256:...` URLs; the bytes are now read back from `<agentDir>/blobs` and restored to base64, and a missing blob skips the image instead of showing a broken one.
+- **Fixed an ask_user card attaching to the wrong tool row**: the ask now carries the id of the tool call that started it, main and the renderer match on that id, so an older ask_user card in history is no longer replaced by a new prompt; when the id cannot be matched it falls back to the still-streaming ask_user row only.
+- **Tool card rendering**: a card with nothing to reveal no longer renders an empty body or a mismatched chevron; nested calls moved out of the title row into their own line, so clicking the title cannot hit the nested call list; an empty headline no longer occupies space.
+- **Cleanup**: removed the unreferenced `ToolFileCard` and `CitationCard` components and their styles; renamed `toolCardHasBody` to `toolCardExpandable`.
+- **Fixed OMP grep results losing syntax highlighting**: omp prints grep hits as `*12|text` (match) and ` 12|text` (context), with `# dir/` tree headers for directory searches, while the parser only understood pi's `path:12: text`. No hit was recognised, so the whole result degraded to plain text. Both formats are parsed now: matches are highlighted per file type and open the file on click, and skipped context runs are kept as `…` separators.
+- **Fixed finished tool cards being revived by late progress**: an asynchronous omp `task` keeps emitting `Running agent …` after the tool already returned, and the renderer marked the completed card as running again and overwrote its result. Finished tools (including nested calls) now ignore late updates, keep the "Spawned N background agents" result, and no longer flip an idle session back to running.
+- **Fixed packaged and dev builds still keeping separate settings files**: model selection, proxy settings, Pi CLI preferences, the workspace list, and the engine choice were stored under the Electron userData directory, while dev runs from its own `pi-desktop-dev` directory, so each build read its own copy. They now live in the agent directory (`~/.pi/agent`), with missing files copied over from the old userData on startup. `~` also resolves against the OS home directory, so starting dev from Git Bash no longer picks a different config directory because of `HOME`.
+
 ## v0.3.7-rc.4 (2026-11-02)
 
 回填 rc.3 评审指出的问题，都是细节回归：带环境变量前缀的常驻命令不再被当成前台阻塞，后台残留进程不会再从运行面板消失，ask_user 待答时重编辑不再卡住。

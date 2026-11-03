@@ -245,6 +245,49 @@ describe("reduceChatEvent", () => {
 		});
 	});
 
+	it("ignores late tool updates after the call finished", () => {
+		let state = createChatState();
+		const sessionId = "sess-1";
+		state = reduceChatEvent(state, {
+			type: "agent_event",
+			sessionId,
+			event: {
+				type: "tool_execution_start",
+				toolCallId: "tc-task",
+				toolName: "task",
+				args: { task: "review" },
+			},
+		});
+		state = reduceChatEvent(state, {
+			type: "agent_event",
+			sessionId,
+			event: {
+				type: "tool_execution_end",
+				toolCallId: "tc-task",
+				toolName: "task",
+				result: "Spawned 4 background agents.",
+			},
+		});
+		state = { ...state, running: false };
+		const settled = state;
+		state = reduceChatEvent(state, {
+			type: "agent_event",
+			sessionId,
+			event: {
+				type: "tool_execution_update",
+				toolCallId: "tc-task",
+				toolName: "task",
+				partialResult: "Running agent ReviewWorker...",
+			},
+		});
+		expect(state).toBe(settled);
+		expect(state.running).toBe(false);
+		expect(state.messages[0]).toMatchObject({
+			result: "Spawned 4 background agents.",
+			streaming: false,
+		});
+	});
+
 	it("caps oversized string tool results stored at execution end", () => {
 		let state = createChatState();
 		const sessionId = "sess-1";

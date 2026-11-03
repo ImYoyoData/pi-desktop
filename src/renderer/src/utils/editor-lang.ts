@@ -1,8 +1,13 @@
+import { stripLineSelector } from "./fs-path";
+
 export type GitStatusCode = "M" | "A" | "D" | "R" | "U" | "C";
 
 /** 文件路径 → 语法高亮语言 id。 */
 export function languageFromPath(filePath: string): string {
-  const name = filePath.split(/[/\\]/).pop()?.toLowerCase() ?? "";
+  const name = stripLineSelector(filePath)
+    .split(/[/\\]/)
+    .pop()
+    ?.toLowerCase() ?? "";
   // .env, .env.local, .env.development, foo.env
   if (name === ".env" || name.startsWith(".env.") || name.endsWith(".env")) {
     return "dotenv";

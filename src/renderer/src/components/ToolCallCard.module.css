@@ -11,10 +11,6 @@
   opacity: 0.82;
 }
 
-.toolCall.askUserMuted .headline:empty {
-  display: none;
-}
-
 .toolCallHead {
   position: relative;
   width: 100%;
@@ -32,6 +28,9 @@
   cursor: pointer;
   min-width: 0;
   box-sizing: border-box;
+  /* 折叠行是按钮：点击是展开/收起，不该拖出一段选区。 */
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .notExpandable .toolCallHead {
@@ -364,6 +363,12 @@
 /* 展开体紧跟在所属步骤下方，与步骤图标左缘对齐。 */
 .stepBody {
   padding-left: 3px;
+}
+
+/* 嵌套调用是标题行之外的第二行，与标题文字左缘（图标 16px + 间距 8px）对齐。 */
+.nestedRow {
+  min-width: 0;
+  margin: 0 0 2px 24px;
 }
 
 /* 独立工具行的展开体：与标题行图标左缘对齐，卡片占满整行宽度。 */

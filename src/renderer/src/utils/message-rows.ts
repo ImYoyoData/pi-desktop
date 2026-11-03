@@ -132,6 +132,30 @@ export function buildFinalAnswerIds(displayed: readonly ChatMessage[]): Set<stri
   return finalAnswerRowIds(displayed.map(toRow));
 }
 
+/** 待答问答卡挂在哪一行：优先按发起提问的工具调用 id，否则只认仍在流式的 ask_user。 */
+export function findPendingAskRowId(
+  displayed: readonly ChatMessage[],
+  ask: { toolCallId?: string } | null,
+): string | null {
+  if (!ask) return null;
+  if (ask.toolCallId) {
+    const matched = displayed.find(
+      (msg) =>
+        msg.role === "tool" &&
+        msg.toolName === ASK_USER_TOOL_NAME &&
+        msg.toolCallId === ask.toolCallId,
+    );
+    if (matched) return matched.id;
+  }
+  for (let i = displayed.length - 1; i >= 0; i--) {
+    const msg = displayed[i]!;
+    if (msg.role === "tool" && msg.toolName === ASK_USER_TOOL_NAME && msg.streaming) {
+      return msg.id;
+    }
+  }
+  return null;
+}
+
 /** 最后一条用户消息是否已被模型读取：其后已经出现 agent 行（回答 / 工具 / 报错）。 */
 export function isLatestUserRead(displayed: readonly ChatMessage[]): boolean {
   const last = displayed.at(-1);

@@ -12,9 +12,11 @@ export type SessionTodoItem = {
 	startedAt?: number;
 	/**
 	 * 回合结束时模型仍没回写这一项（既没标 completed 也没标 in_progress）。
-	 * 面板据此显示「未回写」而不是伪造的完成。下一次 todo_write 会清掉它。
+	 * 面板据此显示「未回写」而不是伪造的完成。下一次 todo 更新会清掉它。
 	 */
 	unreported?: boolean;
+	/** 被阻塞的原因，来自 todo details.phases 的 blocker。 */
+	blocker?: string;
 };
 
 export type SessionTodoList = {
@@ -42,7 +44,7 @@ const TODO_WIDGET_KEYS = new Set([
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 
-/** Tools that maintain a session todo list (pi-deck `todo`, Cursor-like `todo_write`, …). */
+/** Tools that maintain a session todo list (`todo`, legacy `todo_write`, …). */
 export function isTodoToolName(toolName: string): boolean {
 	const n = toolName
 		.trim()
@@ -78,14 +80,12 @@ function statusDone(status: unknown): boolean {
 		s === "done" ||
 		s === "closed" ||
 		s === "cancelled" ||
-		s === "canceled"
+		s === "canceled" ||
+		s === "abandoned"
 	);
 }
 
-/**
- * 行 id：显式 id/step 优先，空值回退到有效行序号。
- * 与 shared/todo-tool 的 normalizeTodoWriteRows 保持同一语义，两处不能各自推演。
- */
+/** 行 id：显式 id/step 优先，空值回退到有效行序号。 */
 function rowIdFromRaw(
 	row: { id?: unknown; step?: unknown },
 	positionalId: number,
@@ -96,7 +96,7 @@ function rowIdFromRaw(
 	return String(positionalId);
 }
 
-/** 行状态为「进行中」，词表与 shared/todo-tool 的 parseTodoStatus 对齐。 */
+/** 行状态为「进行中」，兼容各后端输出的状态词表。 */
 function statusActive(status: unknown): boolean {
 	if (typeof status !== "string") return false;
 	const s = status.trim().toLowerCase();
@@ -112,7 +112,7 @@ function statusActive(status: unknown): boolean {
 /**
  * 从原始行里派生唯一的活动项 id。
  *
- * 模型刚发出 todo_write 时只有 args、没有 details.activeId，按行状态能立刻点亮
+ * 模型刚发出 todo 更新时可能只有 args、没有 details.activeId，按行状态能立刻点亮
  * 「进行中」并开始计时，而不是等 tool_execution_end。id/step 缺失时按有效行序号取值，
  * 与 normalizeTodoRows 的兜底 id 一致。
  */
@@ -158,6 +158,7 @@ export function normalizeTodoRows(rows: unknown): SessionTodoItem[] {
 			active?: unknown;
 			unreported?: unknown;
 			durationMs?: unknown;
+			blocker?: unknown;
 		};
 		const textRaw =
 			(typeof t.text === "string" && t.text) ||
@@ -183,6 +184,9 @@ export function normalizeTodoRows(rows: unknown): SessionTodoItem[] {
 			...(active ? { active: true } : {}),
 			...(unreported ? { unreported: true } : {}),
 			...(durationMs != null ? { durationMs } : {}),
+			...(typeof t.blocker === "string" && t.blocker.trim()
+				? { blocker: t.blocker.trim() }
+				: {}),
 		});
 	}
 	return items;
@@ -273,20 +277,86 @@ export function splitDurationSuffix(raw: string): {
 	};
 }
 
+function recordOf(value: unknown): Record<string, unknown> | null {
+	return value && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+/** omp `todo` 的 details：phases[].tasks[] 展平成面板行。 */
+function flattenTodoPhases(phases: unknown): unknown[] {
+	if (!Array.isArray(phases)) return [];
+	const rows: unknown[] = [];
+	for (const rawPhase of phases) {
+		const tasks = recordOf(rawPhase)?.tasks;
+		if (!Array.isArray(tasks)) continue;
+		for (const rawTask of tasks) {
+			const task = recordOf(rawTask);
+			const text = typeof task?.content === "string" ? task.content.trim() : "";
+			if (!text) continue;
+			const blocker =
+				typeof task?.blocker === "string" ? task.blocker.trim() : "";
+			rows.push({
+				id: String(rows.length + 1),
+				text,
+				status: typeof task?.status === "string" ? task.status : "pending",
+				...(blocker ? { blocker } : {}),
+			});
+		}
+	}
+	return rows;
+}
+
+/** omp `todo` 的 init 参数：list[].items[] 展平；首项与 omp 一样标为进行中。 */
+function flattenTodoInitList(list: unknown): unknown[] | null {
+	if (!Array.isArray(list)) return null;
+	const rows: unknown[] = [];
+	for (const rawPhase of list) {
+		const items = recordOf(rawPhase)?.items;
+		if (!Array.isArray(items)) continue;
+		for (const item of items) {
+			const text = typeof item === "string" ? item.trim() : "";
+			if (!text) continue;
+			rows.push({
+				id: String(rows.length + 1),
+				text,
+				status: rows.length === 0 ? "in_progress" : "pending",
+			});
+		}
+	}
+	return rows.length ? rows : null;
+}
+
 function todosPayloadFromUnknown(details: unknown): {
 	action?: unknown;
 	rows: unknown;
 } | null {
-	if (!details || typeof details !== "object") return null;
-	const d = details as {
-		todos?: unknown;
-		tasks?: unknown;
-		items?: unknown;
-		action?: unknown;
-	};
+	const d = recordOf(details);
+	if (!d) return null;
+	if (Array.isArray(d.phases)) {
+		const rows = flattenTodoPhases(d.phases);
+		return {
+			action: typeof d.op === "string" ? d.op : rows.length ? undefined : "clear",
+			rows,
+		};
+	}
 	const rows = d.todos ?? d.tasks ?? d.items;
-	if (rows === undefined && d.action === undefined) return null;
-	return { action: d.action, rows };
+	const action = d.action ?? d.op;
+	if (rows === undefined && action === undefined) return null;
+	return { action, rows };
+}
+
+/** 工具载荷里的动作（Cursor action / omp op）。 */
+export function todoActionFromPayload(details: unknown): unknown {
+	return todosPayloadFromUnknown(details)?.action;
+}
+
+/** 载荷是否代表“列表已空”：omp 的空 phases 快照，或 Cursor 的 clear 动作。 */
+export function todoPayloadEmptiesList(details: unknown): boolean {
+	const d = recordOf(details);
+	if (!d) return false;
+	if (Array.isArray(d.phases)) return flattenTodoPhases(d.phases).length === 0;
+	return d.action === "clear";
 }
 
 /** Build list from todo tool `details` / result payload. */
@@ -363,24 +433,65 @@ export function todosFromToolDetails(
 }
 
 /**
- * Build list from tool args while writing (Cursor-like todo_write full replace).
- * Returns null for incremental pi-deck `{ action: "add", text }` calls.
+ * Build list from tool args while writing: todo init 的 list/items 与 Cursor 风格的
+ * 全量 todos 都算完整清单；增量 add/toggle 返回 null。
  */
 export function todosFromToolArgs(
 	key: string,
 	args: unknown,
 ): SessionTodoList | null {
-	if (!args || typeof args !== "object") return null;
-	const a = args as {
-		action?: unknown;
-		todos?: unknown;
-		tasks?: unknown;
-		items?: unknown;
-	};
-	if (a.action === "clear") return null;
+	const a = recordOf(args);
+	if (!a) return null;
+	const action = a.action ?? a.op;
+	if (action === "clear") return null;
+	if (a.op === "init") {
+		const rows = flattenTodoInitList(a.list);
+		if (rows) return todosFromToolDetails(key, { action: "init", todos: rows });
+	}
 	const rows = a.todos ?? a.tasks ?? a.items;
 	if (!Array.isArray(rows)) return null;
-	return todosFromToolDetails(key, { action: a.action, todos: rows });
+	return todosFromToolDetails(key, { action, todos: rows });
+}
+
+/**
+ * omp todo 单次操作涉及的条目。
+ *
+ * 增量操作（done/start/append 等）没有全量快照，只有这次动过的条目；
+ * 没有它们，卡片只剩一个动作标题，点开也没有内容可看。
+ */
+export function todoItemsFromToolArgs(args: unknown): SessionTodoItem[] {
+	const a = recordOf(args);
+	if (!a) return [];
+	const op =
+		typeof a.op === "string"
+			? a.op
+			: typeof a.action === "string"
+				? a.action
+				: "";
+	const single = typeof a.task === "string" ? a.task.trim() : "";
+	const many = Array.isArray(a.items)
+		? a.items
+				.filter((value): value is string => typeof value === "string")
+				.map((value) => value.trim())
+				.filter(Boolean)
+		: [];
+	if (
+		op === "done" ||
+		op === "start" ||
+		op === "block" ||
+		op === "unblock" ||
+		op === "rm"
+	) {
+		return single ? [{ id: "1", text: single, done: op === "done" }] : [];
+	}
+	if (op === "append" || op === "add") {
+		return many.map((text, index) => ({
+			id: String(index + 1),
+			text,
+			done: false,
+		}));
+	}
+	return [];
 }
 
 export function todoListAllDone(list: SessionTodoList): boolean {

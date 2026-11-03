@@ -58,6 +58,7 @@ import {
   serializeSessionPrefs,
   setPrefKey,
   thinkingFromState,
+  thinkingLevelsFromWorker,
   type SessionPrefs,
 } from "@renderer/utils/session-prefs";
 import {
@@ -103,8 +104,10 @@ import {
   parseSlashContext,
   replaceSlashLine,
   skillSlashCommand,
+  type SlashCatalog,
   type SlashItem,
 } from "../../../shared/slash-commands";
+import { expandCommandText } from "../../../shared/slash-command-template";
 import {
   parseAtFileContext,
   replaceAtFileMention,
@@ -119,7 +122,9 @@ import { getLocale } from "@renderer/i18n";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import { useMessage } from "@renderer/services/feedback";
 import {
+  DEFAULT_SUPPORTED_THINKING_LEVELS,
   THINKING_LEVELS,
+  clampThinkingLevel,
   isThinkingLevel,
   thinkingLevelLabel,
   type ThinkingLevel,
@@ -211,7 +216,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   const queueEditingId = useSendQueueStore((s) => s.editingId);
 
   const availableModels = useLatest<ModelSelectOption[]>([]);
-  /** 模型 → 可用思考档位；缺省表示全部可用。 */
+  /** 模型 → 真实可用思考档位；未加载的模型回退到 Pi 默认档位。 */
   const modelThinkingLevels = useLatest<Record<string, ThinkingLevel[] | undefined>>({});
   const selectedModel = useLatest<string | null>(null);
   const thinking = useLatest<ThinkingLevel>("medium");
@@ -219,6 +224,10 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     parseSessionPrefs(prefsApi.getItem(SESSION_PREFS_KEY)),
   );
   const slashSkills = useLatest<{ name: string; description: string }[]>([]);
+  const slashCatalog = useLatest<SlashCatalog>({
+    skillCommands: false,
+    commands: [],
+  });
   const atFileItems = useLatest<AtFileItem[]>([]);
   const atFileLoading = useLatest(false);
   const skillsCount = useLatest<number | null>(null);
@@ -239,6 +248,9 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   const drainInFlightRef = useRef<string | null>(null);
   const slashSkillsCachedForRef = useRef<string | null>(null);
   const slashSkillsLoadingRef = useRef(false);
+  const slashCatalogCachedForRef = useRef<string | null>(null);
+  const slashCatalogLoadingRef = useRef(false);
+  const slashCatalogPendingRef = useRef(false);
   const atFileSearchGenRef = useRef(0);
   const atFileRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skillsCountCachedForRef = useRef<string | null>(null);
@@ -301,6 +313,11 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     result: unknown,
     key: string | null = currentPrefsKey(),
   ): void {
+    const modelKey = selectedModel.ref.current;
+    const levels = thinkingLevelsFromWorker(result, isThinkingLevel);
+    if (levels && modelKey) {
+      modelThinkingLevels.set({ ...modelThinkingLevels.ref.current, [modelKey]: levels });
+    }
     // worker 未回传实际值时不动界面，只按用户选择记忆。
     const { actual, clamped } = resolveThinkingResult(requested, result, isThinkingLevel);
     if (!clamped) {
@@ -308,6 +325,13 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       return;
     }
     adoptThinking(actual, key);
+  }
+
+  /** 当前模型的真实可用档位；数据缺失时按 Pi 默认，空集合按 off 处理。 */
+  function allowedThinkingLevels(model: string | null): ThinkingLevel[] {
+    const allowed = model ? modelThinkingLevels.ref.current[model] : undefined;
+    if (allowed === undefined) return [...DEFAULT_SUPPORTED_THINKING_LEVELS];
+    return allowed.length ? allowed : ["off"];
   }
 
   function rememberModel(sessionId: string, key: string): void {
@@ -325,13 +349,18 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     updatePrefs(next);
   }
 
-  const thinkingMenu: MenuProps["items"] = thinkingLevelsFor(selectedModel.value).map((o) => ({
+  const thinkingOptions = thinkingLevelsFor(selectedModel.value);
+  const effectiveThinking = clampThinkingLevel(
+    thinking.value,
+    thinkingOptions.map((option) => option.value),
+  );
+  const thinkingMenu: MenuProps["items"] = thinkingOptions.map((o) => ({
     label: o.label,
     key: o.value,
-    style: o.value === thinking.value ? SELECTED_MODEL_STYLE : undefined,
+    style: o.value === effectiveThinking ? SELECTED_MODEL_STYLE : undefined,
   }));
 
-  const thinkingLabel = thinkingLevelLabel(thinking.value) ?? "Medium";
+  const thinkingLabel = thinkingLevelLabel(effectiveThinking) ?? "Medium";
 
   const modelMenu = buildModelMenu(availableModels.value, selectedModel.value);
 
@@ -602,7 +631,8 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     const store = useComposerStore.getState();
     const chipText = store.formatChipsForMessage();
     const displayText = store.draft.trim();
-    const body = [displayText, chipText].filter(Boolean).join("\n\n");
+    const agentDraft = expandCommandText(displayText, slashCatalog.value.commands);
+    const body = [agentDraft, chipText].filter(Boolean).join("\n\n");
     let text = body;
     // Bind cached image paths to the prompt (hidden in the editor): text-only
     // models can locate the files, vision models still get the base64 content.
@@ -1013,7 +1043,11 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       // 不等 worker 冷启动：设置与 prompt 依次下发，主进程保证设置先落地，
       // 用户气泡因此立即上屏。
       void applySelectedModel({ allowStart: true });
-      const level = thinking.ref.current;
+      const level = clampThinkingLevel(
+        thinking.ref.current,
+        allowedThinkingLevels(selectedModel.ref.current),
+      );
+      if (level !== thinking.ref.current) adoptThinking(level, id);
       void useSessionsStore
         .getState()
         .sendCommand(id, {
@@ -1208,18 +1242,33 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     },
   ];
 
-  const slashSkillItems: SlashItem[] = slashSkills.value.map((s) => ({
-    id: `skill:${s.name}`,
-    kind: "skill" as const,
-    command: skillSlashCommand(s.name),
-    title: `/${skillSlashCommand(s.name)}`,
-    description: s.description || t.slashSkillFallbackDesc,
-  }));
+  const slashSkillItems: SlashItem[] = slashCatalog.value.skillCommands
+    ? slashSkills.value.map((s) => ({
+        id: `skill:${s.name}`,
+        kind: "skill" as const,
+        command: skillSlashCommand(s.name),
+        title: `/${skillSlashCommand(s.name)}`,
+        description: s.description || t.slashSkillFallbackDesc,
+      }))
+    : [];
+
+  const slashCommandItems: SlashItem[] = slashCatalog.value.commands
+    .filter((command) => !isSlashBuiltinId(command.name))
+    .map((command) => ({
+      id: `command:${command.name}`,
+      kind: "command" as const,
+      command: command.name,
+      title: `/${command.name}`,
+      description: command.description || t.slashSkillFallbackDesc,
+    }));
 
   const slashContext = parseSlashContext(composer.draft);
 
   const slashItems: SlashItem[] = slashContext
-    ? filterSlashItems([...slashBuiltins, ...slashSkillItems], slashContext.query)
+    ? filterSlashItems(
+        [...slashBuiltins, ...slashCommandItems, ...slashSkillItems],
+        slashContext.query,
+      )
     : [];
 
   const slashMenuOpen = Boolean(slashContext) && slashItems.length > 0;
@@ -1323,6 +1372,33 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     }
   }
 
+  async function ensureSlashCatalog(force = false): Promise<void> {
+    const root = useWorkspaceStore.getState().root ?? "";
+    if (!force && slashCatalogCachedForRef.current === root) return;
+    if (slashCatalogLoadingRef.current) {
+      if (force) slashCatalogPendingRef.current = true;
+      return;
+    }
+    slashCatalogLoadingRef.current = true;
+    try {
+      const data = await window.api.slashCommands.list(root || undefined);
+      if ((useWorkspaceStore.getState().root ?? "") !== root) {
+        slashCatalogPendingRef.current = true;
+        return;
+      }
+      slashCatalog.set(data);
+      slashCatalogCachedForRef.current = root;
+    } catch {
+      slashCatalog.set({ skillCommands: true, commands: [] });
+    } finally {
+      slashCatalogLoadingRef.current = false;
+      if (slashCatalogPendingRef.current) {
+        slashCatalogPendingRef.current = false;
+        void ensureSlashCatalog(true);
+      }
+    }
+  }
+
   async function runSlashBuiltin(id: string): Promise<void> {
     if (!isSlashBuiltinId(id)) return;
     switch (id) {
@@ -1380,7 +1456,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       await runSlashBuiltin(item.id);
       return;
     }
-    // Skills: leave `/skill:name` so AgentSession expands on send; trailing space for optional args.
+    // 命令与技能都留原文：命令发送前展开模板，技能由 AgentSession 展开。
     const draft = useComposerStore.getState().draft;
     useComposerStore
       .getState()
@@ -1441,19 +1517,40 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   }
 
   async function onThinkingChange(value: string | number): Promise<void> {
-    const level = String(value) as ThinkingLevel;
-    thinking.set(level);
+    const level = String(value);
+    if (!isThinkingLevel(level)) return;
+    if (!allowedThinkingLevels(selectedModel.ref.current).includes(level)) return;
+    const previous = thinking.ref.current;
     const key = currentPrefsKey();
-    if (key) rememberThinking(key, level);
+    adoptThinking(level, key);
     const id = currentSessionId();
     if (!id) return;
-    // persist: 写入 Pi 全局默认，新会话（无历史记录）据此初始化。
-    const result = await useSessionsStore.getState().sendCommand(id, {
-      type: "set_thinking_level",
-      level,
-      persist: true,
-    });
-    adoptThinkingResult(level, result, key);
+    let result: unknown;
+    try {
+      result = await useSessionsStore.getState().sendCommand(id, {
+        type: "set_thinking_level",
+        level,
+        persist: true,
+      });
+    } catch (err) {
+      adoptThinking(previous, key);
+      const text = err instanceof Error ? err.message : String(err);
+      messageApi.error(formatLlmError(text, getLocale()));
+      return;
+    }
+    const { actual } = resolveThinkingResult(level, result, isThinkingLevel);
+    adoptThinkingResult(actual, result, key);
+    try {
+      // Pi 的首次 persist 记录请求值；再用实际档位覆盖一次。
+      const persisted = await useSessionsStore.getState().sendCommand(id, {
+        type: "set_thinking_level",
+        level: actual,
+        persist: true,
+      });
+      adoptThinkingResult(actual, persisted, key);
+    } catch {
+      // 档位已生效，仅默认值未保存；不回滚界面。
+    }
   }
 
   async function refreshModels(): Promise<void> {
@@ -1545,12 +1642,18 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       ) {
         selectedModel.set(flat[0]?.value ?? null);
       }
+      const desired = clampThinkingLevel(
+        thinking.ref.current,
+        allowedThinkingLevels(selectedModel.ref.current),
+      );
+      if (desired !== thinking.ref.current) adoptThinking(desired, key);
       return;
     }
 
     // Prefer live worker state when agent is already running (never cold-start here).
     let workerKey: string | null = null;
     let workerThinking: ThinkingLevel | null = null;
+    let workerLevels: ThinkingLevel[] | null = null;
     try {
       const state = await useSessionsStore.getState().tryCommand(realId, {
         type: "get_state",
@@ -1558,6 +1661,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       if (state !== undefined) {
         workerKey = modelKeyFromState(state);
         workerThinking = thinkingFromState(state, isThinkingLevel);
+        workerLevels = thinkingLevelsFromWorker(state, isThinkingLevel);
         useSessionsStore.getState().applyContextFromState(realId, state);
       }
     } catch {
@@ -1594,13 +1698,22 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     } else if (workerThinking) {
       adoptThinking(workerThinking, realId);
     }
-    if (workerThinking !== null && workerThinking !== thinking.ref.current) {
+    const modelKeyNow = selectedModel.ref.current;
+    if (workerLevels && modelKeyNow && workerKey === modelKeyNow) {
+      modelThinkingLevels.set({ ...modelThinkingLevels.ref.current, [modelKeyNow]: workerLevels });
+    }
+    const desired = clampThinkingLevel(
+      thinking.ref.current,
+      allowedThinkingLevels(modelKeyNow),
+    );
+    if (desired !== thinking.ref.current) adoptThinking(desired, realId);
+    if (workerThinking !== null && workerThinking !== desired) {
       try {
         const result = await useSessionsStore.getState().tryCommand(realId, {
           type: "set_thinking_level",
-          level: thinking.ref.current,
+          level: desired,
         });
-        adoptThinkingResult(thinking.ref.current, result, realId);
+        adoptThinkingResult(desired, result, realId);
       } catch {
         // ignore thinking sync failures
       }
@@ -1663,11 +1776,25 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     // remembered for the next prompt), so the picker must not silently swallow
     // the click.
     const key = String(value);
+    const requested = thinking.ref.current;
     selectedModel.set(key);
     appliedModelForSessionRef.current = null;
     const prefsKeyValue = currentPrefsKey();
     if (prefsKeyValue && key) rememberModel(prefsKeyValue, key);
     await applySelectedModel({ allowStart: false });
+    const desired = clampThinkingLevel(requested, allowedThinkingLevels(key));
+    adoptThinking(desired, prefsKeyValue);
+    const id = currentSessionId();
+    if (!id) return;
+    try {
+      const result = await useSessionsStore.getState().tryCommand(id, {
+        type: "set_thinking_level",
+        level: desired,
+      });
+      if (result !== undefined) adoptThinkingResult(desired, result, prefsKeyValue);
+    } catch {
+      // 保持本地选择；下一次发送会重新下发。
+    }
   }
 
   /** 快捷键：循环到下一个模型 / 思考等级。 */
@@ -1679,16 +1806,19 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     if (next) void onModelChange(next.value);
   }, [availableModels, selectedModel]);
 
-  /** 思考档位菜单只列当前模型可用的档位；未配置映射时保持全档位。 */
+  /** 思考档位菜单只列当前模型真实可用的档位。 */
   function thinkingLevelsFor(model: string | null): { value: ThinkingLevel; label: string }[] {
-    const allowed = model ? modelThinkingLevels.ref.current[model] : undefined;
-    if (!allowed?.length) return THINKING_LEVELS;
+    const allowed = allowedThinkingLevels(model);
     return THINKING_LEVELS.filter((level) => allowed.includes(level.value));
   }
 
   const cycleThinking = useCallback((): void => {
     const levels = thinkingLevelsFor(selectedModel.ref.current);
-    const index = levels.findIndex((o) => o.value === thinking.ref.current);
+    const current = clampThinkingLevel(
+      thinking.ref.current,
+      levels.map((o) => o.value),
+    );
+    const index = levels.findIndex((o) => o.value === current);
     const next = levels[(index + 1) % levels.length];
     if (next) void onThinkingChange(next.value);
   }, [thinking, selectedModel]);
@@ -1873,9 +2003,21 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   }, [atFileContext?.atIndex, atFileContext?.query]);
 
   useEffect(() => {
+    void ensureSlashCatalog(true);
+  }, [workspaceRoot]);
+
+  useEffect(() => {
     if (!slashContext) return;
     void ensureSlashSkills();
+    void ensureSlashCatalog();
   }, [slashContext?.slashIndex, slashContext?.query]);
+
+  useEffect(() => {
+    return window.api.ompSettings.onChanged(() => {
+      slashCatalogCachedForRef.current = null;
+      void ensureSlashCatalog(true);
+    });
+  }, []);
 
   useEffect(() => {
     void window.api.window.platform().then((p) => {

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { app, ipcMain, session } from "electron";
+import { dirname } from "node:path";
+import { ipcMain, session } from "electron";
 import { IpcChannels } from "../shared/protocol";
 import {
 	DEFAULT_PROXY_SCOPE,
@@ -15,6 +15,7 @@ import {
 	type ProxySettings,
 } from "../shared/proxy";
 import { syncWebSearchProxy } from "./web-search-proxy";
+import { desktopDataPath } from "./desktop-data";
 import { broadcastStateChange } from "./ui-sync";
 
 const SYSTEM_PROXY_PROBE_URL = "https://api.openai.com";
@@ -30,7 +31,7 @@ function cloneDefaults(): ProxySettings {
 }
 
 function settingsPath(): string {
-	return join(app.getPath("userData"), "proxy.json");
+	return desktopDataPath("proxy.json");
 }
 
 /** 旧版只存一层 { mode, url }（桌面与 Agent 共用），读入时继承到两侧。 */
@@ -108,7 +109,7 @@ function broadcastChanged(settings: ProxySettings): void {
 /** 上次生效的代理 env 快照；NODE_USE_ENV_PROXY 只在进程启动时生效，OAuth 等
  *  SDK 裸 fetch 依赖它，因此持久化并在主进程入口最早处恢复。 */
 function proxyEnvSnapshotPath(): string {
-	return join(app.getPath("userData"), "proxy-env.json");
+	return desktopDataPath("proxy-env.json");
 }
 
 function persistProxyEnvSnapshot(): void {

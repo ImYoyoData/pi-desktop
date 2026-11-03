@@ -29,6 +29,11 @@ describe("createAskUserToolDefinition", () => {
       {} as never,
     );
     expect(waitForAnswers).toHaveBeenCalledOnce();
+    expect(waitForAnswers).toHaveBeenCalledWith(
+      expect.any(Array),
+      undefined,
+      "tc-1",
+    );
     const text = result.content.map((c) => ("text" in c ? c.text : "")).join("");
     expect(text).toContain('"answers"');
   });

@@ -15,7 +15,7 @@ export function ompAgentDir(): string {
 		return path.normalize(path.resolve(expandHome(envDir.trim())));
 	}
 	const configDir = process.env.PI_CONFIG_DIR?.trim() || ".omp";
-	return path.join(homeDir(), configDir, "agent");
+	return path.join(homedir(), configDir, "agent");
 }
 
 /** omp 的会话根目录，与 pi 同样的 `sessions/--cwd--` 布局。 */
@@ -23,10 +23,6 @@ export function ompSessionsDir(): string {
 	return path.join(ompAgentDir(), "sessions");
 }
 
-function homeDir(): string {
-	return process.env.HOME || homedir();
-}
-
 function expandHome(raw: string): string {
-	return raw.startsWith("~") ? path.join(homeDir(), raw.slice(1)) : raw;
+	return raw.startsWith("~") ? path.join(homedir(), raw.slice(1)) : raw;
 }

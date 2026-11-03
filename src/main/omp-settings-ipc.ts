@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { BrowserWindow, ipcMain } from "electron";
 import { IpcChannels } from "../shared/protocol";
 import { readOmpSettings, saveOmpSettings } from "./omp-settings-host";
 import type { SessionBroker } from "./session-broker";
@@ -19,6 +19,9 @@ export function registerOmpSettingsIpc(broker: SessionBroker): void {
 				patch && typeof patch === "object" && !Array.isArray(patch) ? patch : {},
 			);
 			restartWorkers();
+			for (const window of BrowserWindow.getAllWindows()) {
+				window.webContents.send(IpcChannels.ompSettings.changed);
+			}
 			return snapshot;
 		},
 	);

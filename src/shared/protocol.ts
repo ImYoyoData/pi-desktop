@@ -287,12 +287,25 @@ export const IpcChannels = {
 	ompSettings: {
 		get: "ompSettings:get",
 		save: "ompSettings:save",
+		/** Main → renderer: 配置写盘后通知菜单重新读取命令开关。 */
+		changed: "ompSettings:changed",
+	},
+	/** 桌面斜杠菜单的文件型命令（.claude/.opencode）。 */
+	slashCommands: {
+		list: "slashCommands:list",
 	},
 	/** OMP 自己的资源：技能 / 指令 / MCP / 扩展。 */
 	ompResources: {
 		list: "ompResources:list",
 		setEnabled: "ompResources:setEnabled",
 		testMcp: "ompResources:testMcp",
+	},
+	/** OMP 内置 SDK 版本与系统 omp CLI 的安装状态。 */
+	ompVersions: {
+		/** Renderer → main: 应用内置 omp SDK 的版本。 */
+		sdkVersion: "ompVersions:sdkVersion",
+		/** Renderer → main: 系统 PATH 中 omp CLI 的安装与版本状态。 */
+		cliStatus: "ompVersions:cliStatus",
 	},
 	terminal: {
 		create: "terminal:create",
@@ -318,14 +331,8 @@ export const IpcChannels = {
 		elementSelected: "browser:elementSelected",
 		elementScreenshot: "browser:elementScreenshot",
 		selectCancelled: "browser:selectCancelled",
-		openDevTools: "browser:openDevTools",
 		attachDevTools: "browser:attachDevTools",
 		registerGuest: "browser:registerGuest",
-		reportTab: "browser:reportTab",
-		unreportTab: "browser:unreportTab",
-		openTab: "browser:openTab",
-		openTabAck: "browser:openTabAck",
-		closeTab: "browser:closeTab",
 		openExternal: "browser:openExternal",
 		toggleEmbeddedDevTools: "browser:toggleEmbeddedDevTools",
 	},
@@ -470,6 +477,31 @@ export type PromptImageContent = {
 	mimeType: string;
 };
 
+/** 子代理对话的一条：消息或一次工具调用（结果合并进同一条）。 */
+export type AgentTranscriptEntry =
+	| {
+			kind: "message";
+			role: "user" | "assistant";
+			text: string;
+			thinking?: string;
+			timestamp?: number;
+	  }
+	| {
+			kind: "tool";
+			toolName: string;
+			args?: string;
+			text?: string;
+			isError?: boolean;
+			timestamp?: number;
+	  };
+
+export type AgentTranscript = {
+	id: string;
+	messages: AgentTranscriptEntry[];
+	/** 读取来源：运行中 agent 的内存，或落盘的 `.jsonl`。 */
+	source: "live" | "disk";
+};
+
 export type AgentCommand =
 	| {
 			type: "prompt";
@@ -489,6 +521,8 @@ export type AgentCommand =
 	| { type: "get_state" }
 	| { type: "ping" }
 	| { type: "hang" }
+	/** 读取子代理的对话（omp 的 AgentRegistry 或落盘 transcript）。 */
+	| { type: "get_agent_transcript"; agentId: string }
 	/**
 	 * Abandon a user turn on the session tree (leaf moves to its parent).
 	 * Used when re-editing a published bubble, or to heal after a rejected
@@ -608,6 +642,8 @@ export type SessionHistoryMessage =
 			id: string;
 			role: "user";
 			text: string;
+			/** 实际下发给模型的文本；气泡展示原文时用它对齐历史轮次。 */
+			agentText?: string;
 			/** Restored image content parts (data URLs) — survives session reloads. */
 			images?: { mimeType: string; dataUrl: string }[];
 			/** Restored attachment chips (file / url / element) — survives session reloads. */

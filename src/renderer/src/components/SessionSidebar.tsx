@@ -28,7 +28,6 @@ import OmpLogoIcon from "@renderer/components/icons/OmpLogoIcon";
 import {
   AddOutline,
   ChatboxOutline,
-  CheckmarkOutline,
   ChevronDownOutline,
   ChevronForwardOutline,
   CopyOutline,
@@ -1688,12 +1687,8 @@ export function SessionSidebar(): ReactNode {
   }
 
   function moreMenuItems(): MenuItem[] {
-    const activeIcon = (active: boolean): ReactNode =>
-      active ? (
-        <CheckmarkOutline size={14} />
-      ) : (
-        <span className={styles.menuMark} />
-      );
+    const activeStyle = (active: boolean): CSSProperties | undefined =>
+      active ? { backgroundColor: "var(--bg-selected)", fontWeight: 600 } : undefined;
     return [
       { label: t.selectSessions, key: "select-mode", icon: <ListOutline /> },
       { type: "divider", key: "d-view-0" },
@@ -1705,12 +1700,12 @@ export function SessionSidebar(): ReactNode {
           {
             key: "group:project",
             label: t.sessionViewGroupProject,
-            icon: activeIcon(view.group === "project"),
+            style: activeStyle(view.group === "project"),
           },
           {
             key: "group:task",
             label: t.sessionViewGroupTask,
-            icon: activeIcon(view.group === "task"),
+            style: activeStyle(view.group === "task"),
           },
         ],
       },
@@ -1722,22 +1717,22 @@ export function SessionSidebar(): ReactNode {
           {
             key: "time:all",
             label: t.sessionViewTimeAll,
-            icon: activeIcon(view.time === "all"),
+            style: activeStyle(view.time === "all"),
           },
           {
             key: "time:1d",
             label: t.sessionViewTime1d,
-            icon: activeIcon(view.time === "1d"),
+            style: activeStyle(view.time === "1d"),
           },
           {
             key: "time:3d",
             label: t.sessionViewTime3d,
-            icon: activeIcon(view.time === "3d"),
+            style: activeStyle(view.time === "3d"),
           },
           {
             key: "time:7d",
             label: t.sessionViewTime7d,
-            icon: activeIcon(view.time === "7d"),
+            style: activeStyle(view.time === "7d"),
           },
         ],
       },
@@ -1749,12 +1744,12 @@ export function SessionSidebar(): ReactNode {
           {
             key: "sort:recent",
             label: t.sessionViewSortRecent,
-            icon: activeIcon(view.sort === "recent"),
+            style: activeStyle(view.sort === "recent"),
           },
           {
             key: "sort:created",
             label: t.sessionViewSortCreated,
-            icon: activeIcon(view.sort === "created"),
+            style: activeStyle(view.sort === "created"),
           },
         ],
       },
@@ -2212,9 +2207,6 @@ export function SessionSidebar(): ReactNode {
                 <span className={styles.backendMenuLabel}>
                   {BACKEND_ICONS[backend]({ size: 14 })}
                   <span>{AGENT_BACKEND_LABELS[backend]}</span>
-                  {backend === activeBackend ? (
-                    <CheckmarkOutline size={14} />
-                  ) : null}
                 </span>
               ),
               // 选中态用项目自己的中性灰底，避免 antd 默认的深蓝高亮与整体配色打架。
@@ -2324,6 +2316,12 @@ export function SessionSidebar(): ReactNode {
               {...NO_OVERLAY_MOTION}
               trigger={["click"]}
               menu={{
+                selectable: true,
+                selectedKeys: [
+                  `group:${view.group}`,
+                  `time:${view.time}`,
+                  `sort:${view.sort}`,
+                ],
                 items: moreMenuItems(),
                 onClick: ({ key }) => void onMoreMenuSelect(key),
               }}

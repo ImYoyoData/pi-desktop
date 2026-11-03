@@ -1,5 +1,6 @@
-import { agentDir, homeDir } from "./agent-dir";
+import { agentDir } from "./agent-dir";
 import fs from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import type { SessionSummary } from "../shared/protocol";
 import type { AgentBackend } from "../shared/agent-backend";
@@ -27,7 +28,7 @@ function resolveSessionDirPath(value: string): string {
   const trimmed = value.trim();
   const expanded =
     trimmed === "~" || trimmed.startsWith("~/") || trimmed.startsWith("~\\")
-      ? path.join(homeDir(), trimmed.slice(1).replace(/^[/\\]/, ""))
+      ? path.join(homedir(), trimmed.slice(1).replace(/^[/\\]/, ""))
       : trimmed;
   return path.resolve(expanded);
 }

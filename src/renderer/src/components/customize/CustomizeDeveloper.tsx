@@ -5,6 +5,7 @@ import { useAppUpdateStore } from "@renderer/stores/app-update";
 import { useMessage } from "@renderer/services/feedback";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import type { SystemInfo } from "../../../../shared/api";
+import type { OmpCliStatus } from "../../../../shared/omp-cli";
 import styles from "./CustomizeDeveloper.module.css";
 
 /** Windows build 号对应发布名，新版本在此补充。 */
@@ -44,6 +45,8 @@ export function CustomizeDeveloper(): ReactNode {
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [piSdkVersion, setPiSdkVersion] = useState<string | null>(null);
   const [piCli, setPiCli] = useState<{ installed: boolean; version: string | null } | null>(null);
+  const [ompSdkVersion, setOmpSdkVersion] = useState<string | null>(null);
+  const [ompCli, setOmpCli] = useState<OmpCliStatus | null>(null);
   const versions = useMemo(() => ({ ...window.electron.process.versions }), []);
 
   useEffect(() => {
@@ -63,6 +66,12 @@ export function CustomizeDeveloper(): ReactNode {
       .status()
       .then((status) => setPiCli({ installed: status.installed, version: status.version }))
       .catch(() => setPiCli(null));
+    void window.api.ompVersions.sdkVersion()
+      .then(setOmpSdkVersion)
+      .catch(() => setOmpSdkVersion(null));
+    void window.api.ompVersions.cliStatus()
+      .then(setOmpCli)
+      .catch(() => setOmpCli(null));
   }, []);
 
   async function onOpenDevTools(): Promise<void> {
@@ -94,8 +103,22 @@ export function CustomizeDeveloper(): ReactNode {
               : piCli.installed
                 ? piCli.version
                   ? `v${piCli.version}`
-                  : t.developerPiCliUnknown
-                : t.developerPiCliMissing}
+                  : t.developerCliUnknown
+                : t.developerCliMissing}
+          </span>
+        </SettingsRow>
+        <SettingsRow label={t.developerOmpSdk}>
+          <span className={styles.value}>{ompSdkVersion ? `v${ompSdkVersion}` : "—"}</span>
+        </SettingsRow>
+        <SettingsRow label={t.developerOmpCli}>
+          <span className={styles.value}>
+            {!ompCli
+              ? "—"
+              : ompCli.installed
+                ? ompCli.version
+                  ? `v${ompCli.version}`
+                  : t.developerCliUnknown
+                : t.developerCliMissing}
           </span>
         </SettingsRow>
         <SettingsRow label={t.developerRuntimeVersions}>

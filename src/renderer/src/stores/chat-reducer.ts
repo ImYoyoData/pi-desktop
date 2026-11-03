@@ -40,6 +40,8 @@ export type ChatMessage =
 			id: string;
 			role: "user";
 			text: string;
+			/** 实际下发给模型的文本；与气泡文本不同时存在（如斜杠命令展开）。 */
+			agentText?: string;
 			images?: ChatUserImage[];
 			/** Inline tags (element / file path / url) shown in the bubble. */
 			elementTags?: {
@@ -495,6 +497,23 @@ function parkLiveTool(
 	return [...messages, { ...streaming, streaming: true }];
 }
 
+/**
+ * 历史工具行的 id 是落盘 entry id，实时卡片是 `tool-<toolCallId>`；
+ * 先按 id 找，再按调用 id 兜底，避免同一调用在重建后的会话里出现第二张卡。
+ */
+function findToolRowIndex(
+	messages: readonly ChatMessage[],
+	id: string,
+	toolCallId: string,
+): number {
+	const byId = messages.findIndex((m) => m.id === id);
+	if (byId >= 0) return byId;
+	if (!toolCallId) return -1;
+	return messages.findIndex(
+		(m) => m.role === "tool" && m.toolCallId === toolCallId,
+	);
+}
+
 /** 事件里的 parentToolCallId：只有工具内部发起（ctx.executeTool）的调用才有。 */
 function nestedParentId(payload: Record<string, unknown>): string {
 	return typeof payload.parentToolCallId === "string" ? payload.parentToolCallId : "";
@@ -519,7 +538,14 @@ function upsertNestedCall(
 ): ChatState | null {
 	const parentId = `tool-${parentToolCallId}`;
 	const applyTo = (msg: ChatMessage): ChatMessage | null => {
-		if (msg.role !== "tool" || msg.id !== parentId) return null;
+		if (msg.role !== "tool") return null;
+		if (msg.id !== parentId && msg.toolCallId !== parentToolCallId) return null;
+		const calls = msg.nestedCalls ?? [];
+		const index = calls.findIndex((call) => call.toolCallId === toolCallId);
+		// 已结束的嵌套调用同样不能被迟到的进度更新复活。
+		if (index >= 0 && patch.streaming === true && calls[index]?.streaming === false) {
+			return msg;
+		}
 		const merge = (call: ChatToolNestedCall): ChatToolNestedCall => {
 			const merged = { ...call, ...patch };
 			if (
@@ -531,8 +557,6 @@ function upsertNestedCall(
 			}
 			return merged;
 		};
-		const calls = msg.nestedCalls ?? [];
-		const index = calls.findIndex((call) => call.toolCallId === toolCallId);
 		const next =
 			index >= 0
 				? calls.map((call, i) => (i === index ? merge(call) : call))
@@ -543,6 +567,7 @@ function upsertNestedCall(
 	const stream = state.streamingMessage;
 	const streamed = stream ? applyTo(stream) : null;
 	if (streamed) {
+		if (streamed === stream) return state;
 		return {
 			...state,
 			running: true,
@@ -551,12 +576,16 @@ function upsertNestedCall(
 		};
 	}
 	const index = state.messages.findIndex(
-		(msg) => msg.role === "tool" && msg.id === parentId,
+		(msg) =>
+			msg.role === "tool" &&
+			(msg.id === parentId || msg.toolCallId === parentToolCallId),
 	);
 	if (index < 0) return null;
 	const current = state.messages[index]!;
+	const updated = applyTo(current);
+	if (!updated || updated === current) return state;
 	const messages = state.messages.slice();
-	messages[index] = applyTo(current) ?? current;
+	messages[index] = updated;
 	return { ...state, running: true, messages };
 }
 
@@ -667,7 +696,7 @@ function syncStreamingToolCalls(
 		const tc = calls[i]!;
 		const id = `tool-${tc.id}`;
 		const isLast = i === calls.length - 1;
-		const existingIdx = messages.findIndex((m) => m.id === id);
+		const existingIdx = findToolRowIndex(messages, id, tc.id);
 		const existingInList =
 			existingIdx >= 0 && messages[existingIdx]?.role === "tool"
 				? (messages[existingIdx] as Extract<ChatMessage, { role: "tool" }>)
@@ -753,6 +782,8 @@ function imagesFromMessage(
 		const mimeType =
 			typeof p.mimeType === "string" && p.mimeType ? p.mimeType : "image/png";
 		if (typeof p.data === "string" && p.data) {
+			// omp 的 blob 引用由主进程在转发事件前还原；还原不了的图不渲染破图。
+			if (p.data.startsWith("blob:")) continue;
 			images.push({ mimeType, dataUrl: `data:${mimeType};base64,${p.data}` });
 			continue;
 		}
@@ -1388,7 +1419,7 @@ function reduceAgentPayload(
 				},
 			};
 		}
-		const existingIdx = messages.findIndex((m) => m.id === id);
+		const existingIdx = findToolRowIndex(messages, id, toolCallId);
 		if (existingIdx >= 0 && messages[existingIdx]?.role === "tool") {
 			const existing = messages[existingIdx] as Extract<
 				ChatMessage,
@@ -1401,6 +1432,12 @@ function reduceAgentPayload(
 				startedAt: existing.startedAt ?? now,
 				streaming: true,
 			};
+			if (existing.id !== id) {
+				// 历史行（落盘 entry id）：原地续跑，不能搬进实时槽再追加到尾部。
+				const rows = messages.slice();
+				rows[existingIdx] = updated;
+				return { ...next, running: true, messages: rows };
+			}
 			// Promote to streamingMessage for live follow-bottom, but keep any other
 			// currently-live tool card visible instead of dropping it.
 			messages = parkLiveTool(
@@ -1465,18 +1502,20 @@ function reduceAgentPayload(
 			state.streamingMessage?.role === "tool" &&
 			state.streamingMessage.id === id
 		) {
+			if (state.streamingMessage.streaming === false) return state;
 			return {
 				...state,
 				running: true,
 				streamingMessage: patch(state.streamingMessage),
 			};
 		}
-		const idx = state.messages.findIndex((m) => m.id === id);
+		const idx = findToolRowIndex(state.messages, id, toolCallId);
 		if (idx >= 0 && state.messages[idx]?.role === "tool") {
+			const existing = state.messages[idx] as Extract<ChatMessage, { role: "tool" }>;
+			// 异步 task 结束后仍会持续发进度（Running agent …）：已完成的卡不能被复活。
+			if (existing.streaming === false) return state;
 			const next = state.messages.slice();
-			next[idx] = patch(
-				state.messages[idx] as Extract<ChatMessage, { role: "tool" }>,
-			);
+			next[idx] = patch(existing);
 			return { ...state, running: true, messages: next };
 		}
 		// Late update without start — create a streaming card.
@@ -1518,11 +1557,12 @@ function reduceAgentPayload(
 			state.streamingMessage?.role === "tool" && state.streamingMessage.id === id
 				? state.streamingMessage
 				: null;
-		const existing = state.messages.find((m) => m.id === id);
+		const idx = findToolRowIndex(state.messages, id, toolCallId);
+		const existing = idx >= 0 ? state.messages[idx] : undefined;
 		const prior = stream ?? (existing?.role === "tool" ? existing : null);
 		const recordedMs = recordedDurationMs(payload);
 		const toolMsg: ChatMessage = {
-			id,
+			id: prior?.id ?? id,
 			role: "tool",
 			toolCallId,
 			toolName: String(payload.toolName ?? prior?.toolName ?? "tool"),
@@ -1548,7 +1588,6 @@ function reduceAgentPayload(
 		// Otherwise just update/append the finished tool. A different tool may
 		// still be streaming in the live slot — keep it visible instead of
 		// nulling streamingMessage (that used to drop the other card).
-		const idx = state.messages.findIndex((m) => m.id === id);
 		if (idx >= 0) {
 			const next = [...state.messages];
 			next[idx] = toolMsg;
@@ -1636,6 +1675,7 @@ export function appendUserMessage(
 		content?: string;
 		kind?: "file" | "url" | "element" | LegacyModeTagKind;
 	}[],
+	agentText?: string,
 ): ChatState {
 	const trimmed = stripInjectedBlocks(text).trim();
 	const visibleTags = elementTags?.filter(
@@ -1660,6 +1700,7 @@ export function appendUserMessage(
 					id: localId("user"),
 					role: "user",
 					text: trimmed,
+					...(agentText ? { agentText } : {}),
 					images: hasImages ? images : undefined,
 					elementTags: hasTags ? visibleTags : undefined,
 				},

@@ -6,7 +6,12 @@ import {
   inferModelCapabilities,
   resolveContextWindow,
 } from "./model-metadata";
-import { THINKING_LEVELS, availableThinkingLevels, type ThinkingLevel } from "./thinking-level";
+import {
+  DEFAULT_SUPPORTED_THINKING_LEVELS,
+  THINKING_LEVELS,
+  declaredThinkingLevels,
+  type ThinkingLevel,
+} from "./thinking-level";
 
 export const CUSTOM_MODEL_APIS = [
   "openai-completions",
@@ -29,7 +34,7 @@ export type CustomModelEntry = {
   vision?: boolean;
   /**
    * 可用思考档位（写回 models.json 的 thinkingLevelMap，未勾选记 null）。
-   * undefined 表示文件里没配过，UI 视为全档位可用。
+   * undefined 表示文件里没配过，UI 按 Pi 默认档位（off..high）显示。
    */
   thinkingLevels?: ThinkingLevel[];
 };
@@ -150,11 +155,6 @@ function modelHasVision(input: unknown): boolean {
   return Array.isArray(input) && input.includes("image");
 }
 
-/** thinkingLevelMap 里显式 null 的档位不可用；缺失键保持桌面端全档位开放的行为。 */
-function parseThinkingLevels(map: unknown): ThinkingLevel[] | undefined {
-  return availableThinkingLevels(map);
-}
-
 function parseModelEntry(raw: unknown): CustomModelEntry | null {
   const o = asRecord(raw);
   if (!o) return null;
@@ -162,7 +162,7 @@ function parseModelEntry(raw: unknown): CustomModelEntry | null {
   if (!id) return null;
   const contextWindow = parsePositiveInt(o.contextWindow);
   const maxTokens = parsePositiveInt(o.maxTokens);
-  const thinkingLevels = parseThinkingLevels(o.thinkingLevelMap);
+  const thinkingLevels = declaredThinkingLevels(o.thinkingLevelMap);
   return {
     id,
     name: typeof o.name === "string" ? o.name : "",
@@ -300,7 +300,7 @@ function mergeModelJson(
 
 /**
  * 把勾选的档位写成 thinkingLevelMap：未勾选记 null（pi 视为不可用），已勾选保留原有映射值。
- * 未配置或「全选且原本没有映射」时不动该键，避免给默认配置写上冗余字段。
+ * off 始终可用，不写入 null；「默认档位且原本没有映射」时不动该键。
  */
 function mergeThinkingLevels(
   base: Record<string, unknown>,
@@ -310,18 +310,28 @@ function mergeThinkingLevels(
   const selected = draft.thinkingLevels;
   if (!selected) return;
   const prevMap = asRecord(existing?.thinkingLevelMap);
-  const allSelected = selected.length === THINKING_LEVELS.length;
-  if (allSelected && !prevMap) return;
+  const chosen = new Set<ThinkingLevel>(["off", ...selected]);
+  const isDefaultSet =
+    chosen.size === DEFAULT_SUPPORTED_THINKING_LEVELS.length &&
+    DEFAULT_SUPPORTED_THINKING_LEVELS.every((level) => chosen.has(level));
+  if (isDefaultSet && !prevMap) return;
   const map: Record<string, string | null> = {};
   for (const { value: level } of THINKING_LEVELS) {
-    if (!selected.includes(level)) {
+    if (level === "off") {
+      const prevOff = prevMap?.off;
+      if (typeof prevOff === "string") map.off = prevOff;
+      else if (prevOff === null) map.off = null;
+      continue;
+    }
+    if (!chosen.has(level)) {
       map[level] = null;
       continue;
     }
     const prevValue = prevMap?.[level];
     map[level] = typeof prevValue === "string" ? prevValue : level;
   }
-  base.thinkingLevelMap = map;
+  if (Object.keys(map).length === 0) delete base.thinkingLevelMap;
+  else base.thinkingLevelMap = map;
 }
 
 /**

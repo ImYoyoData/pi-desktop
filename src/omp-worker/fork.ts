@@ -1,4 +1,6 @@
+import { copyFileSync, existsSync } from "node:fs";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent";
+import { chatMetaPath } from "../shared/chat-meta";
 import { messageContentText, turnTextMatches } from "../shared/turn-match";
 import { forkTitleFor } from "../shared/session-fork-title";
 import type { SessionForkResult } from "../shared/protocol";
@@ -46,6 +48,14 @@ export async function forkOmpUserTurn(
 	const forkedFile = manager.createBranchedSession(leafId);
 	if (!forkedFile) throw new Error("could not write the forked session");
 	if (title) await manager.setSessionName(title, "user");
+	const sourceMeta = chatMetaPath(source);
+	if (existsSync(sourceMeta)) {
+		try {
+			copyFileSync(sourceMeta, chatMetaPath(forkedFile));
+		} catch {
+			// sidecar 是展示增强，复制失败不影响分叉。
+		}
+	}
 	return {
 		id: manager.getSessionId(),
 		filePath: forkedFile,

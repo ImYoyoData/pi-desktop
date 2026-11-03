@@ -11,6 +11,7 @@ import type {
 } from "../shared/omp-worker-messages";
 import type { SpawnWorker, WorkerHandle } from "./backend-runtime";
 import { ompAgentDir } from "./omp-dir";
+import { hydrateOmpEventImages, setOmpBlobsDir } from "./omp-blob-image";
 import { resolveOmpRuntime } from "./omp-runtime-path";
 import { refreshSystemProxy, withAgentProxyEnv } from "./proxy-host";
 
@@ -28,6 +29,7 @@ function searchRoots(): string[] {
 function toBrokerMessage(msg: OmpWorkerOutbound): WorkerOutbound {
 	switch (msg.kind) {
 		case "ready":
+			setOmpBlobsDir(msg.blobsDir);
 			return {
 				kind: "ready",
 				id: msg.id,
@@ -42,6 +44,7 @@ function toBrokerMessage(msg: OmpWorkerOutbound): WorkerOutbound {
 				error: msg.error,
 			};
 		case "event":
+			hydrateOmpEventImages(msg.event);
 			return { kind: "event", event: msg.event };
 		case "pong":
 			return { kind: "pong" };

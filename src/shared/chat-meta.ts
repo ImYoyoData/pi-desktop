@@ -23,6 +23,8 @@ export type SessionChatMetaEntry = {
   /** Agent-facing message text (exactly what was passed to the model). */
   text: string;
   tags: ChatMessageTag[];
+  /** 气泡展示的原始输入；斜杠命令展开后与 text 不同。 */
+  displayText?: string;
 };
 
 export type SessionChatMeta = {

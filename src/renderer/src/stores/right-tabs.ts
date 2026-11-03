@@ -255,7 +255,6 @@ export const useRightTabsStore = create<RightTabsState>()((set, get) => {
     }
     if (tab.kind === "browser") {
       clearTabHistory(id);
-      void window.api.browser.unreportTab(id);
     }
     const wasPreview = tab.kind === "preview";
     const remaining = state.tabs.filter((_, index) => index !== idx);

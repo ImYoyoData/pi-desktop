@@ -38,7 +38,7 @@ describe("session-widgets — full-replace todo lists", () => {
 		).toEqual(["新任务A", "新任务B"]);
 	});
 
-	it("new prompt reset wipes the list; next push shows only the new round's items", () => {
+	it("reset wipes the list; next push shows only new items", () => {
 		useSessionWidgetsStore.getState().applyTodoToolArgs("s1", {
 			todos: [
 				{ id: "1", content: "上一轮步骤", status: "completed" },
@@ -56,6 +56,41 @@ describe("session-widgets — full-replace todo lists", () => {
 		expect(
 			useSessionWidgetsStore.getState().activeTodoList?.items.map((i) => i.text),
 		).toEqual(["全新任务"]);
+	});
+
+	it("shows omp todo phases on the panel and clears when the list empties", () => {
+		useSessionWidgetsStore.getState().applyTodoToolArgs("s1", {
+			op: "init",
+			list: [{ phase: "阶段", items: ["第一步", "第二步"] }],
+		});
+		expect(
+			useSessionWidgetsStore.getState().activeTodoList?.items.map((i) => i.text),
+		).toEqual(["第一步", "第二步"]);
+
+		useSessionWidgetsStore.getState().applyTodoToolResult("s1", {
+			op: "start",
+			phases: [
+				{
+					name: "阶段",
+					tasks: [
+						{ content: "第一步", status: "completed" },
+						{ content: "第二步", status: "in_progress" },
+					],
+				},
+			],
+			storage: "session",
+		});
+		const items = useSessionWidgetsStore.getState().activeTodoList?.items ?? [];
+		expect(items.map((i) => i.text)).toEqual(["第一步", "第二步"]);
+		expect(items[0]?.done).toBe(true);
+		expect(items[1]?.active).toBe(true);
+
+		useSessionWidgetsStore.getState().applyTodoToolResult("s1", {
+			op: "rm",
+			phases: [],
+			storage: "session",
+		});
+		expect(useSessionWidgetsStore.getState().activeTodoList).toBeNull();
 	});
 
 	it("builtin tool ownership: extension widget pushes are ignored after todo_write", () => {
@@ -78,7 +113,7 @@ describe("session-widgets — full-replace todo lists", () => {
 			useSessionWidgetsStore.getState().activeTodoList?.items.map((i) => i.text),
 		).toEqual(["工具写入的列表"]);
 
-		// New task reset releases ownership — widget pushes apply again.
+		// Reset releases ownership — widget pushes apply again.
 		useSessionWidgetsStore.getState().resetTodosForSession("s1");
 		useSessionWidgetsStore
 			.getState()
@@ -218,23 +253,16 @@ describe("session-widgets — full-replace todo lists", () => {
 		expect(useSessionWidgetsStore.getState().todoCompletedAt("s1")).toBe(0);
 	});
 
-	it("resume keeps the list across the next prompt reset (consumed once)", () => {
+	it("resume unpauses the list without dropping items", () => {
 		useSessionWidgetsStore.getState().applyTodoToolArgs("s1", {
 			todos: [{ id: "1", content: "被中断的步骤", status: "in_progress" }],
 		});
 		useSessionWidgetsStore.getState().pauseTodosForSession("s1");
 		useSessionWidgetsStore.getState().resumeTodosForSession("s1");
-		expect(useSessionWidgetsStore.getState().activeTodoList?.paused).toBe(false);
 
-		// Follow-up prompt: the reset is skipped so the task can continue.
-		useSessionWidgetsStore.getState().resetTodosForSession("s1");
-		expect(
-			useSessionWidgetsStore.getState().activeTodoList?.items.map((i) => i.text),
-		).toEqual(["被中断的步骤"]);
-
-		// The skip was one-shot: a later new-task reset wipes again.
-		useSessionWidgetsStore.getState().resetTodosForSession("s1");
-		expect(useSessionWidgetsStore.getState().activeTodoList).toBeNull();
+		const list = useSessionWidgetsStore.getState().activeTodoList!;
+		expect(list.paused).toBe(false);
+		expect(list.items.map((i) => i.text)).toEqual(["被中断的步骤"]);
 	});
 
 	it("delete drops the paused list entirely", () => {

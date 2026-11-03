@@ -4,10 +4,14 @@ import {
 	SessionManager,
 	type AgentSession,
 } from "@oh-my-pi/pi-coding-agent";
+import { getBlobsDir } from "@oh-my-pi/pi-utils";
+import { parseThinkingLevel } from "@oh-my-pi/pi-tui/thinking";
 import type { OmpWorkerInbound } from "../shared/omp-worker-messages";
 import type { AgentCommand } from "../shared/protocol";
 import { toPromptImages } from "../shared/protocol";
+import { isThinkingLevel, type ThinkingLevel } from "../shared/thinking-level";
 import { createOmpAskUserTool } from "./ask-user-tool";
+import { readAgentTranscript } from "./agent-transcript";
 import { forkOmpUserTurn } from "./fork";
 import {
 	CONTEXT_USAGE_EVENT_TYPES,
@@ -55,6 +59,20 @@ function createEventThrottle(intervalMs = 40) {
 		pending = event;
 		if (!timer) timer = setTimeout(flush, intervalMs);
 	};
+}
+
+/** OMP 的档位集合含 auto/inherit，桌面只认具体档位。 */
+function ompThinkingLevels(active: AgentSession): ThinkingLevel[] {
+	const levels: ThinkingLevel[] = [];
+	for (const level of active.getAvailableEffortSelectors()) {
+		if (isThinkingLevel(level)) levels.push(level);
+	}
+	return levels;
+}
+
+/** OMP 的档位集合含 auto/inherit，桌面只认具体档位；未指定或继承时为 null。 */
+function ompThinkingLevel(active: AgentSession): ThinkingLevel | null {
+	return isThinkingLevel(active.thinkingLevel) ? active.thinkingLevel : null;
 }
 
 function requireSession(): AgentSession {
@@ -136,6 +154,7 @@ async function initSession(
 		filePath: created.sessionFile ?? "",
 		cwd: created.sessionManager.getCwd(),
 		agentDir,
+		blobsDir: getBlobsDir(),
 	});
 }
 
@@ -185,8 +204,16 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 				});
 				return;
 			}
-			active.setModel(model);
-			post({ kind: "result", id, data: { ok: true } });
+			await active.setModel(model);
+			post({
+				kind: "result",
+				id,
+				data: {
+					ok: true,
+					level: ompThinkingLevel(active),
+					thinkingLevels: ompThinkingLevels(active),
+				},
+			});
 			return;
 		}
 		case "fork_user_turn": {
@@ -213,14 +240,19 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 		}
 		case "set_thinking_level": {
 			const active = requireSession();
-			active.setThinkingLevel(
-				command.level as Parameters<AgentSession["setThinkingLevel"]>[0],
-				command.persist === true,
-			);
+			const level = parseThinkingLevel(command.level);
+			if (level === undefined) {
+				throw new Error(`invalid thinking level: ${command.level}`);
+			}
+			active.setThinkingLevel(level, command.persist === true);
 			post({
 				kind: "result",
 				id,
-				data: { ok: true, level: active.thinkingLevel },
+				data: {
+					ok: true,
+					level: ompThinkingLevel(active),
+					thinkingLevels: ompThinkingLevels(active),
+				},
 			});
 			return;
 		}
@@ -254,6 +286,15 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			post({ kind: "result", id, data: { ok } });
 			return;
 		}
+		case "get_agent_transcript": {
+			const active = requireSession();
+			const transcript = await readAgentTranscript(
+				command.agentId,
+				active.sessionFile ?? null,
+			);
+			post({ kind: "result", id, data: transcript });
+			return;
+		}
 		case "get_state": {
 			const active = requireSession();
 			post({
@@ -261,7 +302,8 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 				id,
 				data: {
 					model: active.model,
-					thinkingLevel: active.thinkingLevel,
+					thinkingLevel: ompThinkingLevel(active),
+					thinkingLevels: ompThinkingLevels(active),
 					isStreaming: active.isStreaming,
 					sessionFile: active.sessionFile,
 					sessionId: active.sessionId,

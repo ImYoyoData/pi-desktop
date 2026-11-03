@@ -7,7 +7,7 @@ import {
   type DragEvent,
   type ReactNode,
 } from "react";
-import { Button, Input } from "antd";
+import { Button, Image, Input } from "antd";
 import {
   ChatbubbleEllipsesOutline,
   CheckmarkCircle,
@@ -524,10 +524,20 @@ export function AskUserStrip(): ReactNode {
                 <div className={styles.attachList}>
                   {attachments.map((att) => (
                     <span key={att.id} className={styles.attachChip}>
-                      <img
+                      <Image
                         className={styles.attachThumb}
                         src={att.dataUrl}
                         alt={att.name}
+                        styles={{
+                          root: {
+                            width: 18,
+                            height: 18,
+                            borderRadius: 3,
+                            overflow: "hidden",
+                            flexShrink: 0,
+                          },
+                          image: { width: "100%", height: "100%", objectFit: "cover" },
+                        }}
                       />
                       <button
                         type="button"

@@ -39,11 +39,14 @@ function writeSessionHeader(
 describe("session-list", () => {
   let tempRoot: string;
   let previousAgentDir: string | undefined;
+  let previousOmpAgentDir: string | undefined;
 
   beforeEach(() => {
     tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-desktop-sessions-"));
     previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+    previousOmpAgentDir = process.env.OMP_AGENT_DIR;
     process.env.PI_CODING_AGENT_DIR = tempRoot;
+    process.env.OMP_AGENT_DIR = tempRoot;
   });
 
   afterEach(() => {
@@ -51,6 +54,11 @@ describe("session-list", () => {
       delete process.env.PI_CODING_AGENT_DIR;
     } else {
       process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    }
+    if (previousOmpAgentDir === undefined) {
+      delete process.env.OMP_AGENT_DIR;
+    } else {
+      process.env.OMP_AGENT_DIR = previousOmpAgentDir;
     }
     fs.rmSync(tempRoot, { recursive: true, force: true });
   });

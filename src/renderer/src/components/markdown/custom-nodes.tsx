@@ -9,6 +9,7 @@ import {
   type Key,
   type ReactNode,
 } from "react";
+import { Image } from "antd";
 import {
   CodeBlockNode as MarkstreamCodeBlockNode,
   MermaidBlockNode,
@@ -226,11 +227,12 @@ function MarkdownImageNode({ node }: ImageNodeProps): ReactNode {
   const raw = (node.src ?? "").trim();
   const src = safeImageSrc(raw, resolveMarkdownImageSrc(raw, assets));
   return (
-    <img
+    <Image
       src={src}
       alt={node.alt ?? ""}
       title={node.title ?? undefined}
-      loading="lazy"
+      style={{ width: "auto", maxWidth: "100%" }}
+      styles={{ root: { maxWidth: "100%" } }}
     />
   );
 }
@@ -238,6 +240,13 @@ function MarkdownImageNode({ node }: ImageNodeProps): ReactNode {
 type HtmlImageNodeProps = {
   node: { attrs?: Array<[string, string | null]> };
 };
+
+/** HTML 尺寸属性是裸数字，转成 CSS 需要单位。 */
+function attrSize(value: string | null | undefined): string | undefined {
+  const raw = value?.trim();
+  if (!raw) return undefined;
+  return /^\d+(?:\.\d+)?$/.test(raw) ? `${raw}px` : raw;
+}
 
 /**
  * html_block/html_inline 里的 <img>：markstream 的 HTML 清洗只放行 http(s)，
@@ -251,16 +260,21 @@ function HtmlImageNode({ node }: HtmlImageNodeProps): ReactNode {
   const raw = (attrs.get("src") ?? "").trim();
   const src = safeImageSrc(raw, resolveMarkdownImageSrc(raw, assets));
   const centered = (attrs.get("align") ?? "").toLowerCase() === "center";
+  const width = attrSize(attrs.get("width"));
+  const height = attrSize(attrs.get("height"));
   return (
-    <img
+    <Image
       src={src}
       alt={attrs.get("alt") ?? ""}
       title={attrs.get("title") || undefined}
-      width={attrs.get("width") || undefined}
-      height={attrs.get("height") || undefined}
       className={attrs.get("class") || undefined}
-      style={centered ? { display: "block", margin: "0 auto" } : undefined}
-      loading="lazy"
+      style={{
+        width: width ?? "auto",
+        height: height ?? "auto",
+        maxWidth: "100%",
+        ...(centered ? { display: "block", margin: "0 auto" } : {}),
+      }}
+      styles={{ root: centered ? { display: "block", maxWidth: "100%" } : { maxWidth: "100%" } }}
     />
   );
 }

@@ -1,7 +1,7 @@
-import { existsSync } from "node:fs";
+import { copyFileSync, existsSync } from "node:fs";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { SessionForkResult } from "../shared/protocol";
-import { stripAttachedImagesBlock } from "../shared/chat-meta";
+import { chatMetaPath, stripAttachedImagesBlock } from "../shared/chat-meta";
 import { stripInjectedBlocks } from "../shared/injected-blocks";
 import { messageContentText, turnTextMatches } from "../shared/turn-match";
 import { forkTitleFor } from "../shared/session-fork-title";
@@ -74,6 +74,14 @@ export async function forkSessionAtUserTurn(
 	}
 	if (forkTitle) {
 		manager.appendSessionInfo(forkTitle);
+	}
+	const sourceMeta = chatMetaPath(source);
+	if (existsSync(sourceMeta)) {
+		try {
+			copyFileSync(sourceMeta, chatMetaPath(forkedFile));
+		} catch {
+			// sidecar 是展示增强，复制失败不影响分叉。
+		}
 	}
 	return {
 		id: manager.getSessionId(),

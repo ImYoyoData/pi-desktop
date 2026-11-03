@@ -9,6 +9,7 @@
  */
 import setiWoffUrl from "@renderer/assets/seti.woff?url";
 import setiThemeJson from "@renderer/assets/vs-seti-icon-theme.json?raw";
+import { stripLineSelector } from "./fs-path";
 
 interface SetiIconDef {
   fontCharacter: string;
@@ -182,7 +183,8 @@ function extMatch(
 
 export function fileIcon(path: string): FileIcon {
   ensureFont();
-  const name = (path.split(/[/\\]/).pop() ?? path).toLowerCase();
+  const cleaned = stripLineSelector(path);
+  const name = (cleaned.split(/[/\\]/).pop() ?? cleaned).toLowerCase();
   let defId = fileNames.get(name);
   if (!defId) {
     const lang =

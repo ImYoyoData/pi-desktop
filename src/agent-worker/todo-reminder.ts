@@ -12,11 +12,11 @@ import type {
 	ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
 import {
-	TODO_WRITE_TOOL_NAME,
-	type TodoWriteRow,
+	TODO_TOOL_NAME,
 	todoProgressLine,
+	type TodoPhase,
 } from "../shared/todo-tool";
-import { getLatestTodoWriteRows } from "./todo-tool";
+import { getLatestTodoPhases } from "./todo-tool";
 
 /** 每隔几次工具调用注入一次进度（每次都注入会明显抬高上下文体积）。 */
 const NOTE_EVERY_RESULTS = 3;
@@ -29,14 +29,14 @@ function progressMessage(note: string): ContextMessage {
 	return {
 		role: "custom",
 		customType: REMINDER_CUSTOM_TYPE,
-		content: `[todos] ${note} — call todo_write with the full list when this step finishes.`,
+		content: `[todos] ${note} — call todo with op "done" when this step finishes.`,
 		display: false,
 		timestamp: Date.now(),
 	};
 }
 
 export function createTodoReminderExtension(
-	readRows: () => TodoWriteRow[] | null = getLatestTodoWriteRows,
+	readPhases: () => TodoPhase[] | null = getLatestTodoPhases,
 ): ExtensionFactory {
 	return (pi) => {
 		let resultsSinceNote = 0;
@@ -51,25 +51,28 @@ export function createTodoReminderExtension(
 			if (event.parentToolCallId) return;
 			// 模型刚回写过就不再催；计数器同时给上下文注入当节流用。
 			resultsSinceNote =
-				event.toolName === TODO_WRITE_TOOL_NAME ? 0 : resultsSinceNote + 1;
+				event.toolName === TODO_TOOL_NAME ? 0 : resultsSinceNote + 1;
 		});
 
 		pi.on("context", (event) => {
 			if (resultsSinceNote < NOTE_EVERY_RESULTS) return;
-			const rows = readRows();
-			if (!rows) return;
+			const phases = readPhases();
+			if (!phases) return;
 			resultsSinceNote = 0;
-			const note = todoProgressLine(rows);
+			const note = todoProgressLine(phases);
 			if (!note) return;
 			return { messages: [...event.messages, progressMessage(note)] };
 		});
 
 		pi.on("agent_before_settle", (event) => {
 			if (remindedThisRun || event.outcome !== "completed") return;
-			const rows = readRows();
-			if (!rows || !rows.some((row) => row.status === "in_progress")) return;
+			const phases = readPhases();
+			const active = phases?.some((phase) =>
+				phase.tasks.some((task) => task.status === "in_progress"),
+			);
+			if (!phases || !active) return;
 			remindedThisRun = true;
-			const note = todoProgressLine(rows) ?? "unfinished items remain";
+			const note = todoProgressLine(phases) ?? "unfinished items remain";
 			return {
 				entries: [
 					{
@@ -77,8 +80,7 @@ export function createTodoReminderExtension(
 						customType: REMINDER_CUSTOM_TYPE,
 						content:
 							`Your todo list still shows an in-progress item you never reported as finished (${note}). ` +
-							`Call todo_write now with the FULL list and mark every finished item completed; ` +
-							`if the task is not finished, say what is left instead of leaving the list stale.`,
+							`Call todo now with op "done" for it; if the task is not finished, say what is left instead of leaving the list stale.`,
 						display: false,
 					},
 				],

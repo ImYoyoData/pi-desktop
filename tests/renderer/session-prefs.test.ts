@@ -11,6 +11,7 @@ import {
   serializeSessionPrefs,
   setPrefKey,
   thinkingFromState,
+  thinkingLevelsFromWorker,
 } from "../../src/renderer/src/utils/session-prefs";
 import type { ThinkingLevel } from "../../src/shared/thinking-level";
 
@@ -100,6 +101,23 @@ describe("thinkingFromState", () => {
     expect(thinkingFromState({ thinkingLevel: "high" }, isThinkingLevel)).toBe("high");
     expect(thinkingFromState({ thinkingLevel: "nope" }, isThinkingLevel)).toBeNull();
     expect(thinkingFromState({}, isThinkingLevel)).toBeNull();
+  });
+});
+
+describe("thinkingLevelsFromWorker", () => {
+  it("keeps valid unique levels", () => {
+    expect(
+      thinkingLevelsFromWorker(
+        { thinkingLevels: ["off", "high", "high", "nope"] },
+        isThinkingLevel,
+      ),
+    ).toEqual(["off", "high"]);
+  });
+
+  it("distinguishes an empty set from a missing set", () => {
+    expect(thinkingLevelsFromWorker({ thinkingLevels: [] }, isThinkingLevel)).toEqual([]);
+    expect(thinkingLevelsFromWorker({}, isThinkingLevel)).toBeNull();
+    expect(thinkingLevelsFromWorker(null, isThinkingLevel)).toBeNull();
   });
 });
 

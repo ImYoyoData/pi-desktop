@@ -3,9 +3,10 @@ import {
   useMemo,
   useState,
   type ComponentType,
+  type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { Button } from "antd";
+import { Button, Image } from "antd";
 import {
   ChevronForwardOutline,
   CloseOutline,
@@ -13,6 +14,7 @@ import {
   CreateOutline,
   DocumentTextOutline,
   EditPencilOutline,
+  EllipsisHorizontalOutline,
   ExtensionPuzzleOutline,
   EyeOutline,
   FileTrayFullOutline,
@@ -25,7 +27,7 @@ import {
   type IoniconProps,
 } from "@renderer/components/icons/ionicons";
 import type { ToolCard } from "@renderer/utils/tool-diff";
-import { clipText, toolCardDurationMs, toolCardHasBody } from "@renderer/utils/tool-diff";
+import { clipText, toolCardDurationMs, toolCardExpandable } from "@renderer/utils/tool-diff";
 import type { ChatToolNestedCall } from "@renderer/stores/chat-reducer";
 import { isToolCardOpen } from "@renderer/utils/tool-card-open";
 import {
@@ -50,6 +52,8 @@ import {
   toolResultCount,
   type ToolFamily,
 } from "@renderer/utils/tool-family";
+import { waitHeadline, waitElapsedMs, waitJobCounts } from "@renderer/utils/tool-wait";
+import { useNow } from "@renderer/utils/use-now";
 import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
 import { CODEMODE_TOOL_NAME } from "../../../shared/codemode-tool";
 import styles from "./ToolCallCard.module.css";
@@ -95,6 +99,8 @@ function kindIconFor(kind: ToolCard["kind"]): KindIconComponent {
       return SearchOutline;
     case "todo":
       return ListOutline;
+    case "wait":
+      return EllipsisHorizontalOutline;
     case "generic":
     case "other":
       return DocumentTextOutline;
@@ -158,13 +164,17 @@ export function ToolCallCard({
   /** Explicit user toggle; null = follow the automatic rule. */
   const [manuallyOpen, setManuallyOpen] = useState<boolean | null>(null);
   const [backgroundBusy, setBackgroundBusy] = useState(false);
+  /** wait 运行中每秒刷新，折叠行也能看到累计等待时长。 */
+  const waitNow = useNow(
+    card.kind === "wait" && Boolean(streaming) && card.startedAt != null,
+  );
 
   /**
    * 独立工具行的展开规则在 `utils/tool-card-open.ts`（纯函数 + 单测），这里只提供状态。
    * 时间线步骤默认折叠，正在流式输出的那一步自动展开；工作区块内的行传
    * `detailCollapsed`，关掉这个自动展开，免得压住整块摘要。
    */
-  const open =
+  const rawOpen =
     variant === "step"
       ? manuallyOpen !== null
         ? manuallyOpen
@@ -231,7 +241,8 @@ export function ToolCallCard({
       current.kind === "bash" ||
       current.kind === "grep" ||
       current.kind === "generic" ||
-      current.kind === "todo"
+      current.kind === "todo" ||
+      current.kind === "wait"
     ) {
       return null;
     }
@@ -270,13 +281,29 @@ export function ToolCallCard({
     if (card.kind !== "todo") return null;
     switch (card.action) {
       case "add":
+      case "append":
         return t.toolTodoAdd;
       case "toggle":
         return t.toolTodoToggle;
       case "clear":
         return t.toolTodoClear;
       case "list":
+      case "view":
         return t.toolTodoList;
+      case "init":
+        return t.toolTodoInit;
+      case "start":
+        return t.toolTodoStart;
+      case "done":
+        return t.toolTodoDone;
+      case "block":
+        return t.toolTodoBlock;
+      case "unblock":
+        return t.toolTodoUnblock;
+      case "rm":
+        return t.toolTodoRemove;
+      case "drop":
+        return t.toolTodoDrop;
       default:
         return null;
     }
@@ -286,7 +313,10 @@ export function ToolCallCard({
   const resultParts = useMemo(() => {
     const parts: string[] = [];
     const dur =
-      (card.kind === "read" || card.kind === "bash" || card.kind === "grep") &&
+      (card.kind === "read" ||
+        card.kind === "bash" ||
+        card.kind === "grep" ||
+        card.kind === "wait") &&
       card.durationMs != null &&
       card.durationMs > 0
         ? formatDuration(card.durationMs)
@@ -311,9 +341,12 @@ export function ToolCallCard({
         parts.push(lines != null ? t.toolResultLines(lines) : t.toolResultNoOutput);
       }
     } else if (card.kind === "todo") {
-      if (card.items.length && todoAction) {
+      if (card.total != null) {
         parts.push(
-          t.todoProgress(card.items.filter((item) => item.done).length, card.items.length),
+          t.todoProgress(
+            card.items.filter((item) => item.done).length,
+            card.total,
+          ),
         );
       }
     } else if (card.kind === "grep") {
@@ -328,6 +361,23 @@ export function ToolCallCard({
       if (card.searchPath && card.searchPath !== ".") parts.push(card.searchPath);
       if (card.glob) parts.push(card.glob);
       if (card.notices.length) parts.push(t.toolTruncated);
+    } else if (card.kind === "wait") {
+      if (statusType === "error") {
+        const line = firstLine(card.text);
+        if (line) parts.push(line);
+      } else {
+        const counts = waitJobCounts(card.jobs);
+        if (counts.running) parts.push(t.toolWaitRunningCount(counts.running));
+        if (counts.completed) parts.push(t.toolWaitDoneCount(counts.completed));
+        if (counts.failed) parts.push(t.toolWaitFailedCount(counts.failed));
+        if (counts.cancelled) parts.push(t.toolWaitCancelledCount(counts.cancelled));
+      }
+      if (streaming) {
+        const elapsed = waitElapsedMs(card.startedAt, card.durationMs, true, waitNow);
+        if (elapsed != null) {
+          parts.push(t.toolWaitElapsed(formatDuration(elapsed)));
+        }
+      }
     } else if (card.kind === "generic") {
       if (statusType === "error") {
         const line = firstLine(card.preview);
@@ -346,24 +396,32 @@ export function ToolCallCard({
       parts.push(t.toolTruncated);
     }
     return parts;
-  }, [card, statusType, t, todoAction, resultCount]);
+  }, [card, statusType, streaming, t, todoAction, resultCount, waitNow]);
 
   const headline = useMemo(() => {
     if (isAskUserTool) return "";
     if (card.kind === "bash") return card.command || toolName;
     if (card.kind === "grep") return card.pattern || toolName;
+    if (card.kind === "wait") {
+      if (!card.jobs.length) {
+        const line = firstLine(card.text);
+        if (line) return clipText(line, 80);
+      }
+      return waitHeadline(card.jobs, t, Boolean(streaming));
+    }
     if (card.kind === "generic") return card.summary || "";
     if (card.kind === "todo") {
       if (todoAction) return todoAction;
-      return card.items.length
-        ? t.todoProgress(
-            card.items.filter((i) => i.done).length,
-            card.items.length,
-          )
-        : toolName;
+      if (card.total != null) {
+        return t.todoProgress(
+          card.items.filter((i) => i.done).length,
+          card.total,
+        );
+      }
+      return card.items.length ? t.toolTodo : t.toolTodoEmpty;
     }
     return fileName || toolName;
-  }, [card, fileName, isAskUserTool, t, todoAction, toolName]);
+  }, [card, fileName, isAskUserTool, streaming, t, todoAction, toolName]);
 
   /** 可预览的文件路径（read / edit / write / other 卡才有）。 */
   const previewPath = useMemo<string | null>(() => {
@@ -396,6 +454,7 @@ export function ToolCallCard({
     if (card.kind === "grep" && card.pattern) {
       return <code className={styles.cmdPill}>{card.pattern}</code>;
     }
+    if (!headline) return null;
     return (
       <span className={`${styles.headline}${streaming ? " copilot-shimmer" : ""}`}>
         {headline}
@@ -412,15 +471,27 @@ export function ToolCallCard({
     card.kind === "bash" ||
     card.kind === "grep" ||
     card.kind === "generic" ||
-    card.kind === "todo"
+    card.kind === "todo" ||
+    card.kind === "wait"
       ? undefined
       : (card.path ?? undefined);
 
   /** Rows with nothing to reveal drop the disclosure affordance (VS Code setExpandable). */
-  const expandable = toolCardHasBody(card) || cardImages.length > 0;
+  const expandable = toolCardExpandable(card) || cardImages.length > 0;
+  /** 没有展开体时即使状态为 open 也不渲染空壳，箭头方向跟随实际展开体。 */
+  const expanded = rawOpen && expandable;
 
   function toggleOpen(): void {
-    setManuallyOpen(!open);
+    setManuallyOpen(!rawOpen);
+  }
+
+  /** 折叠行当按钮用：键盘也要能展开/收起。 */
+  function onHeadKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
+    if (!expandable) return;
+    if (event.target !== event.currentTarget) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    toggleOpen();
   }
 
   /** 目录列举工具（ls 等）：动词用「读取」，目标用文件夹 chip。 */
@@ -582,9 +653,13 @@ export function ToolCallCard({
           className={styles.stepHead}
           title={pathTitle}
           data-fold-toggle={expandable ? "" : undefined}
+          role={expandable ? "button" : undefined}
+          aria-expanded={expandable ? expanded : undefined}
+          tabIndex={expandable ? 0 : undefined}
           onClick={() => {
             if (expandable) toggleOpen();
           }}
+          onKeyDown={onHeadKeyDown}
         >
           <span className={stepIconClass} aria-hidden="true">
             <ToolIcon size={13} />
@@ -596,7 +671,7 @@ export function ToolCallCard({
           {expandable ? (
             <ChevronForwardOutline
               size={12}
-              className={`${styles.hoverChev}${open ? ` ${styles.expanded}` : ""}`}
+              className={`${styles.hoverChev}${expanded ? ` ${styles.expanded}` : ""}`}
             />
           ) : null}
           {backgroundBtn}
@@ -606,9 +681,13 @@ export function ToolCallCard({
           className={styles.toolCallHead}
           title={pathTitle}
           data-fold-toggle={expandable ? "" : undefined}
+          role={expandable ? "button" : undefined}
+          aria-expanded={expandable ? expanded : undefined}
+          tabIndex={expandable ? 0 : undefined}
           onClick={() => {
             if (expandable) toggleOpen();
           }}
+          onKeyDown={onHeadKeyDown}
         >
           <span className={iconClass} aria-hidden="true">
             <ToolIcon size={13} />
@@ -633,18 +712,20 @@ export function ToolCallCard({
                 ) : null}
               </span>
             </div>
-            {nestedCallsBlock}
           </div>
           {expandable ? (
             <ChevronForwardOutline
               size={12}
-              className={`${styles.hoverChev}${open ? ` ${styles.expanded}` : ""}`}
+              className={`${styles.hoverChev}${expanded ? ` ${styles.expanded}` : ""}`}
             />
           ) : null}
           {backgroundBtn}
         </div>
       )}
-      {open ? (
+      {variant === "row" && nestedCallsBlock ? (
+        <div className={styles.nestedRow}>{nestedCallsBlock}</div>
+      ) : null}
+      {expanded ? (
         <div className={variant === "step" ? styles.stepBody : styles.rowBody}>
           <ToolBody
             card={card}
@@ -657,7 +738,21 @@ export function ToolCallCard({
           {cardImages.length ? (
             <div className={styles.toolImages}>
               {cardImages.map((src, i) => (
-                <img key={i} src={src} className={styles.toolImage} alt="" />
+                <Image
+                  key={i}
+                  src={src}
+                  className={styles.toolImage}
+                  alt=""
+                  styles={{
+                    root: { maxWidth: "100%" },
+                    image: {
+                      width: "auto",
+                      height: "auto",
+                      maxWidth: "min(100%, 420px)",
+                      maxHeight: 260,
+                    },
+                  }}
+                />
               ))}
             </div>
           ) : null}

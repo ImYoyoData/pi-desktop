@@ -524,12 +524,6 @@
   opacity: 0.85;
 }
 
-.menuMark {
-  display: inline-block;
-  width: 14px;
-  height: 1px;
-}
-
 .runTag,
 .errTag,
 .stuckTag,

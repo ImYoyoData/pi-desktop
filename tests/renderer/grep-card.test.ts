@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { grepOpenPath, parseGrepOutput } from "../../src/renderer/src/utils/grep-card";
-import { parseToolCard, toolCardHasBody } from "../../src/renderer/src/utils/tool-diff";
+import { parseToolCard, toolCardExpandable } from "../../src/renderer/src/utils/tool-diff";
 
 const OUTPUT = [
   "src/renderer/src/App.tsx:12: const a = 1;",
@@ -61,6 +61,70 @@ describe("parseGrepOutput", () => {
     expect(parsed.hits).toEqual([]);
     expect(parsed.text).toContain("Path not found");
   });
+
+  // omp 的 grep 用 `*12|文本` 标命中、` 12|文本` 标 context，路径相对工作区。
+  it("parses omp match rows for a single-file search", () => {
+    const parsed = parseGrepOutput(
+      ["*2|.toolCall {", " 3|  width: 100%;", "...", " 9|", "*10|.toolCall.askUserMuted {"].join(
+        "\n",
+      ),
+      "src/renderer/src/components/ToolCallCard.module.css",
+    );
+    expect(parsed.hits).toHaveLength(1);
+    expect(parsed.hits[0]!.path).toBe("src/renderer/src/components/ToolCallCard.module.css");
+    expect(parsed.hits[0]!.pathBase).toBe("workspace");
+    expect(parsed.matchCount).toBe(2);
+    const rows = parsed.hits[0]!.lines;
+    expect(rows.map((row) => row.line)).toEqual([2, 3, 0, 9, 10]);
+    expect(rows.map((row) => row.match)).toEqual([true, false, false, false, true]);
+    expect(rows[2]!.gap).toBe(true);
+    expect(rows[3]!.text).toBe("");
+  });
+
+  it("rebuilds omp grouped paths from the header tree", () => {
+    const parsed = parseGrepOutput(
+      [
+        "# src/",
+        "## renderer/",
+        "### components/",
+        "#### ToolCallCard.module.css",
+        "*37|.toolCallHead:hover {",
+        "",
+        "# src/",
+        "## main/",
+        "### index.ts",
+        "*5|import x from 'y';",
+      ].join("\n"),
+    );
+    expect(parsed.hits.map((group) => group.path)).toEqual([
+      "src/renderer/components/ToolCallCard.module.css",
+      "src/main/index.ts",
+    ]);
+    expect(parsed.matchCount).toBe(2);
+    expect(parsed.hits.every((group) => group.pathBase === "workspace")).toBe(true);
+  });
+
+  it("parses omp hashline rows and strips the snapshot tag off the header", () => {
+    const parsed = parseGrepOutput(
+      ["# src/", "## app.ts#1A2B", "*12:const a = 1;", " 13:const b = 2;"].join("\n"),
+    );
+    expect(parsed.hits).toHaveLength(1);
+    expect(parsed.hits[0]!.path).toBe("src/app.ts");
+    expect(parsed.hits[0]!.lines.map((row) => row.line)).toEqual([12, 13]);
+  });
+
+  it("treats a standalone [path#TAG] line as a file header, not a notice", () => {
+    const parsed = parseGrepOutput(
+      ["[src/main/index.ts#0A1B]", "*12:import x from 'y';", " 13:const a = 1;"].join(
+        "\n",
+      ),
+    );
+    expect(parsed.notices).toEqual([]);
+    expect(parsed.hits).toHaveLength(1);
+    expect(parsed.hits[0]!.path).toBe("src/main/index.ts");
+    expect(parsed.hits[0]!.lines.map((row) => row.line)).toEqual([12, 13]);
+    expect(parsed.matchCount).toBe(1);
+  });
 });
 
 describe("grepOpenPath", () => {
@@ -87,6 +151,17 @@ describe("grepOpenPath", () => {
   it("resolves an absolute search root", () => {
     expect(grepOpenPath("/proj/src", "a.ts")).toBe("/proj/src/a.ts");
   });
+
+  // omp 的路径已经相对工作区，再拼搜索目录会重复。
+  it("passes omp paths through untouched", () => {
+    expect(
+      grepOpenPath(
+        "src/renderer/src/components",
+        "src/renderer/src/components/ToolCallCard.module.css",
+        "workspace",
+      ),
+    ).toBe("src/renderer/src/components/ToolCallCard.module.css");
+  });
 });
 
 describe("grep tool card", () => {
@@ -103,12 +178,34 @@ describe("grep tool card", () => {
     expect(card.glob).toBe("*.tsx");
     expect(card.ignoreCase).toBe(true);
     expect(card.matchCount).toBe(1);
-    expect(toolCardHasBody(card)).toBe(true);
+    expect(toolCardExpandable(card)).toBe(true);
   });
 
   it("drops the body affordance when there is nothing to show", () => {
     const card = parseToolCard("grep", { pattern: "x" }, undefined);
     if (card.kind !== "grep") throw new Error("expected grep card");
-    expect(toolCardHasBody(card)).toBe(false);
+    expect(toolCardExpandable(card)).toBe(false);
+  });
+
+  // omp 走同一张卡片：输出格式不同，但必须解析出可高亮的命中行。
+  it("renders omp grep results as structured hits", () => {
+    const card = parseToolCard(
+      "grep",
+      { pattern: "toolCall", path: "src/renderer/src/components/ToolCallCard.module.css" },
+      {
+        content: [
+          {
+            type: "text",
+            text: ["*2|.toolCall {", " 3|  width: 100%;", "*10|.toolCall.askUserMuted {"].join("\n"),
+          },
+        ],
+      },
+    );
+    if (card.kind !== "grep") throw new Error("expected grep card");
+    expect(card.searchPath).toBe("src/renderer/src/components/ToolCallCard.module.css");
+    expect(card.hits).toHaveLength(1);
+    expect(card.hits[0]!.lines.map((row) => row.line)).toEqual([2, 3, 10]);
+    expect(card.matchCount).toBe(2);
+    expect(toolCardExpandable(card)).toBe(true);
   });
 });

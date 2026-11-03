@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { bunBinary } from "./bun-binary.mjs";
 
@@ -31,6 +31,23 @@ function ensureLegacyModuleStub() {
 	);
 }
 
+/** 把内嵌 SDK 的版本随 worker 一起落盘，主进程据此显示版本而无需 import SDK。 */
+function writeSdkVersionFile() {
+	const pkg = JSON.parse(
+		readFileSync(
+			path.join(root, "node_modules", "@oh-my-pi", "pi-coding-agent", "package.json"),
+			"utf8",
+		),
+	);
+	if (!pkg.version) {
+		throw new Error("[omp-worker] @oh-my-pi/pi-coding-agent has no version");
+	}
+	writeFileSync(
+		path.join(outDir, "omp-sdk-version.json"),
+		`${JSON.stringify({ version: pkg.version })}\n`,
+	);
+}
+
 function targetFor(platform, arch) {
 	const os =
 		platform === "win32" ? "windows" : platform === "darwin" ? "darwin" : "linux";
@@ -47,6 +64,7 @@ const outFile = path.join(
 
 ensureLegacyModuleStub();
 mkdirSync(outDir, { recursive: true });
+writeSdkVersionFile();
 
 console.info(`[omp-worker] building ${targetFor(platform, arch)} → ${outFile}`);
 execFileSync(

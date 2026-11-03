@@ -250,6 +250,13 @@
 .termFailed .termOut { color: color-mix(in srgb, var(--error, #ad0707) 22%, var(--fg)); }
 
 /* --- 待办 --- */
+.todoEmpty {
+  padding: 6px 12px;
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--chat-font-s, 12px);
+}
+
 .todoList {
   padding: 6px 12px;
   display: flex;
@@ -272,6 +279,150 @@
 .todoMark { flex-shrink: 0; margin-top: 2px; color: var(--chat-icon-fg, var(--fg-muted)); }
 .todoItem.done .todoMark { color: var(--success, #587c0c); }
 .todoText { min-width: 0; word-break: break-word; }
+
+/* --- wait：后台任务进度 --- */
+.waitJobs {
+  padding: 2px 0;
+  margin: 0;
+  list-style: none;
+}
+
+.waitJob {
+  padding: 6px 12px;
+}
+
+.waitJob + .waitJob {
+  border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+.waitJobHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.waitJobIcon {
+  flex-shrink: 0;
+  color: var(--chat-icon-fg, var(--fg-muted));
+}
+
+.waitJobIconRunning {
+  color: var(--accent, #4f8cff);
+  animation: wait-spin 0.9s linear infinite;
+}
+
+.waitJobIconDone { color: var(--success, #587c0c); }
+
+.waitJobIconFailed { color: var(--error, #d03050); }
+
+@keyframes wait-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .waitJobIconRunning { animation: none; }
+}
+
+.waitJobType {
+  flex-shrink: 0;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  color: var(--chat-desc-fg, var(--fg-muted));
+  font-family: var(--font-mono);
+  font-size: 0.7692rem;
+  text-transform: uppercase;
+}
+
+.waitJobLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+  font-size: var(--chat-font-s, 12px);
+}
+
+.waitJobPercent,
+.waitJobTime {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--chat-font-xs, 11px);
+}
+
+.waitJobPercent { color: var(--accent, #4f8cff); }
+.waitJobTime { color: var(--fg-muted); }
+
+.waitMeter {
+  height: 3px;
+  margin: 5px 0 0 19px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+
+.waitMeterFill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent, #4f8cff);
+  transition: width 0.4s linear;
+}
+
+.waitJobActivity {
+  margin: 4px 0 0 19px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+  font-size: var(--chat-font-xs, 11px);
+  line-height: 1.5;
+}
+
+.waitJobMeta {
+  margin: 4px 0 0 19px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--chat-font-xs, 11px);
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.waitJobResult,
+.waitJobError {
+  margin: 4px 0 0 19px;
+  font-family: var(--font-mono);
+  font-size: 0.8462rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.waitJobResult { color: var(--fg-muted); }
+.waitJobError { color: var(--error, #d03050); }
+
+.waitCountRunning { color: var(--accent, #4f8cff); }
+.waitCountDone { color: var(--success, #587c0c); }
+.waitCountFailed { color: var(--error, #d03050); }
+.waitCountCancelled { color: var(--warning, #f0a020); }
+
+.waitElapsed {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.waitText {
+  border-top: 1px solid var(--border);
+}
+
+.waitTextHead {
+  padding: 4px 12px 0;
+  font-size: var(--chat-font-xs, 11px);
+  color: var(--fg-muted);
+}
 
 /* --- 路径清单 --- */
 .pathList {
@@ -362,6 +513,11 @@
 
 .grepHit {
   background: color-mix(in srgb, var(--accent, #0069cc) 8%, transparent);
+}
+
+.grepGap {
+  color: color-mix(in srgb, var(--fg) 32%, transparent);
+  user-select: none;
 }
 
 .grepLineNo {

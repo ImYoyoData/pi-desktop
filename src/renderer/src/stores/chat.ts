@@ -532,6 +532,7 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 				id: row.id,
 				role: "user" as const,
 				text: stripInjectedBlocks(row.text),
+				...(row.agentText ? { agentText: stripInjectedBlocks(row.agentText) } : {}),
 				...(row.images?.length ? { images: row.images } : {}),
 				...(row.elementTags?.length ? { elementTags: row.elementTags } : {}),
 			};
@@ -635,6 +636,7 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 				sessionId: ask.sessionId,
 				requestId: ask.requestId,
 				questions: ask.questions,
+				...(ask.toolCallId ? { toolCallId: ask.toolCallId } : {}),
 			});
 		}
 		for (const dialog of snapshot.extensionDialogs ?? []) {
@@ -957,7 +959,7 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 			recoveringIds.delete(sessionId);
 			await sendPrompt(
 				sessionId,
-				userMsg.text,
+				userMsg.agentText ?? userMsg.text,
 				undefined,
 				images,
 				userMsg.elementTags,
@@ -1116,9 +1118,10 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 		const liveUser = liveMessages.findLastIndex((m) => m.role === "user");
 		const liveUserMsg = liveUser >= 0 ? liveMessages[liveUser] : undefined;
 		if (liveUserMsg?.role !== "user") return mapped;
-		const text = liveUserMsg.text;
+		const liveText = liveUserMsg.agentText ?? liveUserMsg.text;
 		const diskUser = mapped.findLastIndex(
-			(m) => m.role === "user" && m.text === text,
+			(m) =>
+				m.role === "user" && (m.agentText ?? m.text) === liveText,
 		);
 		const head = diskUser >= 0 ? mapped.slice(0, diskUser) : mapped;
 		return [...head, ...liveMessages.slice(liveUser)];
@@ -1361,6 +1364,7 @@ softHangReported.delete(sessionId);
 				sessionId: req.sessionId,
 				requestId: req.requestId,
 				questions: req.questions,
+				...(req.toolCallId ? { toolCallId: req.toolCallId } : {}),
 			});
 			const notify = useNotifyStore.getState();
 			if (notify.soundEnabled) {
@@ -1480,11 +1484,10 @@ softHangReported.delete(sessionId);
 					// Agent may already be past that leaf — continue with the new prompt.
 				}
 			}
+			// 被编辑轮次的待办随历史一起作废；正常新回合则保留会话清单。
+			useSessionWidgetsStore.getState().resetTodosForSession(sessionId);
 		}
 
-		// A new task starts a clean slate: drop the previous round's todos so
-		// fresh items never accumulate on top of the old list.
-		useSessionWidgetsStore.getState().resetTodosForSession(sessionId);
 		setSessionState(
 			sessionId,
 			appendUserMessage(
@@ -1492,6 +1495,7 @@ softHangReported.delete(sessionId);
 				bubbleText,
 				toChatImages(promptImages),
 				elementTags?.length ? elementTags : undefined,
+				message !== bubbleText ? message : undefined,
 			),
 		);
 		const last = stateFor(sessionId).messages.at(-1);
@@ -1499,10 +1503,15 @@ softHangReported.delete(sessionId);
 			// Must finish begin (baseline snapshot) before the agent starts writing files.
 			await useCheckpointStore.getState().begin(sessionId, last.id);
 		}
-		// Persist attachment chips so they survive a session reload (sidecar keyed by agent text).
-		if (elementTags?.length) {
+		// Persist attachment chips / the unexpanded command text so they survive a session reload.
+		if (elementTags?.length || (bubbleText && message !== bubbleText)) {
 			void window.api.sessions
-				.setUserMessageMeta(sessionId, message, elementTags)
+				.setUserMessageMeta(
+					sessionId,
+					message,
+					elementTags ?? [],
+					message !== bubbleText ? bubbleText : undefined,
+				)
 				.catch(() => {
 					// best-effort — chips degrade to text if the sidecar write fails
 				});
@@ -1711,7 +1720,7 @@ softHangReported.delete(sessionId);
 		});
 		await sendPrompt(
 			sessionId,
-			userMsg.text,
+			userMsg.agentText ?? userMsg.text,
 			undefined,
 			images,
 			userMsg.elementTags,
@@ -1745,7 +1754,7 @@ softHangReported.delete(sessionId);
 			const result = await useSessionsStore.getState().sendCommand(sessionId, {
 				type: "rollback_turn_end",
 				userIndex: located.userIndex,
-				expectText: located.message.text,
+				expectText: located.message.agentText ?? located.message.text,
 			});
 			rolledBack = Boolean((result as { ok?: unknown } | null)?.ok);
 		} catch {
@@ -1789,7 +1798,7 @@ softHangReported.delete(sessionId);
 			sessionId,
 			root,
 			located.userIndex,
-			located.message.text,
+			located.message.agentText ?? located.message.text,
 			useSessionsStore.getState().sessions.find((s) => s.id === sessionId)
 				?.backend,
 		);
@@ -1892,8 +1901,6 @@ softHangReported.delete(sessionId);
 		sessionId: string,
 		userMsg: Extract<ChatMessage, { role: "user" }>,
 	): Promise<void> {
-		// New round: clear the previous round's todos before re-driving the prompt.
-		useSessionWidgetsStore.getState().resetTodosForSession(sessionId);
 		const images = userMsg.images?.map((img) => {
 			const raw = img.dataUrl.replace(/^data:[^;]+;base64,/, "");
 			return { type: "image" as const, data: raw, mimeType: img.mimeType };
@@ -1916,7 +1923,7 @@ softHangReported.delete(sessionId);
 		try {
 			await useSessionsStore.getState().sendCommand(sessionId, {
 				type: "prompt",
-				message: userMsg.text,
+				message: userMsg.agentText ?? userMsg.text,
 				images: promptImages,
 			});
 		} catch (err) {

@@ -7,6 +7,7 @@ import {
 	serializeTodoSnapshot,
 	todoListAllDone,
 	todoListVisible,
+	todoPayloadEmptiesList,
 	todoSnapshotKey,
 	todosFromToolArgs,
 	todosFromToolDetails,
@@ -31,14 +32,9 @@ type WidgetsBase = {
 		string,
 		Record<string, { startedAt: number; completedAt?: number }>
 	>;
-	/** Sessions where the built-in todo_write tool owns the list — extension
-	 *  widget pushes are ignored there until the next new-task reset. */
+	/** Sessions where the built-in todo tool owns the list — extension
+	 *  widget pushes are ignored there until the session list is reset. */
 	toolOwnedBySession: Record<string, boolean>;
-	/**
-	 * Sessions whose NEXT reset is user-intentional ("continue task"): the
-	 * paused list must survive the follow-up prompt instead of being wiped.
-	 */
-	skipNextResetBySession: Record<string, boolean>;
 };
 
 type WidgetsDerived = {
@@ -81,10 +77,11 @@ function derive(base: WidgetsBase): WidgetsDerived {
  * Fed by `ctx.ui.setWidget` and todo tool results.
  *
  * Todo semantics (full replace): every non-empty update REPLACES the
- * session's list — no merging with previous rounds. Once the built-in
- * `todo_write` tool has written a list, extension widget pushes are ignored
- * until the next new-task reset, so stale extension memory can never bleed
- * old items back in.
+ * session's list — no merging with earlier rounds. The list survives new
+ * prompts (session-level state); only an explicit reset (history rewrite or
+ * user delete) drops it. Once the built-in `todo` tool has written a list,
+ * extension widget pushes are ignored until that reset, so stale extension
+ * memory can never bleed old items back in.
  */
 export const useSessionWidgetsStore = create<SessionWidgetsState>()(
 	(set, get) => {
@@ -95,7 +92,6 @@ export const useSessionWidgetsStore = create<SessionWidgetsState>()(
 			todoCompletedAtBySession: {},
 			itemTimingBySession: {},
 			toolOwnedBySession: {},
-			skipNextResetBySession: {},
 		};
 
 		let todoSnapshotRestored = false;
@@ -172,7 +168,7 @@ export const useSessionWidgetsStore = create<SessionWidgetsState>()(
 			applyTodoList(sessionId, list, details);
 		}
 
-		/** Prefer full-list args (todo_write); ignore incremental add/toggle-only args. */
+		/** Prefer full-list args (todo init); ignore incremental add/toggle-only args. */
 		function applyTodoToolArgs(sessionId: string, args: unknown): void {
 			const list = todosFromToolArgs("pi-deck-todo", args);
 			if (!list) return;
@@ -198,11 +194,7 @@ export const useSessionWidgetsStore = create<SessionWidgetsState>()(
 		): void {
 			const state = get();
 			if (!list) {
-				if (
-					raw &&
-					typeof raw === "object" &&
-					(raw as { action?: string }).action === "clear"
-				) {
+				if (todoPayloadEmptiesList(raw)) {
 					commit({
 						todosBySession: { ...state.todosBySession, [sessionId]: null },
 					});
@@ -296,20 +288,15 @@ export const useSessionWidgetsStore = create<SessionWidgetsState>()(
 		}
 
 		/**
-		 * User chose CONTINUE on a paused list: un-pause and let the list
-		 * survive the next prompt's new-task reset (consumed once).
+		 * User chose CONTINUE on a paused list: un-pause it. The list already
+		 * survives new prompts, so no extra reset skip is needed.
 		 */
 		function resumeTodosForSession(sessionId: string): void {
 			const list = get().todosBySession[sessionId];
 			if (!list) return;
-			const state = get();
 			commit({
-				skipNextResetBySession: {
-					...state.skipNextResetBySession,
-					[sessionId]: true,
-				},
 				todosBySession: {
-					...state.todosBySession,
+					...get().todosBySession,
 					[sessionId]: { ...list, paused: false },
 				},
 			});
@@ -414,20 +401,12 @@ export const useSessionWidgetsStore = create<SessionWidgetsState>()(
 		}
 
 		/**
-		 * Reset the todo widget when a new task/turn starts. The UI list is
-		 * dropped entirely and the builtin-tool ownership flag clears, so the
-		 * next round's list (from any source) shows only that round's items.
+		 * Drop the session's todo state. Called when history is rewritten
+		 * (edit / rollback) or the user deletes the list — never on a plain
+		 * new prompt, which keeps the session-level list.
 		 */
 		function resetTodosForSession(sessionId: string): void {
 			const state = get();
-			// "Continue task" armed by resumeTodosForSession — keep the list for
-			// the follow-up prompt (the agent's next todo_write replaces it).
-			if (state.skipNextResetBySession[sessionId]) {
-				const skip = { ...state.skipNextResetBySession };
-				delete skip[sessionId];
-				commit({ skipNextResetBySession: skip });
-				return;
-			}
 			const todosBySession = { ...state.todosBySession };
 			delete todosBySession[sessionId];
 			const clocks = { ...state.todoStartedAtBySession };
@@ -438,15 +417,12 @@ export const useSessionWidgetsStore = create<SessionWidgetsState>()(
 			delete timings[sessionId];
 			const owned = { ...state.toolOwnedBySession };
 			delete owned[sessionId];
-			const skips = { ...state.skipNextResetBySession };
-			delete skips[sessionId];
 			commit({
 				todosBySession,
 				todoStartedAtBySession: clocks,
 				todoCompletedAtBySession: ends,
 				itemTimingBySession: timings,
 				toolOwnedBySession: owned,
-				skipNextResetBySession: skips,
 			});
 			dropTodoSnapshot(sessionId);
 			const widgets = { ...state.widgetsBySession };

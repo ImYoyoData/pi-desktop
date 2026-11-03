@@ -150,8 +150,19 @@ export function registerSessionsIpc(broker: SessionBroker): void {
 
   ipcMain.handle(
     IpcChannels.sessions.setUserMessageMeta,
-    (_event, sessionId: string, text: string, tags: ChatMessageTag[]) => {
-      broker.persistUserMessageMeta(sessionId, String(text ?? ""), Array.isArray(tags) ? tags : []);
+    (
+      _event,
+      sessionId: string,
+      text: string,
+      tags: ChatMessageTag[],
+      displayText?: unknown,
+    ) => {
+      broker.persistUserMessageMeta(
+        sessionId,
+        String(text ?? ""),
+        Array.isArray(tags) ? tags : [],
+        typeof displayText === "string" ? displayText : undefined,
+      );
     },
   );
   ipcMain.handle(

@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { WorkerInbound, WorkerOutbound } from "../shared/agent-worker-messages";
-import {
-  BROWSER_RPC_TIMEOUT_MS,
-  type BrowserRpcMethod,
-} from "../shared/browser-automation";
+
+const RPC_TIMEOUT_MS = 30_000;
+
 type Pending = {
   resolve: (value: unknown) => void;
   reject: (err: Error) => void;
@@ -41,13 +40,13 @@ export function handleRpcResponse(msg: Extract<WorkerInbound, { kind: "rpc_respo
  *
  * `timeoutMs: null` disables the auto-timeout — the ask waits until the user
  * answers or the turn is aborted. NOTE: pass `null`, not `undefined` —
- * an explicit `undefined` is replaced by the default (BROWSER_RPC_TIMEOUT_MS)
+ * an explicit `undefined` is replaced by the default (RPC_TIMEOUT_MS)
  * per JS default-parameter semantics.
  */
 export function rpcToMain(
-  method: BrowserRpcMethod | string,
+  method: string,
   params: Record<string, unknown> = {},
-  timeoutMs: number | null = BROWSER_RPC_TIMEOUT_MS,
+  timeoutMs: number | null = RPC_TIMEOUT_MS,
   signal?: AbortSignal,
 ): Promise<unknown> {
   const id = randomUUID();

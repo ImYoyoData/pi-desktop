@@ -1,6 +1,6 @@
 import fs from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
-import { homeDir } from "./agent-dir";
 
 export type LocalSkillScope = "user" | "project";
 
@@ -20,7 +20,7 @@ function skillRoots(
 ): Array<{ base: string; scope: LocalSkillScope; mode: SkillMode }> {
   return [
     { base: path.join(dir, "skills"), scope: "user", mode: "pi" },
-    { base: path.join(homeDir(), ".agents", "skills"), scope: "user", mode: "agents" },
+    { base: path.join(homedir(), ".agents", "skills"), scope: "user", mode: "agents" },
     { base: path.join(root, ".pi", "skills"), scope: "project", mode: "pi" },
   ];
 }
