@@ -95,7 +95,12 @@ export const ComposerSlashMenu = forwardRef<
           key={item.id}
           type="button"
           className={`${styles.row} ${index === safeIndex ? styles.active : ""} ${
-            item.kind === "skill" ? styles.skill : ""
+            item.kind === "skill" ||
+            item.kind === "action" ||
+            item.kind === "omp" ||
+            item.kind === "pi"
+              ? styles.skill
+              : ""
           }`}
           role="option"
           data-index={index}
@@ -106,9 +111,21 @@ export const ComposerSlashMenu = forwardRef<
           }}
           onMouseEnter={() => setActiveIndex(index)}
         >
-          <span className={styles.cmd}>/{item.command}</span>
+          <span className={styles.cmd}>
+            {item.kind === "action" ? item.title : `/${item.command}`}
+          </span>
           <span className={styles.desc}>{item.description}</span>
-          <span className={styles.kind}>{item.kind === "skill" ? "skill" : "cmd"}</span>
+          <span className={styles.kind}>
+            {item.kind === "action"
+              ? "set"
+              : item.kind === "omp"
+                ? "omp"
+                : item.kind === "pi"
+                  ? "pi"
+                  : item.kind === "skill"
+                    ? "skill"
+                    : "cmd"}
+          </span>
         </button>
       ))}
     </div>

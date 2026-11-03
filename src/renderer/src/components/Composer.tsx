@@ -45,6 +45,7 @@ import { useSendShortcutStore } from "@renderer/stores/send-shortcut";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
+import { useLayoutStore } from "@renderer/stores/layout";
 import { plainTextFromClipboard } from "@renderer/utils/composer-rich";
 import { heuristicSessionTitle } from "@renderer/utils/session-title";
 import {
@@ -100,10 +101,15 @@ import {
 import type { LegacyModeTagKind } from "../../../shared/injected-blocks";
 import {
   filterSlashItems,
+  findOmpSlashCommand,
+  findPiSlashCommand,
   isSlashBuiltinId,
+  OMP_SLASH_COMMANDS,
+  PI_SLASH_COMMANDS,
   parseSlashContext,
   replaceSlashLine,
   skillSlashCommand,
+  type SlashBuiltinId,
   type SlashCatalog,
   type SlashItem,
 } from "../../../shared/slash-commands";
@@ -120,7 +126,7 @@ import {
 } from "@renderer/utils/workspace-path-dnd";
 import { getLocale } from "@renderer/i18n";
 import { useI18n } from "@renderer/i18n/use-i18n";
-import { useMessage } from "@renderer/services/feedback";
+import { useDialog, useMessage } from "@renderer/services/feedback";
 import {
   DEFAULT_SUPPORTED_THINKING_LEVELS,
   THINKING_LEVELS,
@@ -157,6 +163,30 @@ const TONE_CLASS: Record<string, string> = {
   danger: "ctxDanger",
 };
 
+
+/** 会改动会话、文件或账户状态，执行前需要确认。 */
+const DANGEROUS_OMP_COMMANDS: Record<string, true> = {
+  marketplace: true,
+  install: true,
+  uninstall: true,
+  upgrade: true,
+  update: true,
+  login: true,
+  logout: true,
+  quit: true,
+  exit: true,
+  delete: true,
+  cleanse: true,
+  reset: true,
+  remove: true,
+  "remove-dir": true,
+  "forget-approvals": true,
+  restart: true,
+  kill: true,
+  stop: true,
+  move: true,
+  shake: true,
+};
 function useLatest<T>(initial: T): Latest<T> {
   const [, setValue] = useState(initial);
   const ref = useRef(initial);
@@ -191,6 +221,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   const t = useI18n();
   const composer = useComposerStore();
   const messageApi = useMessage();
+  const dialog = useDialog();
 
   const chatRunning = useChatStore((s) => s.activeRunning);
   const chatStopping = useChatStore((s) => s.activeStopping);
@@ -211,6 +242,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     return s.sessions.find((x) => x.id === id)?.status ?? null;
   });
   const workspaceRoot = useWorkspaceStore((s) => s.root);
+  const agentBackend = useWorkspaceStore((s) => s.backend);
   const showCompactButton = useAppearanceStore((s) => s.showCompactButton);
   const queueItems = useSendQueueStore((s) => s.activeItems);
   const queueEditingId = useSendQueueStore((s) => s.editingId);
@@ -996,16 +1028,30 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     // 否则工具栏显示的模式会与实际下发的不一致。
     const snap = snapshotComposerPayload();
 
+    // Bare builtin slash (e.g. `/compact`) — run locally, do not prompt the model.
+    // 必须排在引导分支前：运行中的输入仍是命令，不能被当成 steer 文本发给模型。
+    if (mode === "prompt" && (await tryConsumeBuiltinSlashDraft())) return;
+
+    const clientSlash = bareOmpClientSlashDraft();
+    if (mode === "prompt" && clientSlash) {
+      runOmpClientSlash(clientSlash);
+      return;
+    }
+    if (mode === "prompt" && runBarePiCommand()) return;
+
     // While agent is running, a plain send becomes guidance for the running turn
     // (steer) instead of waiting for the next turn. A pending re-edit is not
     // guidance: it truncates the turn, so it must go through the normal send.
-    if (isRunning() && mode === "prompt" && !isEditingPublished) {
+    // omp 内建命令必须进入 worker 的命令通道，不能被 steer。
+    if (
+      isRunning() &&
+      mode === "prompt" &&
+      !isEditingPublished &&
+      !bareOmpCommandDraft()
+    ) {
       await steerFromComposer();
       return;
     }
-
-    // Bare builtin slash (e.g. `/compact`) — run locally, do not prompt the model.
-    if (mode === "prompt" && (await tryConsumeBuiltinSlashDraft())) return;
 
     if (!snap) return;
 
@@ -1101,7 +1147,13 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
         if (ctx) useComposerStore.getState().setDraft(draft.slice(0, ctx.slashIndex));
         return;
       }
-      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      if (
+        event.key === "Enter" &&
+        !event.shiftKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.isComposing
+      ) {
         event.preventDefault();
         slashMenuRef.current?.confirm();
         return;
@@ -1131,7 +1183,13 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
         }
         return;
       }
-      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      if (
+        event.key === "Enter" &&
+        !event.shiftKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.isComposing
+      ) {
         event.preventDefault();
         atFileMenuRef.current?.confirm();
         return;
@@ -1157,7 +1215,27 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       saveEditingToQueue();
       return;
     }
+    // 菜单未覆盖的裸内置命令也要执行，运行中不能进入发送队列。
+    const builtin = bareBuiltinSlashDraft();
+    if (builtin) {
+      useComposerStore.getState().clear();
+      void runSlashBuiltin(builtin);
+      return;
+    }
+    const clientSlash = bareOmpClientSlashDraft();
+    if (clientSlash) {
+      runOmpClientSlash(clientSlash);
+      return;
+    }
+    if (runBarePiCommand()) return;
+    if (confirmDangerousOmpCommand()) return;
     if (isRunning()) {
+      if (
+        (bareOmpCommandDraft() || bareSkillCommandDraft()) &&
+        sendBareOmpCommandNow()
+      ) {
+        return;
+      }
       enqueueFromComposer();
       return;
     }
@@ -1181,11 +1259,34 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       saveEditingToQueue();
       return;
     }
+    // 运行中点击发送也先执行裸内置命令，不能被排进发送队列。
+    if (!useSendQueueStore.getState().editingId) {
+      const builtin = bareBuiltinSlashDraft();
+      if (builtin) {
+        useComposerStore.getState().clear();
+        void runSlashBuiltin(builtin);
+        return;
+      }
+      const clientSlash = bareOmpClientSlashDraft();
+      if (clientSlash) {
+        runOmpClientSlash(clientSlash);
+        return;
+      }
+      if (runBarePiCommand()) return;
+      if (confirmDangerousOmpCommand()) return;
+    }
     if (isRunning() && !hasSendContent) {
       void onAbort();
       return;
     }
     if (isRunning() && hasSendContent) {
+      if (
+        !useSendQueueStore.getState().editingId &&
+        (bareOmpCommandDraft() || bareSkillCommandDraft()) &&
+        sendBareOmpCommandNow()
+      ) {
+        return;
+      }
       onQueueSendClick();
       return;
     }
@@ -1262,11 +1363,77 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       description: command.description || t.slashSkillFallbackDesc,
     }));
 
+  /** omp 内建命令只在 omp 后端出现；执行由 worker 负责。 */
+  const ompSlashDescriptions: Record<string, string> = {
+    security: t.slashOmpSecurityDesc,
+    settings: t.slashOmpSettingsDesc,
+    setup: t.slashOmpSetupDesc,
+    plan: t.slashOmpPlanDesc,
+    "plan-review": t.slashOmpPlanReviewDesc,
+    vibe: t.slashOmpVibeDesc,
+    goal: t.slashOmpGoalDesc,
+    "guided-goal": t.slashOmpGuidedGoalDesc,
+    loop: t.slashOmpLoopDesc,
+  };
+  const slashOmpItems: SlashItem[] =
+    agentBackend === "omp"
+      ? OMP_SLASH_COMMANDS.filter(
+          (entry) => !isSlashBuiltinId(entry.name),
+        ).map((entry) => ({
+          id: `omp:${entry.name}`,
+          kind: "omp" as const,
+          command: entry.name,
+          title: `/${entry.name}`,
+          description:
+            ompSlashDescriptions[entry.name] ??
+            (entry.hint
+              ? `${entry.description} ${entry.hint}`
+              : entry.description),
+        }))
+      : [];
+
+  /** pi 内建命令只在 pi 后端出现；执行由渲染层映射或提示。 */
+  const slashPiItems: SlashItem[] =
+    agentBackend === "pi"
+      ? PI_SLASH_COMMANDS.filter(
+          (entry) => !isSlashBuiltinId(entry.name),
+        ).map((entry) => ({
+          id: `pi:${entry.name}`,
+          kind: "pi" as const,
+          command: entry.name,
+          title: `/${entry.name}`,
+          description: entry.hint
+            ? `${entry.description} ${entry.hint}`
+            : entry.description,
+        }))
+      : [];
+
+  /** 技能命令关闭时在菜单里直接给出开启入口，避免菜单只剩内置三项。 */
+  const slashActionItems: SlashItem[] =
+    !slashCatalog.value.skillCommands && slashSkills.value.length > 0
+      ? [
+          {
+            id: "action:enable-skill-commands",
+            kind: "action" as const,
+            command: "",
+            title: t.slashEnableSkillCommands,
+            description: t.slashEnableSkillCommandsDesc,
+          },
+        ]
+      : [];
+
   const slashContext = parseSlashContext(composer.draft);
 
   const slashItems: SlashItem[] = slashContext
     ? filterSlashItems(
-        [...slashBuiltins, ...slashCommandItems, ...slashSkillItems],
+        [
+          ...slashBuiltins,
+          ...slashOmpItems,
+          ...slashPiItems,
+          ...slashCommandItems,
+          ...slashSkillItems,
+          ...slashActionItems,
+        ],
         slashContext.query,
       )
     : [];
@@ -1418,8 +1585,12 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
           messageApi.warning(t.slashNeedSession);
           return;
         }
-        await useSessionsStore.getState().sendCommand(idSession, { type: "compact" });
-        messageApi.success(t.compactDone);
+        try {
+          await useSessionsStore.getState().sendCommand(idSession, { type: "compact" });
+          messageApi.success(t.compactDone);
+        } catch (err) {
+          messageApi.error(err instanceof Error ? err.message : String(err));
+        }
         return;
       }
       case "model": {
@@ -1451,6 +1622,20 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   async function onSlashSelect(item: SlashItem): Promise<void> {
     const ctx = slashContext;
     if (!ctx) return;
+    if (item.kind === "action") {
+      useComposerStore.getState().clear();
+      if (item.id === "action:enable-skill-commands") {
+        try {
+          await window.api.ompSettings.save({ "skills.enableSkillCommands": true });
+          slashCatalogCachedForRef.current = null;
+          await ensureSlashCatalog(true);
+          messageApi.success(t.slashEnableSkillCommandsDone);
+        } catch (err) {
+          messageApi.error(err instanceof Error ? err.message : String(err));
+        }
+      }
+      return;
+    }
     if (item.kind === "builtin") {
       useComposerStore.getState().clear();
       await runSlashBuiltin(item.id);
@@ -1462,15 +1647,169 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       .getState()
       .setDraft(replaceSlashLine(draft, ctx, item.command, true));
     await nextFrame();
-    focusDraft();
+    // 重建编辑器后光标会落到开头，参数必须接在命令后面。
+    focusDraftAtEnd();
+  }
+
+  /** 整个草稿只有一个内置斜杠命令时返回它。 */
+  function bareBuiltinSlashDraft(): SlashBuiltinId | null {
+    const raw = useComposerStore.getState().draft.trim();
+    if (!raw.startsWith("/") || raw.includes("\n")) return null;
+    const body = raw.slice(1).trim();
+    return isSlashBuiltinId(body) ? body : null;
+  }
+
+  /** 草稿是 omp 内建命令时返回归一化命令名（别名按主名）。 */
+  function bareOmpCommandDraft(): string | null {
+    if (agentBackend !== "omp") return null;
+    const raw = useComposerStore.getState().draft.trim();
+    if (!raw.startsWith("/") || raw.includes("\n")) return null;
+    const name = raw.slice(1).split(/\s+/, 1)[0] ?? "";
+    const command = findOmpSlashCommand(name)?.name;
+    if (!command || isSlashBuiltinId(command)) return null;
+    return command;
+  }
+
+  /** 草稿是 pi 内建命令时返回命令名。 */
+  function barePiCommandDraft(): string | null {
+    if (agentBackend !== "pi") return null;
+    const raw = useComposerStore.getState().draft.trim();
+    if (!raw.startsWith("/") || raw.includes("\n")) return null;
+    const name = raw.slice(1).split(/\s+/, 1)[0] ?? "";
+    return findPiSlashCommand(name)?.name ?? null;
+  }
+
+  async function runPiCommandDraft(command: string): Promise<void> {
+    const raw = useComposerStore.getState().draft.trim();
+    const args = raw.slice(1).split(/\s+/).slice(1).join(" ").trim();
+    const store = useComposerStore.getState();
+    switch (command) {
+      case "settings":
+      case "login":
+      case "logout":
+        store.clear();
+        useLayoutStore.getState().openCustomize("models");
+        return;
+      case "hotkeys":
+        store.clear();
+        useLayoutStore.getState().openCustomize("keys");
+        return;
+      case "session": {
+        const id = currentSessionId();
+        const row = id
+          ? useSessionsStore.getState().sessions.find((s) => s.id === id)
+          : undefined;
+        store.clear();
+        if (!id) messageApi.warning(t.slashNeedSession);
+        else messageApi.info(`Session: ${id}${row?.name ? ` · ${row.name}` : ""}`);
+        return;
+      }
+      case "copy": {
+        const messages = useChatStore.getState().activeMessages;
+        const last = [...messages]
+          .reverse()
+          .find((m) => m.role === "assistant" && m.text.trim());
+        const text = last?.role === "assistant" ? last.text : "";
+        store.clear();
+        if (!text.trim()) {
+          messageApi.warning(t.slashPiNothingToCopy);
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(text);
+          messageApi.success(t.slashPiCopied);
+        } catch (err) {
+          messageApi.error(err instanceof Error ? err.message : String(err));
+        }
+        return;
+      }
+      case "name": {
+        if (!args) {
+          messageApi.warning(t.slashPiNameUsage);
+          return;
+        }
+        const id = currentSessionId();
+        const root = useWorkspaceStore.getState().root;
+        if (!id || !root) {
+          messageApi.warning(t.slashNeedSession);
+          return;
+        }
+        store.clear();
+        await useSessionsStore.getState().renameSession(id, root, args);
+        return;
+      }
+      default:
+        store.clear();
+        messageApi.info(t.slashPiTerminalOnly);
+        return;
+    }
+  }
+
+  /** 接管草稿里的 pi 命令；返回 true 表示已处理。 */
+  function runBarePiCommand(): boolean {
+    const command = barePiCommandDraft();
+    if (!command) return false;
+    void runPiCommandDraft(command);
+    return true;
+  }
+
+  /** 危险命令执行前确认；返回 true 表示已接管本次发送。 */
+  function confirmDangerousOmpCommand(): boolean {
+    const command = bareOmpCommandDraft();
+    if (!command || !DANGEROUS_OMP_COMMANDS[command]) return false;
+    if (useSendQueueStore.getState().editingId) return false;
+    dialog.warning({
+      title: t.slashDangerousTitle.replace("{command}", command),
+      content: t.slashDangerousBody,
+      positiveText: t.slashDangerousRun,
+      negativeText: t.cancel,
+      onPositiveClick: () => {
+        if (isRunning()) sendBareOmpCommandNow();
+        else void submit("prompt");
+      },
+    });
+    return true;
+  }
+
+  /** 运行中的 `/skill:name` 也要即时 steer，不能进入发送队列。 */
+  function bareSkillCommandDraft(): boolean {
+    const raw = useComposerStore.getState().draft.trim();
+    return raw.startsWith("/skill:") && !raw.includes("\n");
+  }
+
+  /** `/settings`、`/setup`（含 providers 别名）只打开桌面设置页。 */
+  function bareOmpClientSlashDraft(): "settings" | "setup" | null {
+    const command = bareOmpCommandDraft();
+    return command === "settings" || command === "setup" ? command : null;
+  }
+
+  function runOmpClientSlash(command: "settings" | "setup"): void {
+    useComposerStore.getState().clear();
+    useLayoutStore
+      .getState()
+      .openCustomize(command === "setup" ? "models" : "general");
+  }
+
+  /** 运行中绕过发送队列，直接把命令交给 worker。 */
+  function sendBareOmpCommandNow(): boolean {
+    const id = currentSessionId();
+    const state = useComposerStore.getState();
+    const text = state.draft.trim();
+    if (!id || state.chips.length || state.images.length || !text) return false;
+    state.clear();
+    void useSessionsStore
+      .getState()
+      .sendCommand(id, { type: "prompt", message: text })
+      .catch((err: unknown) => {
+        messageApi.error(err instanceof Error ? err.message : String(err));
+      });
+    return true;
   }
 
   /** If the whole draft is a bare builtin slash, run it instead of prompting. */
   async function tryConsumeBuiltinSlashDraft(): Promise<boolean> {
-    const raw = useComposerStore.getState().draft.trim();
-    if (!raw.startsWith("/") || raw.includes("\n")) return false;
-    const body = raw.slice(1).trim();
-    if (!isSlashBuiltinId(body)) return false;
+    const body = bareBuiltinSlashDraft();
+    if (!body) return false;
     useComposerStore.getState().clear();
     await runSlashBuiltin(body);
     return true;
