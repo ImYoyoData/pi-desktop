@@ -77,6 +77,22 @@ export function isNewerVersion(latest: string, current: string): boolean {
 	return compareVersions(latest, current) > 0;
 }
 
+/** 版本号是否带预发布标识（`0.3.8-rc.1` 为 true，`0.3.8+build.1` 为 false）。 */
+export function isPrereleaseVersion(version: string): boolean {
+	const [core = ""] = String(version).trim().replace(/^v/i, "").split("+");
+	return core.includes("-");
+}
+
+/** 发布是否可作为更新：预发布只喂给同样是预发布的版本。 */
+export function isUpdateReleaseAllowed(
+	release: { draft?: boolean; prerelease?: boolean },
+	currentVersion: string,
+): boolean {
+	if (release.draft === true) return false;
+	if (release.prerelease !== true) return true;
+	return isPrereleaseVersion(currentVersion);
+}
+
 /** 各平台安装包文件名后缀，与 electron-builder.yml 的 artifactName 对应。 */
 const ASSET_SUFFIXES: Record<string, string[]> = {
 	"win32-x64": ["-win-x64-setup.exe"],

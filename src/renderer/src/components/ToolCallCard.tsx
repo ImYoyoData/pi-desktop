@@ -432,11 +432,10 @@ export function ToolCallCard({
         if (line) parts.push(line);
       } else {
         const counts = waitJobCounts(card.jobs);
-        if (counts.running) parts.push(t.toolWaitRunningCount(counts.running));
-        if (counts.completed) parts.push(t.toolWaitDoneCount(counts.completed));
         if (counts.failed) parts.push(t.toolWaitFailedCount(counts.failed));
         if (counts.cancelled) parts.push(t.toolWaitCancelledCount(counts.cancelled));
       }
+      if (card.interrupted) parts.push(t.toolWaitInterrupted);
       if (streaming) {
         const elapsed = waitElapsedMs(card.startedAt, card.durationMs, true, waitNow);
         if (elapsed != null) {
@@ -485,10 +484,6 @@ export function ToolCallCard({
     if (card.kind === "bash") return card.command || toolName;
     if (card.kind === "grep") return card.pattern || toolName;
     if (card.kind === "wait") {
-      if (!card.jobs.length) {
-        const line = firstLine(card.text);
-        if (line) return clipText(line, 80);
-      }
       return waitHeadline(card.jobs, t, Boolean(streaming));
     }
     if (card.kind === "generic") return card.summary || "";
@@ -675,11 +670,15 @@ export function ToolCallCard({
         : card.noMatches
           ? t.toolBodyGrepNoMatches
           : null
-      : resultCount
-        ? toolCountLabel(t, resultCount)
-        : genericSummary.target
-          ? previewText
-          : null;
+      : card.kind === "wait"
+        ? resultParts.length
+          ? resultParts.join(" · ")
+          : null
+        : resultCount
+          ? toolCountLabel(t, resultCount)
+          : genericSummary.target
+            ? previewText
+            : null;
 
   /** 时间线步骤右侧的度量：行数 / 改动数 / 退出码 / 耗时。 */
   const stepMeta = useMemo<ReactNode>(() => {

@@ -7,8 +7,31 @@ const MAX_TEXT = 4000;
 const MAX_PROMPT_TEXT = 16000;
 const MAX_THINKING = 2000;
 const MAX_ARGS = 600;
+/** diff/patch 与编辑正文必须完整到足以计算统计，不能按参数预览的 600 字符裁剪。 */
+const MAX_WIDE_TEXT = 20_000;
+
+const WIDE_TEXT_KEYS: Record<string, true> = {
+  patch: true,
+  diff: true,
+  content: true,
+  oldText: true,
+  newText: true,
+  old_string: true,
+  new_string: true,
+};
 
 type ToolEntry = Extract<AgentTranscriptEntry, { kind: "tool" }>;
+
+export type NormalizeAgentOptions = {
+  /** 运行中的 agent：尚无结果的工具调用保留 pending，渲染成进行中。 */
+  live?: boolean;
+};
+
+export type NormalizedAgentTranscript = {
+  entries: AgentTranscriptEntry[];
+  /** 条目超过上限，早期对话已被裁掉。 */
+  truncated: boolean;
+};
 
 function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
@@ -53,18 +76,20 @@ function argsText(value: unknown): string | undefined {
 }
 
 /** 工具参数/结果只保留卡片需要的字段，长字符串与深层结构按上限裁剪。 */
-function compactValue(value: unknown, depth = 0): unknown {
+function compactValue(value: unknown, depth = 0, key?: string): unknown {
   if (depth > 4) return "[…]";
-  if (typeof value === "string") return clip(value, MAX_ARGS);
+  if (typeof value === "string") {
+    return clip(value, key && WIDE_TEXT_KEYS[key] ? MAX_WIDE_TEXT : MAX_ARGS);
+  }
   if (Array.isArray(value)) {
     return value.slice(0, 50).map((item) => compactValue(item, depth + 1));
   }
   if (typeof value === "object" && value !== null) {
     const out: Record<string, unknown> = {};
     let count = 0;
-    for (const [key, item] of Object.entries(value)) {
+    for (const [entryKey, item] of Object.entries(value)) {
       if (count >= 50) break;
-      out[key] = compactValue(item, depth + 1);
+      out[entryKey] = compactValue(item, depth + 1, entryKey);
       count += 1;
     }
     return out;
@@ -76,9 +101,13 @@ function compactValue(value: unknown, depth = 0): unknown {
  * 工具调用与结果合并成一条：assistant 的 ToolCall 先落条目，随后的
  * toolResult 按 toolCallId 补上结果；找不到调用记录的结果单独成条。
  */
-export function normalizeAgentMessages(messages: readonly unknown[]): AgentTranscriptEntry[] {
+export function normalizeAgentTranscript(
+  messages: readonly unknown[],
+  opts?: NormalizeAgentOptions,
+): NormalizedAgentTranscript {
   const entries: AgentTranscriptEntry[] = [];
   const calls = new Map<string, ToolEntry>();
+  const live = opts?.live === true;
 
   for (const message of messages) {
     if (typeof message !== "object" || message === null || Array.isArray(message)) continue;
@@ -119,6 +148,7 @@ export function normalizeAgentMessages(messages: readonly unknown[]): AgentTrans
         const entry: ToolEntry = {
           kind: "tool",
           toolName,
+          ...(live ? { pending: true } : {}),
           ...(typeof call.id === "string" && call.id ? { callId: call.id } : {}),
           ...(call.arguments != null
             ? { args: argsText(call.arguments), argsValue: compactValue(call.arguments) }
@@ -138,11 +168,12 @@ export function normalizeAgentMessages(messages: readonly unknown[]): AgentTrans
       const isError = record.isError === true;
       const details = record.details != null ? compactValue(record.details) : undefined;
       const callId = typeof record.toolCallId === "string" ? record.toolCallId : "";
-      const pending = callId ? calls.get(callId) : undefined;
-      if (pending) {
-        if (text) pending.text = text;
-        if (details !== undefined) pending.resultDetails = details;
-        if (isError) pending.isError = true;
+      const answered = callId ? calls.get(callId) : undefined;
+      if (answered) {
+        answered.pending = false;
+        if (text) answered.text = text;
+        if (details !== undefined) answered.resultDetails = details;
+        if (isError) answered.isError = true;
         continue;
       }
       if (text || details !== undefined || isError) {
@@ -159,11 +190,19 @@ export function normalizeAgentMessages(messages: readonly unknown[]): AgentTrans
     }
   }
 
-  if (entries.length <= MAX_ENTRIES) return entries;
+  if (entries.length <= MAX_ENTRIES) return { entries, truncated: false };
   const prompt = entries.find(
     (entry) => entry.kind === "message" && entry.role === "user",
   );
   const tail = entries.slice(-(MAX_ENTRIES - (prompt ? 1 : 0)));
-  if (prompt && !tail.includes(prompt)) return [prompt, ...tail];
-  return entries.slice(-MAX_ENTRIES);
+  const kept =
+    prompt && !tail.includes(prompt) ? [prompt, ...tail] : entries.slice(-MAX_ENTRIES);
+  return { entries: kept, truncated: true };
+}
+
+export function normalizeAgentMessages(
+  messages: readonly unknown[],
+  opts?: NormalizeAgentOptions,
+): AgentTranscriptEntry[] {
+  return normalizeAgentTranscript(messages, opts).entries;
 }

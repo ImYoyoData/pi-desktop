@@ -1,12 +1,17 @@
 # Pi Desktop 自定义 NSIS 安装脚本
 #
-# 覆盖 electron-builder 默认模板的三个问题：
+# 覆盖 electron-builder 默认模板的四个问题：
 # 1) 安装目录名取自 exe 名（PiDesktop），与产品名「Pi Desktop」不一致；
 # 2) 目录拼接是「子串包含」判断（assistedInstaller.nsh 的 instFilesPre），
-#    会漏拼或重拼，出现 D:\Pi Desktop\Pi Desktop 这类目录；
+#    会漏拼或重拼，出现 D:\Pi Desktop\Pi Desktop 这类目录；归一化改为在目录页
+#    之后的隐藏页面里做一次（inner 实例也执行），升级只把旧目录名迁移为同级
+#    产品名，不再追加子目录；
 # 3) 占用检测按当前安装目录的前缀匹配进程，换目录安装时旧实例不被识别，
 #    旧文件删不掉，安装以「无法关闭」失败。这里改为按进程名找实例，
-#    先给应用自己退出的时间，超时再强制结束。
+#    先给应用自己退出的时间，超时再强制结束；
+# 4) 更新时 addDesktopLink 走 keepShortcuts 分支，createDesktopShortcut: always
+#    的重建被 isUpdated 挡住，快捷方式丢失或指向旧路径后不会自愈，这里在
+#    customInstall 里强制重建。
 
 !ifdef APP_FILENAME
   !undef APP_FILENAME
@@ -27,16 +32,27 @@
   ReadRegStr $PiDirPrevious SHELL_CONTEXT "${INSTALL_REGISTRY_KEY}" InstallLocation
 !macroend
 
+# StdUtils 的插件目录在自定义 include 之后才注册，${isUpdated} 只能在
+# 更晚展开的宏（installSection）里求值，结果存到 $PiIsUpdate。
+!macro piDetectUpdateFlag
+  ${If} ${isUpdated}
+    StrCpy $PiIsUpdate "1"
+  ${Else}
+    StrCpy $PiIsUpdate "0"
+  ${EndIf}
+!macroend
+
 !macro customCheckAppRunning
 !ifdef BUILD_UNINSTALLER
   !insertmacro IS_POWERSHELL_AVAILABLE
   !insertmacro _CHECK_APP_RUNNING
 !else
   !insertmacro piPrepare
-  Call piFixInstallDirectory
+  Call piNormalizeInstallDir
   # $appExe 由 installSection 按修正前的目录赋值，快捷方式目标、DisplayIcon、
   # keepShortcuts 判断都取自它，目录改动后必须重新同步。
   StrCpy $appExe "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+  !insertmacro piDetectUpdateFlag
   Call piEnsureAppClosed
 !endif
 !macroend
@@ -47,6 +63,7 @@ Var /GLOBAL PiExeName
 Var /GLOBAL PiDirPrevious
 Var /GLOBAL PiAppRunning
 Var /GLOBAL PiWaitBudget
+Var /GLOBAL PiIsUpdate
 
 # 去掉路径末尾的反斜杠（就地处理 $R0；用 $R9 暂存，避免覆盖调用方要用的 $R1）
 Function piTrimTrailingSlash
@@ -104,32 +121,34 @@ Function piSplitPath
   splitDone:
 FunctionEnd
 
-# 修正安装目录：
-# - 末段不是产品目录时补齐（按路径段判断，不做子串匹配）；
-# - 末段是产品目录、但父目录正好是上次安装目录时，去掉 electron-builder 多拼的一层。
-Function piFixInstallDirectory
+# 归一化安装目录：
+# - 已有安装且用户没改目录：只把旧目录名（如 PiDesktop）迁移为同级产品名，
+#   绝不在上次安装目录内再追加一层；
+# - 全新安装或用户改了目录：末段不是产品名时补齐。
+Function piNormalizeInstallDir
   StrCpy $R0 "$INSTDIR"
   Call piTrimTrailingSlash
   StrCpy $INSTDIR "$R0"
 
-  Call piSplitPath
-
+  StrCmp $PiDirPrevious "" piNormFresh
   StrCpy $R0 "$PiDirPrevious"
   Call piTrimTrailingSlash
-  StrCpy $R4 "$R0"
+  StrCmp $INSTDIR $R0 piNormMigrate piNormFresh
 
-  StrCmp $R1 "${APP_FILENAME}" 0 piAppendFolder
-  StrCmp $R4 "" piDone
-  StrCmp $R2 $R4 piDropLeaf piDone
+piNormMigrate:
+  Call piSplitPath
+  StrCmp $R1 "${APP_FILENAME}" piNormDone
+  StrCmp $R2 "" piNormDone
+  StrCpy $INSTDIR "$R2\${APP_FILENAME}"
+  Goto piNormDone
 
-piDropLeaf:
-  StrCpy $INSTDIR "$R2"
-  Goto piDone
-
-piAppendFolder:
+piNormFresh:
+  StrCpy $R0 "$INSTDIR"
+  Call piSplitPath
+  StrCmp $R1 "${APP_FILENAME}" piNormDone
   StrCpy $INSTDIR "$INSTDIR\${APP_FILENAME}"
 
-piDone:
+piNormDone:
 FunctionEnd
 
 # 是否有运行中的实例：$PiAppRunning = 1 表示有
@@ -142,15 +161,24 @@ Function piIsAppRunning
   ${EndIf}
 FunctionEnd
 
-# 请求应用自行退出（不发强制结束信号）
+# 请求应用自行退出（不发强制结束信号）。更新时安装器是 app 的子进程，
+# 带 /T 会连安装器一起终止，只关主进程；手动安装时安装器不在该进程树里。
 Function piRequestAppClose
-  nsExec::ExecToLog `"$SYSDIR\cmd.exe" /C taskkill /IM "$PiExeName" /T`
+  ${If} $PiIsUpdate == "1"
+    nsExec::ExecToLog `"$SYSDIR\cmd.exe" /C taskkill /IM "$PiExeName"`
+  ${Else}
+    nsExec::ExecToLog `"$SYSDIR\cmd.exe" /C taskkill /IM "$PiExeName" /T`
+  ${EndIf}
   Pop $R0
 FunctionEnd
 
 # 强制结束应用（含子进程）
 Function piKillApp
-  nsExec::ExecToLog `"$SYSDIR\cmd.exe" /C taskkill /IM "$PiExeName" /T /F`
+  ${If} $PiIsUpdate == "1"
+    nsExec::ExecToLog `"$SYSDIR\cmd.exe" /C taskkill /IM "$PiExeName" /F`
+  ${Else}
+    nsExec::ExecToLog `"$SYSDIR\cmd.exe" /C taskkill /IM "$PiExeName" /T /F`
+  ${EndIf}
   Pop $R0
 FunctionEnd
 
@@ -230,5 +258,54 @@ piRetryClose:
     Quit
   ${EndIf}
 FunctionEnd
+
+# --updated：沿用上次安装模式并跳过安装模式页，避免更新时误切 per-user/per-machine。
+# 两个注册表位置都有安装时保持页面可见，交给用户选。
+!macro customInstallMode
+  ${If} ${isUpdated}
+    ReadRegStr $R5 HKEY_LOCAL_MACHINE "${INSTALL_REGISTRY_KEY}" InstallLocation
+    ReadRegStr $R6 HKEY_CURRENT_USER "${INSTALL_REGISTRY_KEY}" InstallLocation
+    ${If} $R5 != ""
+    ${AndIf} $R6 == ""
+      StrCpy $isForceMachineInstall "1"
+    ${ElseIf} $R5 == ""
+    ${AndIf} $R6 != ""
+      StrCpy $isForceCurrentInstall "1"
+    ${EndIf}
+  ${EndIf}
+!macroend
+
+# 目录页之后、写入之前归一化：安装模式页的 leave 会按注册表重置 $INSTDIR，
+# 放在 customInit 里会被覆盖；inner 实例又不执行 customCheckAppRunning。
+# 这里加一个在 PRE 里直接 Abort 的隐藏页面，两条路径都能覆盖。
+# 函数写在宏里：宏在 assistedInstaller.nsh 处展开，此时 registry 与 exe 名的
+# 编译期 define 已由 common.nsh / multiUser.nsh 提供。
+!macro customPageAfterChangeDir
+  Function piNormalizePagePre
+    !insertmacro piPrepare
+    Call piNormalizeInstallDir
+    Abort
+  FunctionEnd
+
+  Function piNormalizePageLeave
+  FunctionEnd
+
+  PageEx custom
+    PageCallbacks piNormalizePagePre piNormalizePageLeave
+    Caption " "
+  PageExEnd
+!macroend
+
+# 在 addDesktopLink 之后执行：更新走 keepShortcuts 分支时不会重建快捷方式，
+# 这里按 createDesktopShortcut: always 的语义强制写一次。
+!macro customInstall
+  !ifdef RECREATE_DESKTOP_SHORTCUT
+    ${IfNot} ${isNoDesktopShortcut}
+      CreateShortCut "$newDesktopLink" "$appExe" "" "$appExe" 0 "" "" "${APP_DESCRIPTION}"
+      ClearErrors
+      WinShell::SetLnkAUMI "$newDesktopLink" "${APP_ID}"
+    ${EndIf}
+  !endif
+!macroend
 
 !endif

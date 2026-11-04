@@ -35,6 +35,8 @@ export type WorkerOutbound =
   | { kind: "event"; event: Record<string, unknown> }
   | { kind: "pong" }
   | { kind: "fatal"; error: string }
+  /** omp worker 的桌面模式（loop/vibe）是否仍持有会话状态；持有期间不重建 worker。 */
+  | { kind: "desktop_modes"; active: boolean }
   | {
       kind: "run_started";
       run: {

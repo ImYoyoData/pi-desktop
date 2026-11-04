@@ -135,6 +135,8 @@ export const IpcChannels = {
 		restartWorker: "sessions:restartWorker",
 		delete: "sessions:delete",
 		history: "sessions:history",
+		/** 只读读取子代理转录（优先磁盘，不冷启动 worker）。 */
+		agentTranscript: "sessions:agentTranscript",
 		rename: "sessions:rename",
 		/** 把到某一轮 user 消息为止的对话复制成新会话文件。 */
 		fork: "sessions:fork",
@@ -499,12 +501,16 @@ export type AgentTranscriptEntry =
 			/** 裁剪后的工具结果 details，供 read/grep/task 等卡片解析。 */
 			resultDetails?: unknown;
 			isError?: boolean;
+			/** 运行中且结果尚未到达：卡片显示进行中。 */
+			pending?: boolean;
 			timestamp?: number;
 	  };
 
 export type AgentTranscript = {
 	id: string;
 	messages: AgentTranscriptEntry[];
+	/** 只保留最近 200 条，早期对话已裁掉。 */
+	truncated?: boolean;
 	/** 读取来源：运行中 agent 的内存，或落盘的 `.jsonl`。 */
 	source: "live" | "disk";
 };

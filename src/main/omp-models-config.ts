@@ -86,6 +86,26 @@ function modelPlain(
 	return model;
 }
 
+/** 保存前的行校验：空 id 会被静默丢弃，重复 id 会互相覆盖，都必须拦下来。 */
+function assertModelRows(providers: OmpProviderRow[]): void {
+	const providerIds = new Set<string>();
+	for (const row of providers) {
+		const id = row.id.trim();
+		if (!id) throw new Error("供应商 id 不能为空");
+		if (providerIds.has(id)) throw new Error(`供应商 id 重复：${id}`);
+		providerIds.add(id);
+		const modelIds = new Set<string>();
+		for (const model of row.models) {
+			const modelId = model.id.trim();
+			if (!modelId) throw new Error(`供应商 ${id} 下有未填写 id 的模型`);
+			if (modelIds.has(modelId)) {
+				throw new Error(`供应商 ${id} 的模型 id 重复：${modelId}`);
+			}
+			modelIds.add(modelId);
+		}
+	}
+}
+
 /**
  * 把设置页的编辑合并回 models.yml。
  *
@@ -94,6 +114,7 @@ function modelPlain(
  * shortcut: js-yaml 往返会丢注释，保存前留一份 models.yml.bak。
  */
 export function saveOmpModels(providers: OmpProviderRow[]): OmpModelsSnapshot {
+	assertModelRows(providers);
 	const filePath = ompModelsPath();
 	const previous = fs.existsSync(filePath)
 		? asRecord(loadYaml(fs.readFileSync(filePath, "utf8"))) ?? {}

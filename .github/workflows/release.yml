@@ -164,7 +164,6 @@ jobs:
           name: pi-desktop-${{ matrix.name }}
           path: |
             ${{ matrix.artifact_glob }}
-            release/latest*.yml
           if-no-files-found: error
           retention-days: 14
 
@@ -196,7 +195,7 @@ jobs:
         run: |
           mkdir -p upload
           find dist-artifacts -type f \
-            \( -name '*-setup.exe' -o -name '*.dmg' -o -name '*.AppImage' -o -name 'latest*.yml' \) \
+            \( -name '*-setup.exe' -o -name '*.dmg' -o -name '*.AppImage' \) \
             -print -exec cp {} upload/ \;
           echo "=== release assets ==="
           ls -lah upload || true
@@ -206,51 +205,39 @@ jobs:
             exit 1
           fi
 
+      - name: Extract release notes
+        shell: bash
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          VERSION="${TAG#v}"
+          awk -v h="## v${VERSION} " '
+            index($0, h) == 1 { f = 1; next }
+            /^## / { f = 0 }
+            f
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "CHANGELOG.md has no section for v${VERSION}" >&2
+            exit 1
+          fi
+          {
+            echo
+            echo "## 下载 / Downloads"
+            echo "- **Windows x64**: \`Pi-Desktop-*-win-x64-setup.exe\`"
+            echo "- **Windows ARM64**: \`Pi-Desktop-*-win-arm64-setup.exe\`"
+            echo "- **macOS Apple Silicon**: \`Pi-Desktop-*-mac-arm64.dmg\`"
+            echo "- **macOS Intel**: \`Pi-Desktop-*-mac-x64.dmg\`"
+            echo "- **Linux x64**: \`Pi-Desktop-*-linux-x86_64.AppImage\`"
+          } >> release-notes.md
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           name: Pi Desktop ${{ needs.version.outputs.tag }}
           draft: false
-          prerelease: false
-          generate_release_notes: true
-          body: |
-
-            ## 主要更新
-
-            适配 Pi 1.5.0，引入 OMP（oh-my-pi）18.16.0 引擎；更新下载更快并复用本地 gh 登录态；修复斜杠命令菜单；设置页改为新布局。
-
-            ### 新功能 Features
-
-            - **引入 OMP 引擎（18.16.0）**：可全局切换 Pi / OMP，两者配置与会话独立；设置页新增 OMP 的模型 / 配置 / MCP。
-            - **适配 Pi 1.5.0**：SDK 升到 1.5.0，斜杠命令清单同步更新。
-
-            - **OMP engine (18.16.0)**: switch between Pi and OMP globally, each with its own config and sessions; Settings gained OMP Models / Config / MCP.
-            - **Pi 1.5.0 support**: the SDK moved to 1.5.0 and the slash-command catalog is updated.
-
-            ### 变更 Changes
-
-            - **更新下载更快**：下载改成分片并发。
-            - **复用本地 gh 登录态**：检查更新使用 `gh auth login` 的令牌。
-            - **设置页新布局**：左栏并入标题栏，新增 Pi / OMP 二级页签。
-
-            - **Faster update downloads**: downloads now run as concurrent segments.
-            - **Local gh login reuse**: update checks use the `gh auth login` token.
-            - **New Settings layout**: the side column moved into the title bar, with Pi / OMP sub-tabs.
-
-            ### 修复 Fixes
-
-            - **修复斜杠命令菜单无法使用**，并补全 OMP / Pi 的内建命令。
-
-            - **Fixed the unusable slash-command menu** and completed the OMP / Pi built-in commands.
-
-            ## 下载 / Downloads
-            - **Windows x64**: `Pi-Desktop-*-win-x64-setup.exe`
-            - **Windows ARM64**: `Pi-Desktop-*-win-arm64-setup.exe`
-            - **macOS Apple Silicon**: `Pi-Desktop-*-mac-arm64.dmg`
-            - **macOS Intel**: `Pi-Desktop-*-mac-x64.dmg`
-            - **Linux x64**: `Pi-Desktop-*-linux-x86_64.AppImage`
-
+          prerelease: ${{ contains(needs.version.outputs.tag, '-') }}
+          body_path: release-notes.md
           files: upload/*
           fail_on_unmatched_files: false
         env:

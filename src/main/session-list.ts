@@ -133,21 +133,43 @@ let ompWorkspacesCache: {
 }
 
 /** 从会话文件首行 header 读 id，用于解析派生会话的父级（按小写路径缓存）。 */
-const parentHeaderIdCache = new Map<string, string | undefined>();
+const parentHeaderIdCache = new Map<string, string>();
+
+/** 从会话文件首部定位 header 行：omp 的会话首行是 title slot，header 在其后。 */
+function sessionHeaderLine(
+  raw: string,
+): { start: number; end: number; text: string } | null {
+  let start = 0;
+  for (let index = 0; index < 4; index += 1) {
+    const newline = raw.indexOf("\n", start);
+    const end = newline === -1 ? raw.length : newline;
+    const text = raw.slice(start, end);
+    try {
+      const parsed = JSON.parse(text) as { type?: unknown };
+      if (parsed?.type === "session") return { start, end, text };
+    } catch {
+      // 首行不一定是 JSON，继续往下找
+    }
+    if (newline === -1) break;
+    start = newline + 1;
+  }
+  return null;
+}
 
 export function readSessionHeaderId(filePath: string): string | undefined {
   const key = filePath.toLowerCase();
-  if (parentHeaderIdCache.has(key)) return parentHeaderIdCache.get(key);
+  const cached = parentHeaderIdCache.get(key);
+  if (cached !== undefined) return cached;
   let id: string | undefined;
   try {
     const fd = fs.openSync(filePath, "r");
     try {
       const buf = Buffer.alloc(16 * 1024);
       const n = fs.readSync(fd, buf, 0, buf.length, 0);
-      const firstLine = buf.toString("utf8", 0, n).split("\n")[0] ?? "";
-      const parsed = JSON.parse(firstLine) as { type?: unknown; id?: unknown };
-      if (parsed.type === "session" && typeof parsed.id === "string") {
-        id = parsed.id;
+      const line = sessionHeaderLine(buf.toString("utf8", 0, n));
+      if (line) {
+        const parsed = JSON.parse(line.text) as { id?: unknown };
+        if (typeof parsed.id === "string") id = parsed.id;
       }
     } finally {
       fs.closeSync(fd);
@@ -155,7 +177,8 @@ export function readSessionHeaderId(filePath: string): string | undefined {
   } catch {
     id = undefined;
   }
-  parentHeaderIdCache.set(key, id);
+  // 文件可能稍后才写入（分叉/新建），负结果不缓存。
+  if (id) parentHeaderIdCache.set(key, id);
   return id;
 }
 
@@ -223,6 +246,11 @@ function readSessionSummaryFallback(filePath: string): DiskSessionRow | null {
         continue;
       }
       if (!header) {
+        if (entry.type === "title" && typeof entry.title === "string") {
+          const rawTitle = entry.title.trim();
+          if (rawTitle) name = rawTitle;
+          continue;
+        }
         if (entry.type !== "session" || typeof entry.id !== "string")
           return null;
         header = entry;
@@ -416,28 +444,27 @@ async function moveSessionFile(
   toDir: string,
 ): Promise<void> {
   const raw = await fs.promises.readFile(src, "utf8");
-  const lineEnd = raw.indexOf("\n");
-  const headRaw = lineEnd < 0 ? raw : raw.slice(0, lineEnd);
-  const cr = headRaw.endsWith("\r") ? "\r" : "";
-  const head = cr ? headRaw.slice(0, -1) : headRaw;
-  const rest = lineEnd < 0 ? "" : raw.slice(lineEnd);
+  const line = sessionHeaderLine(raw);
   let next = raw;
-  try {
-    const parsed = JSON.parse(head) as {
-      type?: unknown;
-      cwd?: unknown;
-      parentSession?: unknown;
-    };
-    if (parsed.type === "session") {
-      parsed.cwd = newCwd;
-      const parent = parsed.parentSession;
-      if (typeof parent === "string" && workspacePathsEqual(path.dirname(parent), fromDir)) {
-        parsed.parentSession = path.join(toDir, path.basename(parent));
+  if (line) {
+    const cr = line.text.endsWith("\r") ? "\r" : "";
+    try {
+      const parsed = JSON.parse(line.text) as {
+        type?: unknown;
+        cwd?: unknown;
+        parentSession?: unknown;
+      };
+      if (parsed.type === "session") {
+        parsed.cwd = newCwd;
+        const parent = parsed.parentSession;
+        if (typeof parent === "string" && workspacePathsEqual(path.dirname(parent), fromDir)) {
+          parsed.parentSession = path.join(toDir, path.basename(parent));
+        }
+        next = raw.slice(0, line.start) + JSON.stringify(parsed) + cr + raw.slice(line.end);
       }
-      next = JSON.stringify(parsed) + cr + rest;
+    } catch {
+      // header 解析失败时保留原文
     }
-  } catch {
-    // header 解析失败时保留原文
   }
   await fs.promises.writeFile(dest, next, "utf8");
   await fs.promises.rm(src, { force: true });
@@ -446,20 +473,19 @@ async function moveSessionFile(
 /** 原地重写 header 的 cwd（自定义会话目录里文件不搬家）。 */
 async function rewriteSessionFileCwd(filePath: string, newCwd: string): Promise<void> {
   const raw = await fs.promises.readFile(filePath, "utf8");
-  const lineEnd = raw.indexOf("\n");
-  const headRaw = lineEnd < 0 ? raw : raw.slice(0, lineEnd);
-  const cr = headRaw.endsWith("\r") ? "\r" : "";
-  const head = cr ? headRaw.slice(0, -1) : headRaw;
-  const rest = lineEnd < 0 ? "" : raw.slice(lineEnd);
+  const line = sessionHeaderLine(raw);
   let next = raw;
-  try {
-    const parsed = JSON.parse(head) as { type?: unknown; cwd?: unknown };
-    if (parsed.type === "session") {
-      parsed.cwd = newCwd;
-      next = JSON.stringify(parsed) + cr + rest;
+  if (line) {
+    const cr = line.text.endsWith("\r") ? "\r" : "";
+    try {
+      const parsed = JSON.parse(line.text) as { type?: unknown; cwd?: unknown };
+      if (parsed.type === "session") {
+        parsed.cwd = newCwd;
+        next = raw.slice(0, line.start) + JSON.stringify(parsed) + cr + raw.slice(line.end);
+      }
+    } catch {
+      // header 解析失败时保留原文
     }
-  } catch {
-    // header 解析失败时保留原文
   }
   if (next !== raw) await fs.promises.writeFile(filePath, next, "utf8");
 }

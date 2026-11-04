@@ -88,6 +88,13 @@ files:
   - "!node_modules/treemate/**"
   - "!node_modules/date-fns-tz/**"
   - "!node_modules/date-fns/**"
+  # OMP 只以 resources/omp 下的独立二进制运行，主进程不 import @oh-my-pi；
+  # 它携带的 ML/原生包在安装包里不可达，合计约 705 MB 未压缩 / 142 MB 压缩。
+  - "!node_modules/@oh-my-pi/**"
+  - "!node_modules/@huggingface/**"
+  - "!node_modules/onnxruntime*/**"
+  - "!node_modules/sherpa-onnx*/**"
+  - "!node_modules/@img/**"
   - "!**/node_modules/*/{CHANGELOG*,README*,readme*,License,LICENSE,LICENCE,*.d.ts}"
   - "!**/node_modules/*/{test,tests,__tests__,example,examples,doc,docs,coverage,.github}/**"
   - "!**/node_modules/.bin/**"

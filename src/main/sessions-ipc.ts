@@ -6,6 +6,7 @@ import type { AgentBackend } from "../shared/agent-backend";
 import { agentBackendOf } from "../shared/agent-backend";
 import { IpcChannels } from "../shared/protocol";
 import type { SessionBroker } from "./session-broker";
+import { readAgentTranscriptFromDisk } from "./agent-transcript";
 import { readSessionHistoryPage } from "./session-history";
 import {
   cancelAskUserAsksForSession,
@@ -184,6 +185,14 @@ export function registerSessionsIpc(broker: SessionBroker): void {
       filePath: string,
       query?: { limit?: number; beforeId?: string | null },
     ) => readSessionHistoryPage(filePath, query),
+  );
+  ipcMain.handle(
+    IpcChannels.sessions.agentTranscript,
+    (_event, filePath: unknown, agentId: unknown) =>
+      readAgentTranscriptFromDisk(
+        typeof filePath === "string" ? filePath : null,
+        typeof agentId === "string" ? agentId : "",
+      ),
   );
 
   // Renderer boots (initial load / reload / language switch) with empty

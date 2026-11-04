@@ -27,7 +27,7 @@ import {
 } from "@renderer/utils/tool-diff";
 import { clipText } from "@renderer/utils/tool-args";
 import { formatTokenCount } from "@renderer/utils/agent-wait";
-import { sortWaitJobs, waitElapsedMs, waitJobCounts } from "@renderer/utils/tool-wait";
+import { sortWaitJobs, waitJobCounts } from "@renderer/utils/tool-wait";
 import { formatDuration } from "@renderer/utils/format-duration";
 import { useNow } from "@renderer/utils/use-now";
 import WaitJobWidget from "@renderer/components/WaitJobWidget";
@@ -436,7 +436,15 @@ function WaitJobRow({
 }): ReactNode {
   const t = useI18n();
   const running = job.status === "running";
+  const live = running && streaming;
   const failed = job.status === "failed";
+  const statusLabel = failed
+    ? t.toolWaitStatusFailed
+    : job.status === "completed"
+      ? t.toolWaitStatusDone
+      : job.status === "cancelled"
+        ? t.toolWaitStatusCancelled
+        : t.toolWaitStatusRunning;
   const Icon = running
     ? SyncOutline
     : failed
@@ -446,7 +454,7 @@ function WaitJobRow({
         : EllipseOutline;
   const iconClass = [
     styles.waitJobIcon,
-    running ? styles.waitJobIconRunning : "",
+    live ? styles.waitJobIconRunning : "",
     failed ? styles.waitJobIconFailed : "",
     job.status === "completed" ? styles.waitJobIconDone : "",
   ]
@@ -454,6 +462,7 @@ function WaitJobRow({
     .join(" ");
 
   const meta: string[] = [];
+  if (job.model) meta.push(job.model);
   if (job.requests != null && job.requests > 0) {
     meta.push(t.toolWaitRequests(job.requests));
   }
@@ -476,14 +485,19 @@ function WaitJobRow({
     running && job.completionPercent != null
       ? Math.max(0, Math.min(100, Math.round(job.completionPercent)))
       : null;
-  const outcome = failed ? job.errorText : job.resultText;
+  const outcome =
+    job.status === "failed"
+      ? job.errorText
+      : job.status === "cancelled"
+        ? (job.errorText ?? job.resultText)
+        : job.resultText;
   const activity = job.widget?.stage ?? job.stage;
   const widget =
     job.widget && (job.widget.headline || job.widget.blocks.length)
       ? job.widget
       : null;
   const jobDurationMs =
-    streaming && observedAt != null
+    live && observedAt != null
       ? job.durationMs + Math.max(0, now - observedAt)
       : job.durationMs;
 
@@ -491,6 +505,7 @@ function WaitJobRow({
     <li className={styles.waitJob}>
       <div className={styles.waitJobHead}>
         <Icon size={13} className={iconClass} aria-hidden="true" />
+        <span className={styles.srOnly}>{statusLabel}</span>
         <span className={styles.waitJobType}>{job.type}</span>
         <span className={styles.waitJobLabel} title={job.label}>
           {job.intent || job.label}
@@ -499,7 +514,13 @@ function WaitJobRow({
         <span className={styles.waitJobTime}>{formatDuration(jobDurationMs)}</span>
       </div>
       {percent != null ? (
-        <div className={styles.waitMeter}>
+        <div
+          className={styles.waitMeter}
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percent}
+        >
           <span className={styles.waitMeterFill} style={{ width: `${percent}%` }} />
         </div>
       ) : null}
@@ -510,13 +531,13 @@ function WaitJobRow({
       ) : null}
       {widget ? <WaitJobWidget widget={widget} activity={activity} /> : null}
       {meta.length ? <div className={styles.waitJobMeta}>{meta.join(" · ")}</div> : null}
-      {!running && outcome && job.type !== "task" ? (
+      {!running && outcome && (job.type !== "task" || job.status !== "completed") ? (
         <div className={failed ? styles.waitJobError : styles.waitJobResult}>
           {firstOutputLine(outcome)}
         </div>
       ) : null}
       {job.type === "task" && job.agentId ? (
-        <SubagentTranscript agentId={job.agentId} active={running} />
+        <SubagentTranscript agentId={job.agentId} active={live} />
       ) : null}
     </li>
   );
@@ -532,24 +553,13 @@ function WaitBody({
 }): ReactNode {
   const t = useI18n();
   const counts = waitJobCounts(card.jobs);
-  const now = useNow(
-    Boolean(streaming) && (card.jobs.length > 0 || card.startedAt != null),
-  );
-  const elapsed = waitElapsedMs(
-    card.startedAt,
-    card.durationMs,
-    Boolean(streaming),
-    now,
-  );
+  const now = useNow(Boolean(streaming) && card.jobs.length > 0);
   const jobs = useMemo(() => sortWaitJobs(card.jobs), [card.jobs]);
 
   return (
     <>
       <div className={styles.head}>
         <span className={styles.langBadge}>wait</span>
-        {card.jobs.length ? (
-          <span className={styles.meta}>{t.toolWaitJobs(card.jobs.length)}</span>
-        ) : null}
         {counts.running ? (
           <span className={styles.waitCountRunning}>
             {t.toolWaitRunningCount(counts.running)}
@@ -568,11 +578,6 @@ function WaitBody({
         {counts.cancelled ? (
           <span className={styles.waitCountCancelled}>
             {t.toolWaitCancelledCount(counts.cancelled)}
-          </span>
-        ) : null}
-        {elapsed != null ? (
-          <span className={styles.waitElapsed}>
-            {t.toolWaitElapsed(formatDuration(elapsed))}
           </span>
         ) : null}
       </div>

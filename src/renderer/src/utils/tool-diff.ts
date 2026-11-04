@@ -210,6 +210,8 @@ export type WaitToolCard = {
   startedAt: number | null;
   /** 这份任务快照被解析的时刻：两次推送之间按它外推任务耗时。 */
   observedAt: number | null;
+  /** 等待被消息或中断提前结束。 */
+  interrupted: boolean;
   durationMs?: number | null;
 };
 
@@ -985,6 +987,7 @@ export function parseWaitToolCard(
     text: text.trim() ? text : null,
     startedAt: opts?.startedAt ?? null,
     observedAt: Date.now(),
+    interrupted: details?.interrupted === true,
     durationMs: opts?.durationMs ?? null,
   };
 }

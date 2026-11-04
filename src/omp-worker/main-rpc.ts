@@ -8,7 +8,7 @@ import { post } from "./transport";
 type Pending = {
 	resolve: (value: unknown) => void;
 	reject: (err: Error) => void;
-	timer: ReturnType<typeof setTimeout> | null;
+	cleanup: () => void;
 };
 
 const pending = new Map<string, Pending>();
@@ -24,8 +24,7 @@ export function handleOmpRpcResponse(
 ): void {
 	const row = pending.get(msg.id);
 	if (!row) return;
-	pending.delete(msg.id);
-	if (row.timer) clearTimeout(row.timer);
+	row.cleanup();
 	if (msg.error) row.reject(new Error(msg.error));
 	else row.resolve(msg.result);
 }
@@ -43,50 +42,50 @@ export function rpcToMain(
 	signal?: AbortSignal,
 ): Promise<unknown> {
 	const id = randomUUID();
-	return new Promise((resolve, reject) => {
-		const cleanup = (): void => {
-			pending.delete(id);
-			signal?.removeEventListener("abort", onAbort);
-		};
-		const onAbort = (): void => {
-			if (rowTimer) clearTimeout(rowTimer);
-			cleanup();
-			const cancel: OmpWorkerOutbound = {
-				kind: "rpc_request",
-				id: randomUUID(),
-				method: "desktop.rpcCancel",
-				params: { requestId: id },
-			};
-			post(cancel);
-			reject(new Error(`rpc cancelled: ${method}`));
-		};
-		let rowTimer: ReturnType<typeof setTimeout> | null = null;
-		if (typeof timeoutMs === "number" && timeoutMs > 0) {
-			rowTimer = setTimeout(() => {
-				cleanup();
-				reject(new Error(`rpc timeout: ${method}`));
-			}, timeoutMs);
+	const { promise, resolve, reject } = Promise.withResolvers<unknown>();
+	let timer: ReturnType<typeof setTimeout> | null = null;
+	const cleanup = (): void => {
+		pending.delete(id);
+		if (timer) {
+			clearTimeout(timer);
+			timer = null;
 		}
-		if (signal) {
-			if (signal.aborted) {
-				if (rowTimer) clearTimeout(rowTimer);
-				reject(new Error(`rpc cancelled: ${method}`));
-				return;
-			}
-			signal.addEventListener("abort", onAbort, { once: true });
-		}
-		pending.set(id, { resolve, reject, timer: rowTimer });
-		post({
+		signal?.removeEventListener("abort", onAbort);
+	};
+	const onAbort = (): void => {
+		cleanup();
+		const cancel: OmpWorkerOutbound = {
 			kind: "rpc_request",
-			id,
-			method,
-			params: {
-				...params,
-				workspaceRoot:
-					typeof params.workspaceRoot === "string"
-						? params.workspaceRoot
-						: workspaceRoot,
-			},
-		});
+			id: randomUUID(),
+			method: "desktop.rpcCancel",
+			params: { requestId: id },
+		};
+		post(cancel);
+		reject(new Error(`rpc cancelled: ${method}`));
+	};
+	if (signal?.aborted) {
+		reject(new Error(`rpc cancelled: ${method}`));
+		return promise;
+	}
+	if (typeof timeoutMs === "number" && timeoutMs > 0) {
+		timer = setTimeout(() => {
+			cleanup();
+			reject(new Error(`rpc timeout: ${method}`));
+		}, timeoutMs);
+	}
+	signal?.addEventListener("abort", onAbort, { once: true });
+	pending.set(id, { resolve, reject, cleanup });
+	post({
+		kind: "rpc_request",
+		id,
+		method,
+		params: {
+			...params,
+			workspaceRoot:
+				typeof params.workspaceRoot === "string"
+					? params.workspaceRoot
+					: workspaceRoot,
+		},
 	});
+	return promise;
 }
