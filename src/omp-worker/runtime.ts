@@ -126,6 +126,19 @@ async function initSession(
 		return;
 	}
 	initStarted = true;
+	try {
+		await startSession(cwd, filePath, agentDirEnv);
+	} catch (err) {
+		initStarted = false;
+		throw err;
+	}
+}
+
+async function startSession(
+	cwd: string,
+	filePath?: string,
+	agentDirEnv?: string,
+): Promise<void> {
 	// 目录由主进程单点决定：worker 不再按自己的环境变量另算。
 	const agentDir = agentDirEnv?.trim() || getAgentDir();
 	setRpcWorkspaceRoot(cwd);
@@ -171,6 +184,11 @@ async function initSession(
 	});
 }
 
+/** 命令回显要先标记，SDK 写入的用户消息才能替换它而不是再叠加一条。 */
+function echoSlashPrompt(command: string): void {
+	post({ kind: "event", event: { type: "desktop_slash_prompt", command } });
+}
+
 async function runCommand(id: string, command: AgentCommand): Promise<void> {
 	switch (command.type) {
 		case "ping":
@@ -190,6 +208,7 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 					});
 				}
 				if (slash.prompt) {
+					echoSlashPrompt(message);
 					if (active.isStreaming) await active.steer(slash.prompt);
 					else await active.prompt(slash.prompt);
 				}
@@ -197,6 +216,8 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 				return;
 			}
 			noteLoopPrompt(message);
+			// SDK 会把 /命令 展开成提示词：回显由展开后的用户消息替换。
+			if (message.trimStart().startsWith("/")) echoSlashPrompt(message);
 			const images = toPromptImages(command.images);
 			const options = active.isStreaming
 				? { images, streamingBehavior: "steer" as const }

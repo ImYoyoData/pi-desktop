@@ -42,6 +42,8 @@ export type ChatMessage =
 			text: string;
 			/** 实际下发给模型的文本；与气泡文本不同时存在（如斜杠命令展开）。 */
 			agentText?: string;
+			/** 斜杠命令的本地回显：命令自己的用户消息到达后替换这条气泡。 */
+			slashEcho?: boolean;
 			images?: ChatUserImage[];
 			/** Inline tags (element / file path / url) shown in the bubble. */
 			elementTags?: {
@@ -271,14 +273,16 @@ export function mergeWaitJobSnapshot(
 	const nextDetails = isPlainRecord(next.details) ? next.details : null;
 	if (!priorDetails || !nextDetails) return next;
 	const priorJobs = Array.isArray(priorDetails.jobs) ? priorDetails.jobs : null;
+	if (!priorJobs) return next;
 	const nextJobs = Array.isArray(nextDetails.jobs) ? nextDetails.jobs : null;
-	if (!priorJobs || !nextJobs) return next;
 	const byId = new Map<string, Record<string, unknown>>();
 	for (const job of priorJobs) {
 		if (isPlainRecord(job) && typeof job.id === "string") byId.set(job.id, job);
 	}
-	const jobs = nextJobs.map((job) => {
+	const seen = new Set<string>();
+	const jobs = (nextJobs ?? []).map((job) => {
 		if (!isPlainRecord(job) || typeof job.id !== "string") return job;
+		seen.add(job.id);
 		const previous = byId.get(job.id);
 		if (!previous) return job;
 		const merged: Record<string, unknown> = { ...job };
@@ -300,6 +304,9 @@ export function mergeWaitJobSnapshot(
 		}
 		return merged;
 	});
+	for (const [id, job] of byId) {
+		if (!seen.has(id)) jobs.push(job);
+	}
 	return { ...next, details: { ...nextDetails, jobs } };
 }
 
@@ -601,6 +608,16 @@ function upsertNestedCall(
 		}
 		const merge = (call: ChatToolNestedCall): ChatToolNestedCall => {
 			const merged = { ...call, ...patch };
+			if (
+				patch.result !== undefined &&
+				call.result !== undefined &&
+				merged.toolName.toLowerCase() === "wait"
+			) {
+				merged.result = mergeWaitJobSnapshot(
+					toToolResultValue(call.result),
+					toToolResultValue(patch.result),
+				);
+			}
 			if (
 				merged.streaming === false &&
 				merged.durationMs == null &&
@@ -1301,6 +1318,21 @@ function reduceAgentPayload(
 			const fromEvent = imagesFromMessage(msg);
 			const id = typeof msg.id === "string" && msg.id ? msg.id : localId("user");
 			const last = state.messages.at(-1);
+			// 命令回显等的是它自己的用户消息：真实文本只记作 agentText，气泡保留命令原文。
+			if (last?.role === "user" && last.slashEcho) {
+				const next = [...state.messages];
+				next[next.length - 1] = {
+					id,
+					role: "user",
+					text: last.text,
+					...(text && text !== last.text ? { agentText: text } : {}),
+					images: last.images ?? fromEvent,
+					...(last.elementTags?.length
+						? { elementTags: last.elementTags }
+						: {}),
+				};
+				return { ...state, messages: next, streamingMessage: null };
+			}
 			if (last?.role === "user") {
 				const sameText = last.text === text || last.text.trim() === text.trim();
 				const hasLocalExtras =
@@ -1317,12 +1349,20 @@ function reduceAgentPayload(
 					rawText !== text &&
 					Boolean(last.text.trim()) &&
 					(text.trim() === last.text.trim() || rawText.includes(last.text.trim()));
+				// 客户端展开的斜杠命令：下发的就是展开后的文本，气泡保留命令原文。
+				const agentText = last.agentText
+					? stripInjectedBlocks(last.agentText).trim()
+					: "";
+				const commandEcho =
+					Boolean(agentText) &&
+					(text.trim() === agentText || text.includes(agentText));
 				// File/URL chips are path/url *text* for the agent (`@path` / raw url). The bubble
 				// keeps structured tags — never mirror the expanded prompt as another user row.
 				if (
 					sameText ||
 					expandedCitationEcho ||
 					injectedBlockEcho ||
+					commandEcho ||
 					hasLocalExtras
 				) {
 					const next = [...state.messages];
@@ -1330,6 +1370,7 @@ function reduceAgentPayload(
 						id,
 						role: "user",
 						text: last.text,
+						...(last.agentText ? { agentText: last.agentText } : {}),
 						images: last.images ?? fromEvent,
 						elementTags: last.elementTags?.filter(
 							(tag) => !isLegacyModeTagKind(tag.kind),
@@ -1722,6 +1763,32 @@ function reduceAgentPayload(
 		return settled;
 	}
 	return state;
+}
+
+/** 标记最后的命令回显：它自己的用户消息到达时由 reduceChatEvent 替换。 */
+export function markSlashEcho(state: ChatState, command: string): ChatState {
+	const last = state.messages.at(-1);
+	if (last?.role !== "user" || last.slashEcho) return state;
+	const bubble = last.text.trim();
+	const commandLine = command.trim().split("\n", 1)[0]?.trim() ?? "";
+	if (!bubble.startsWith("/") || !commandLine.startsWith("/")) return state;
+	const bubbleName = bubble.slice(1).split(/\s+/, 1)[0] ?? "";
+	const commandName = commandLine.slice(1).split(/\s+/, 1)[0] ?? "";
+	if (!bubbleName || bubbleName !== commandName) return state;
+	const messages = [...state.messages];
+	messages[messages.length - 1] = { ...last, slashEcho: true };
+	return { ...state, messages };
+}
+
+/** 回合结束后丢弃未兑现的回显标记，避免后续消息被旧命令吞掉。 */
+export function clearSlashEcho(state: ChatState): ChatState {
+	if (!state.messages.some((m) => m.role === "user" && m.slashEcho)) return state;
+	return {
+		...state,
+		messages: state.messages.map((m) =>
+			m.role === "user" && m.slashEcho ? { ...m, slashEcho: false } : m,
+		),
+	};
 }
 
 export function appendUserMessage(

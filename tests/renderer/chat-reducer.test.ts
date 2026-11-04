@@ -3,8 +3,10 @@ import { ASK_USER_TOOL_NAME } from "../../src/shared/ask-user";
 import {
 	appendUserMessage,
 	clearPendingAskUser,
+	clearSlashEcho,
 	createChatState,
 	hasLiveTurnState,
+	markSlashEcho,
 	reduceChatEvent,
 	setPendingAskUser,
 	type ChatState,
@@ -100,6 +102,77 @@ describe("reduceChatEvent", () => {
 			text: "删除",
 			elementTags: [{ kind: "file", content: "txt" }],
 		});
+	});
+
+	it("keeps the command bubble and hides the dispatched prompt", () => {
+		let state = createChatState();
+		state = appendUserMessage(state, "/goal 早上好");
+		state = markSlashEcho(state, "/goal 早上好");
+		state = reduceChatEvent(state, {
+			type: "agent_event",
+			sessionId: "s",
+			event: {
+				type: "message_end",
+				message: {
+					role: "user",
+					content: [{ type: "text", text: "早上好" }],
+				},
+			},
+		});
+		expect(state.messages).toHaveLength(1);
+		expect(state.messages[0]).toMatchObject({
+			role: "user",
+			text: "/goal 早上好",
+			agentText: "早上好",
+		});
+	});
+
+	it("keeps the command bubble when the client already expanded it", () => {
+		let state = createChatState();
+		state = appendUserMessage(
+			state,
+			"/review 代码",
+			undefined,
+			undefined,
+			"Review the following code",
+		);
+		state = reduceChatEvent(state, {
+			type: "agent_event",
+			sessionId: "s",
+			event: {
+				type: "message_end",
+				message: {
+					role: "user",
+					content: [{ type: "text", text: "Review the following code" }],
+				},
+			},
+		});
+		expect(state.messages).toHaveLength(1);
+		expect(state.messages[0]).toMatchObject({
+			role: "user",
+			text: "/review 代码",
+			agentText: "Review the following code",
+		});
+	});
+
+	it("does not absorb a later prompt after the echo marker is cleared", () => {
+		let state = createChatState();
+		state = appendUserMessage(state, "/goal show");
+		state = markSlashEcho(state, "/goal show");
+		state = clearSlashEcho(state);
+		state = reduceChatEvent(state, {
+			type: "agent_event",
+			sessionId: "s",
+			event: {
+				type: "message_end",
+				message: {
+					role: "user",
+					content: [{ type: "text", text: "你好" }],
+				},
+			},
+		});
+		expect(state.messages).toHaveLength(2);
+		expect(state.messages.at(-1)).toMatchObject({ role: "user", text: "你好" });
 	});
 
 	it("keeps a single streaming bubble replaced on message_update (pi-web style)", () => {
