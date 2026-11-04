@@ -7,6 +7,7 @@ import {
 	writeOmpSetting,
 } from "../../src/shared/omp-settings";
 import { saveOmpSettings } from "../../src/main/omp-settings-host";
+import { saveOmpModels } from "../../src/main/omp-models-config";
 
 describe("omp settings 路径读写", () => {
 	let doc: Record<string, unknown>;
@@ -99,6 +100,39 @@ describe("omp models.yml 合并", () => {
 		expect(raw).toContain("promptCacheSessionHeader");
 		expect(raw).toContain("input: 0.15");
 		expect(readOmpModels().providers).toHaveLength(1);
+	});
+
+	it("拒绝空 id 与重复 id 且不改动文件", () => {
+		const file = path.join(dir, "models.yml");
+		const original = "providers: {}\n";
+		fs.writeFileSync(file, original, "utf8");
+		const model = {
+			id: "model-a",
+			name: "",
+			api: "",
+			contextWindow: null,
+			maxTokens: null,
+			reasoning: false,
+			vision: false,
+		};
+		const provider = (id: string, models = [model]) => ({
+			id,
+			api: "",
+			baseUrl: "",
+			apiKey: "",
+			models,
+		});
+
+		expect(() => saveOmpModels([provider("")])).toThrow(/不能为空/);
+		expect(() => saveOmpModels([provider("magpie"), provider("magpie", [])])).toThrow(
+			/重复/,
+		);
+		expect(() =>
+			saveOmpModels([
+				provider("magpie", [model, { ...model }]),
+			]),
+		).toThrow(/模型 id 重复/);
+		expect(fs.readFileSync(file, "utf8")).toBe(original);
 	});
 });
 

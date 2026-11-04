@@ -7,8 +7,10 @@ import {
   listPiCliWorkspaces,
   listSessionsForCwd,
   mergeRecentWithPiCliWorkspaces,
+  migrateWorkspaceSessionDir,
   normalizeWorkspacePath,
   purgeWorkspaceSessionDir,
+  readSessionHeaderId,
 } from "../../src/main/session-list";
 import { ensureOmpSessionDir } from "../../src/main/omp-session-dir";
 
@@ -35,6 +37,31 @@ function writeSessionHeader(
     const t = new Date(modifiedIso).getTime() / 1000;
     fs.utimesSync(filePath, t, t);
   }
+}
+
+function writeOmpSession(
+  filePath: string,
+  id: string,
+  cwd: string,
+  title: string,
+): void {
+  const slot = JSON.stringify({
+    type: "title",
+    v: 1,
+    title,
+    source: "user",
+    updatedAt: "2026-01-15T12:00:00.000Z",
+    pad: " ".repeat(40),
+  });
+  const header = JSON.stringify({
+    type: "session",
+    version: CURRENT_SESSION_VERSION,
+    id,
+    timestamp: "2026-01-15T12:00:00.000Z",
+    cwd,
+  });
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${slot}\n${header}\n`, "utf8");
 }
 
 describe("session-list", () => {
@@ -204,5 +231,39 @@ describe("session-list", () => {
     expect(listed.map((session) => session.id)).toEqual(["omp-s"]);
     expect(fs.existsSync(legacyDir)).toBe(false);
     expect(fs.existsSync(ensureOmpSessionDir(cwd))).toBe(true);
+  });
+
+  it("reads the OMP header id past the title slot", () => {
+    const cwd = path.join(tempRoot, "omp-title-project");
+    const file = path.join(
+      ensureOmpSessionDir(cwd, true),
+      "2026-01-15T12-00-00-000Z_omp-title.jsonl",
+    );
+    writeOmpSession(file, "omp-title", cwd, "带标题的会话");
+
+    expect(readSessionHeaderId(file)).toBe("omp-title");
+  });
+
+  it("rewrites the OMP header cwd when the workspace is relocated", async () => {
+    const oldCwd = path.join(tempRoot, "omp-relocate-old");
+    const newCwd = path.join(tempRoot, "omp-relocate-new");
+    fs.mkdirSync(oldCwd, { recursive: true });
+    fs.mkdirSync(newCwd, { recursive: true });
+    const file = path.join(
+      ensureOmpSessionDir(oldCwd, true),
+      "2026-01-15T12-00-00-000Z_omp-move.jsonl",
+    );
+    writeOmpSession(file, "omp-move", oldCwd, "搬家的会话");
+
+    await migrateWorkspaceSessionDir(oldCwd, newCwd);
+
+    const moved = path.join(ensureOmpSessionDir(newCwd), path.basename(file));
+    const header = JSON.parse(fs.readFileSync(moved, "utf8").split("\n")[1]!) as {
+      cwd?: string;
+    };
+    expect(path.resolve(header.cwd ?? "")).toBe(path.resolve(newCwd));
+    expect((await listSessionsForCwd(newCwd, "omp")).map((s) => s.id)).toEqual([
+      "omp-move",
+    ]);
   });
 });

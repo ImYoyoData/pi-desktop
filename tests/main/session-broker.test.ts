@@ -151,6 +151,46 @@ describe("session-broker", () => {
     vi.useRealTimers();
   });
 
+  it("keeps an idle worker alive while desktop modes hold state", async () => {
+    vi.useFakeTimers();
+    let killed = 0;
+    let messageCb: ((msg: WorkerOutbound) => void) | null = null;
+    const broker = createSessionBroker({
+      idleDestroyMs: 60_000,
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => ({
+        id: idFromPath(filePath),
+        cwd,
+        filePath: filePath ?? "/tmp/session-a.jsonl",
+        worker: {
+          send: async (msg) => {
+            if (msg.kind === "ping") messageCb?.({ kind: "pong" });
+            return null;
+          },
+          kill: () => {
+            killed += 1;
+          },
+          onMessage: (cb) => {
+            messageCb = cb;
+            return () => {
+              messageCb = null;
+            };
+          },
+        },
+      }),
+    });
+    await broker.createSession("/tmp/a");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(messageCb).not.toBeNull();
+    messageCb!({ kind: "desktop_modes", active: true });
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(killed).toBe(0);
+    messageCb!({ kind: "desktop_modes", active: false });
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(killed).toBe(1);
+    vi.useRealTimers();
+  });
+
   it("waits for fork and rename results from the worker", async () => {
     let messageCb!: (msg: WorkerOutbound) => void;
     const broker = createSessionBroker({

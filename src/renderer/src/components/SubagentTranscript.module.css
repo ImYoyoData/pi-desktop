@@ -43,7 +43,7 @@
 
 /* 小消息区：与主对话一致的气泡/助手排版，只是字号与间距收紧。 */
 .body {
-  max-height: 360px;
+  max-height: 240px;
   overflow: auto;
   border-top: 1px solid var(--border);
   padding: 8px;
@@ -105,6 +105,12 @@
   gap: 8px;
   padding: 4px 2px;
   color: var(--fg-muted);
+  font-size: 11px;
+}
+
+.notice {
+  padding: 2px 2px 4px;
+  color: var(--warning, #f0a020);
   font-size: 11px;
 }
 

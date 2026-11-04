@@ -68,13 +68,26 @@ function embeddedGitBinaryPath() {
     : path.join(dugiteRoot, "git", "bin", "git");
 }
 
+/** dugite 每次下载都会清空 git/，标记文件放在里面随之失效，避免跨架构误用。 */
+const stampPath = path.join(dugiteRoot, "git", ".pi-arch");
+const stamp = `${platform}-${arch}`;
+
+function readStamp() {
+  try {
+    return fs.readFileSync(stampPath, "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
 // Plain `npm install` on a machine that already has the right embedded Git:
 // nothing to do, and no reason to hit the network.
 if (
   !required &&
   arch === process.arch &&
   platform === process.platform &&
-  fs.existsSync(embeddedGitBinaryPath())
+  fs.existsSync(embeddedGitBinaryPath()) &&
+  readStamp() === stamp
 ) {
   console.log(
     `[ensure-dugite-git] embedded Git already present for ${platform}-${arch}, skipping download`,
@@ -154,6 +167,14 @@ if (result.error) {
       "    by setting LOCAL_GIT_DIRECTORY to its install dir (e.g. C:\\Program Files\\Git)\n",
   );
   process.exit(0);
+}
+
+if (!result.error && result.status === 0) {
+  try {
+    fs.writeFileSync(stampPath, `${stamp}\n`);
+  } catch (err) {
+    console.warn(`[ensure-dugite-git] could not write arch stamp: ${err.message}`);
+  }
 }
 
 // Tar modes are usually preserved; reinforce +x on Unix git binary for packaging.

@@ -11,7 +11,7 @@ import type {
 } from "../shared/omp-worker-messages";
 import type { SpawnWorker, WorkerHandle } from "./backend-runtime";
 import { ompAgentDir } from "./omp-dir";
-import { hydrateOmpEventImages, setOmpBlobsDir } from "./omp-blob-image";
+import { setOmpBlobsDir } from "./omp-blob-image";
 import { resolveOmpRuntime } from "./omp-runtime-path";
 import { refreshSystemProxy, withAgentProxyEnv } from "./proxy-host";
 
@@ -44,12 +44,13 @@ function toBrokerMessage(msg: OmpWorkerOutbound): WorkerOutbound {
 				error: msg.error,
 			};
 		case "event":
-			hydrateOmpEventImages(msg.event);
 			return { kind: "event", event: msg.event };
 		case "pong":
 			return { kind: "pong" };
 		case "fatal":
 			return { kind: "fatal", error: msg.error };
+		case "desktop_modes":
+			return { kind: "desktop_modes", active: msg.active };
 		case "rpc_request":
 			return {
 				kind: "rpc_request",
@@ -171,6 +172,7 @@ export function createOmpSpawnWorker(): SpawnWorker {
 					if (msg.kind === "fatal") {
 						clearTimeout(timer);
 						off();
+						handle.kill();
 						reject(new Error(msg.error));
 					}
 				});

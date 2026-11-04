@@ -15,6 +15,15 @@
   min-width: 0;
 }
 
+.title,
+.authoring {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
 .headlineText {
   font-size: 12px;
   font-weight: 600;

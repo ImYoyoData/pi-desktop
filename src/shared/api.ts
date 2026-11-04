@@ -1,6 +1,7 @@
 import type {
 	AgentCommand,
 	AgentEvent,
+	AgentTranscript,
 	ElementCitation,
 	MenuCommand,
 	SessionHistoryMessage,
@@ -427,6 +428,12 @@ export function createApi(
 				filePath,
 				query,
 			) as Promise<SessionHistoryPage>,
+		agentTranscript: (filePath: string, agentId: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.sessions.agentTranscript,
+				filePath,
+				agentId,
+			) as Promise<AgentTranscript | null>,
 		fork: (
 			sessionId: string,
 			cwd: string,

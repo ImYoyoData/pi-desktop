@@ -21,7 +21,8 @@ import type {
 } from "@oh-my-pi/pi-tui/status-line/loop";
 import { readFile } from "node:fs/promises";
 import { rpcToMain } from "./main-rpc";
-import { findOmpSlashCommand } from "../shared/slash-commands";
+import { post } from "./transport";
+import { findOmpSlashCommand, type OmpSlashCommand } from "../shared/slash-commands";
 
 export type DesktopSlashOutcome =
 	| { handled: false }
@@ -403,6 +404,17 @@ function stopLoopScheduling(): void {
 	}
 }
 
+let lastDesktopModesActive: boolean | null = null;
+
+/** loop 与 vibe 的状态只活在 worker 内存里，主进程据此避免重建时丢状态。 */
+export function emitDesktopModes(session: AgentSession): void {
+	const active =
+		loopState !== null || session.getVibeModeState()?.enabled === true;
+	if (active === lastDesktopModesActive) return;
+	lastDesktopModesActive = active;
+	post({ kind: "desktop_modes", active });
+}
+
 async function loopCommand(args: string): Promise<DesktopSlashOutcome> {
 	if (loopState && !args.trim()) {
 		loopState = null;
@@ -484,23 +496,34 @@ export async function runDesktopSlashCommand(
 	if (!entry) return notHandled;
 	// 随包自定义命令由 AgentSession 展开为提示词，worker 不拦截。
 	if (entry.source === "custom") return notHandled;
+	const outcome = await runSlashEntry(session, entry, parsed.args, text);
+	emitDesktopModes(session);
+	return outcome;
+}
+
+function runSlashEntry(
+	session: AgentSession,
+	entry: OmpSlashCommand,
+	args: string,
+	text: string,
+): Promise<DesktopSlashOutcome> | DesktopSlashOutcome {
 	switch (entry.name) {
 		case "settings":
 			return info("Open settings from the desktop settings page.");
 		case "setup":
 			return info("Open provider setup from the desktop settings page.");
 		case "plan":
-			return planCommand(session, parsed.args);
+			return planCommand(session, args);
 		case "plan-review":
 			return planReviewCommand(session);
 		case "vibe":
-			return vibeCommand(session, parsed.args);
+			return vibeCommand(session, args);
 		case "goal":
-			return goalCommand(session, parsed.args);
+			return goalCommand(session, args);
 		case "guided-goal":
-			return guidedGoalCommand(session, parsed.args);
+			return guidedGoalCommand(session, args);
 		case "loop":
-			return loopCommand(parsed.args);
+			return loopCommand(args);
 		default:
 			return entry.handles
 				? acpCommand(session, text)
@@ -522,6 +545,7 @@ export function scheduleLoopIteration(session: AgentSession): void {
 	if (!state || state.paused || !state.prompt || loopRunning) return;
 	if (isLoopDurationExpired(state.limit) || isLoopLimitExhausted(state.limit)) {
 		loopState = null;
+		emitDesktopModes(session);
 		session.emitNotice("info", "Loop mode finished.");
 		return;
 	}
@@ -556,6 +580,7 @@ export function scheduleLoopIteration(session: AgentSession): void {
 					loopConditionAbort = null;
 					if (verdict.kind !== "continue") {
 						loopState = null;
+						emitDesktopModes(session);
 						session.emitNotice(
 							verdict.kind === "halt" ? "info" : "error",
 							verdict.kind === "halt"
@@ -569,12 +594,14 @@ export function scheduleLoopIteration(session: AgentSession): void {
 				}
 				if (!consumeLoopLimitIteration(current.limit)) {
 					loopState = null;
+					emitDesktopModes(session);
 					session.emitNotice("info", "Loop mode finished.");
 					return;
 				}
 				await session.prompt(prompt);
 			} catch (error) {
 				loopState = null;
+				emitDesktopModes(session);
 				session.emitNotice(
 					"error",
 					`Loop stopped: ${error instanceof Error ? error.message : String(error)}`,

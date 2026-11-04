@@ -15,7 +15,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "node scripts/patch-highlightjs-exports.mjs && electron-vite dev",
-    "build": "node scripts/patch-highlightjs-exports.mjs && node scripts/gen-omp-settings-schema.mjs && node scripts/gen-omp-slash-commands.mjs && node scripts/gen-pi-slash-commands.mjs && electron-vite build && node scripts/build-omp-worker.mjs",
+    "build": "node scripts/patch-highlightjs-exports.mjs && node scripts/gen-omp-settings-schema.mjs && node scripts/gen-omp-slash-commands.mjs && node scripts/gen-pi-slash-commands.mjs && electron-vite build",
     "test": "vitest run",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
@@ -25,7 +25,7 @@
     "provider-icons": "node scripts/generate-provider-icons.mjs",
     "provider-icons:check": "node scripts/generate-provider-icons.mjs --check",
     "dugite:git": "node scripts/ensure-dugite-git.mjs",
-    "dist": "npm run icons && npm run build && npm run dugite:git && electron-builder",
+    "dist": "npm run icons && npm run build && node scripts/build-omp-worker.mjs && npm run dugite:git && electron-builder",
     "dist:win": "npm run dist:win:x64 && npm run dist:win:arm64",
     "dist:win:x64": "npm run icons && npm run build && npm run pack:win:x64",
     "dist:win:x64:fast": "npm run icons && npm run build && npm run pack:win:x64:fast",
@@ -37,7 +37,7 @@
     "dist:mac:arm64": "npm run icons && npm run build && node scripts/build-omp-worker.mjs darwin arm64 && node scripts/ensure-dugite-git.mjs arm64 && electron-builder --mac --arm64 -c.npmRebuild=false --publish never",
     "dist:mac:x64": "npm run icons && npm run build && node scripts/build-omp-worker.mjs darwin x64 && node scripts/ensure-dugite-git.mjs x64 && npx --yes @electron/rebuild --force --only=node-pty --arch=x64 && electron-builder --mac --x64 -c.npmRebuild=false --publish never",
     "dist:linux:x64": "npm run icons && npm run build && node scripts/build-omp-worker.mjs linux x64 && node scripts/ensure-dugite-git.mjs x64 && electron-builder --linux --x64 -c.npmRebuild=false --publish never",
-    "dist:dir": "npm run icons && npm run build && npm run dugite:git && electron-builder --dir",
+    "dist:dir": "npm run icons && npm run build && node scripts/build-omp-worker.mjs && npm run dugite:git && electron-builder --dir",
     "postinstall": "node node_modules/electron/install.js && node scripts/ensure-dugite-git.mjs && node scripts/patch-highlightjs-exports.mjs && electron-builder install-app-deps"
   },
   "dependencies": {

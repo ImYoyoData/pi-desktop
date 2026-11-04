@@ -21,6 +21,7 @@ import { readGhToken } from "./github-core";
 import { APP_GITHUB_API_RELEASES } from "../shared/app-meta";
 import {
 	compareVersions,
+	isUpdateReleaseAllowed,
 	matchUpdateAsset,
 	safeAssetFileName,
 	type AppUpdateInfo,
@@ -143,7 +144,7 @@ export async function checkForAppUpdate(
 	const releases = await fetchReleases();
 	let best: AppUpdateInfo | null = null;
 	for (const release of releases) {
-		if (release.draft || release.prerelease) continue;
+		if (!isUpdateReleaseAllowed(release, currentVersion)) continue;
 		const version = String(release.tag_name ?? "").replace(/^v/i, "");
 		if (!version) continue;
 		if (!force && compareVersions(version, currentVersion) <= 0) continue;
@@ -292,6 +293,9 @@ const SEGMENT_RETRY_DELAY_MS = 500;
 const MAX_REDIRECTS = 20;
 
 class RangeUnsupportedError extends Error {}
+
+/** 多路并发被服务端/网关限流：不再重试同一分片，直接退回整体下载。 */
+class SegmentThrottledError extends Error {}
 
 type ProxyEndpoint = { secure: boolean; host: string; port: number; auth: string | null };
 
@@ -545,6 +549,9 @@ async function downloadSegment(
 			if (response.status === 200 || response.status === 206) {
 				throw new RangeUnsupportedError("服务器未按要求返回下载分片");
 			}
+			if (response.status === 429 || response.status === 503) {
+				throw new SegmentThrottledError(`下载分片被限流（HTTP ${response.status}）`);
+			}
 			throw new Error(`下载分片失败（HTTP ${response.status}）`);
 		}
 		await writeSegmentBody(toAsyncIterable(response.body), file, segment, onBytes, requestSignal, timeout);
@@ -568,7 +575,12 @@ async function downloadSegmentWithRetry(
 			await downloadSegment(router, url, segment, total, file, onBytes, signal);
 			return;
 		} catch (err) {
-			if (signal.aborted || err instanceof RangeUnsupportedError) throw err;
+			if (
+				signal.aborted ||
+				err instanceof RangeUnsupportedError ||
+				err instanceof SegmentThrottledError
+			)
+				throw err;
 			if (attempt === SEGMENT_MAX_ATTEMPTS) {
 				throw new Error(
 					`分片 ${segment.start}-${segment.end} 下载失败（重试 ${attempt} 次）：${
@@ -755,7 +767,12 @@ async function downloadAsset(
 				onBytes(bytes, size);
 			}, signal);
 		} catch (err) {
-			if (!(err instanceof RangeUnsupportedError) || signal?.aborted) throw err;
+			if (
+				(!(err instanceof RangeUnsupportedError) &&
+					!(err instanceof SegmentThrottledError)) ||
+				signal?.aborted
+			)
+				throw err;
 			if (transferred > 0) onBytes(-transferred, total);
 			await downloadWholeByChromium(info, filePath, onBytes, signal);
 		}

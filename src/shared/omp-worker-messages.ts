@@ -29,6 +29,8 @@ export type OmpWorkerOutbound =
 	| { kind: "event"; event: Record<string, unknown> }
 	| { kind: "pong" }
 	| { kind: "fatal"; error: string }
+	/** 桌面模式（loop/vibe）是否仍持有会话状态；持有期间主进程不重建 worker。 */
+	| { kind: "desktop_modes"; active: boolean }
 	/** worker 向主进程发起的 RPC（如 ask_user 提问）。 */
 	| {
 			kind: "rpc_request";

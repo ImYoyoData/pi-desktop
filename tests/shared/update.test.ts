@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
 	compareVersions,
 	isNewerVersion,
+	isPrereleaseVersion,
+	isUpdateReleaseAllowed,
 	matchUpdateAsset,
 	parseSemver,
 	safeAssetFileName,
@@ -53,5 +55,21 @@ describe("update helpers", () => {
     expect(safeAssetFileName("..\\..\\windows\\system32\\evil.exe")).toBe("evil.exe");
     expect(safeAssetFileName("dir/sub/name.exe")).toBe("name.exe");
     expect(safeAssetFileName("")).toBe("");
+  });
+});
+
+describe("update release channel", () => {
+  it("detects prerelease versions", () => {
+    expect(isPrereleaseVersion("0.3.8-rc.1")).toBe(true);
+    expect(isPrereleaseVersion("v0.3.8-rc.1")).toBe(true);
+    expect(isPrereleaseVersion("0.3.8")).toBe(false);
+    expect(isPrereleaseVersion("0.3.8+build-7")).toBe(false);
+  });
+
+  it("only offers prereleases to prerelease builds", () => {
+    expect(isUpdateReleaseAllowed({ prerelease: false }, "0.3.7")).toBe(true);
+    expect(isUpdateReleaseAllowed({ prerelease: true }, "0.3.7")).toBe(false);
+    expect(isUpdateReleaseAllowed({ prerelease: true }, "0.3.8-rc.1")).toBe(true);
+    expect(isUpdateReleaseAllowed({ draft: true }, "0.3.8-rc.1")).toBe(false);
   });
 });

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { WaitWidget, WaitWidgetBlock } from "@renderer/utils/tool-diff";
+import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./WaitJobWidget.module.css";
 
 type Props = {
@@ -38,7 +39,7 @@ function SparkBlock({
             key={index}
             className={`${styles.sparkBar} ${toneClass(block.tone)}`}
             style={{
-              height: `${Math.max(4, Math.min(100, ((value - block.min) / range) * 100))}%`,
+              height: `${Math.max(4, Math.min(100, range > 0 ? ((value - block.min) / range) * 100 : 100))}%`,
             }}
           />
         ))}
@@ -63,7 +64,7 @@ function BarsBlock({
             <span
               className={`${styles.barFill} ${toneClass(item.tone)}`}
               style={{
-                width: `${Math.max(0, Math.min(100, (item.value / block.max) * 100))}%`,
+                width: `${Math.max(0, Math.min(100, block.max > 0 ? (item.value / block.max) * 100 : 0))}%`,
               }}
             />
           </span>
@@ -160,13 +161,16 @@ function WidgetBlock({
 
 /** omp 的 JobWidgetView：headline + 指标块，说明后台任务此刻在做什么。 */
 export function WaitJobWidget({ widget, activity }: Props): ReactNode {
+  const t = useI18n();
   return (
     <div className={styles.widget}>
+      {widget.title ? <div className={styles.title}>{widget.title}</div> : null}
+      {widget.state === "authoring" ? (
+        <div className={styles.authoring}>{t.toolWaitWidgetAuthoring}</div>
+      ) : null}
       {widget.headline ? (
         <div className={styles.headline}>
-          <span className={`${styles.headlineText} ${toneClass(widget.headline.tone)}`}>
-            {widget.headline.text}
-          </span>
+          <span className={styles.headlineText}>{widget.headline.text}</span>
           {widget.headline.label ? (
             <span className={styles.headlineLabel}>{widget.headline.label}</span>
           ) : null}

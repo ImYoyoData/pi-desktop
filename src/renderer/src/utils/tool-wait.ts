@@ -41,6 +41,7 @@ export function waitHeadline(
   if (!jobs.length) return streaming ? t.toolWaitPending : t.toolWaitFinished;
   const counts = waitJobCounts(jobs);
   if (counts.running === 0) return t.toolWaitSettled(jobs.length);
+  if (!streaming) return t.toolWaitLingering(counts.running);
   if (counts.running === jobs.length) return t.toolWaitRunning(counts.running);
   return t.toolWaitPartial(counts.running, jobs.length);
 }

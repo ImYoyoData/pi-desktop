@@ -224,6 +224,8 @@ type SessionRecord = {
   stallEmitted: boolean;
   /** 代理等环境变更后，待空闲时重建该 worker。 */
   restartOnIdle: boolean;
+  /** worker 内的桌面模式（loop/vibe）仍持有会话状态：重建会丢失，暂缓回收。 */
+  desktopModesActive: boolean;
   /** 设置类命令（模型/思考档位）的串行链；prompt 必须等它落地。 */
   settingsGate: Promise<void>;
   pendingCommands: Map<
@@ -334,6 +336,11 @@ export function createSessionBroker(deps: {
     }
     // Defer destroy while Running-panel still tracks bash (incl. background survivors).
     if (deps.hasActiveRuns?.(sessionId)) {
+      scheduleIdleDestroy(sessionId);
+      return;
+    }
+    // loop/vibe 的状态只在 worker 内存里；回收会无声丢掉它。
+    if (rec.desktopModesActive) {
       scheduleIdleDestroy(sessionId);
       return;
     }
@@ -501,6 +508,7 @@ export function createSessionBroker(deps: {
     rec.worker = spawned.worker;
     rec.spawnedAt = Date.now();
     rec.restartOnIdle = false;
+    rec.desktopModesActive = false;
     rec.summary.filePath = spawned.filePath;
     // 判定卡死时 worker 已被杀掉，状态却留在 stuck；新 worker 起来后复位，
     // 否则这次卡死会一直挂在会话列表上，直到有人显式重启。
@@ -526,6 +534,7 @@ export function createSessionBroker(deps: {
     for (const [id, rec] of sessions) {
       if (!rec.worker || rec.summary.status !== "idle" || rec.workerPromise)
         continue;
+      if (rec.desktopModesActive) continue;
       if (deps.hasActiveRuns?.(id)) continue;
       idle.push({ sessionId: id, spawnedAt: rec.spawnedAt });
     }
@@ -582,6 +591,14 @@ export function createSessionBroker(deps: {
       // Any inbound message proves the utilityProcess event loop is alive.
       noteWorkerAlive(rec);
       deps.onWorkerMessage?.(sessionId, msg);
+
+      if (msg.kind === "desktop_modes") {
+        rec.desktopModesActive = msg.active;
+        if (!msg.active && rec.restartOnIdle && rec.summary.status === "idle") {
+          destroyIdleWorker(sessionId);
+        }
+        return;
+      }
 
       if (msg.kind === "pong") {
         recoverFromStuck(sessionId, rec);
@@ -810,6 +827,7 @@ export function createSessionBroker(deps: {
       idleDestroyTimer: null,
       stallEmitted: false,
       restartOnIdle: false,
+      desktopModesActive: false,
       settingsGate: Promise.resolve(),
       pendingCommands: new Map(),
     });
@@ -1265,7 +1283,11 @@ export function createSessionBroker(deps: {
     if (!rec?.worker) {
       return;
     }
-    if (rec.summary.status === "running" || rec.summary.status === "stuck") {
+    if (
+      rec.summary.status === "running" ||
+      rec.summary.status === "stuck" ||
+      rec.desktopModesActive
+    ) {
       rec.restartOnIdle = true;
       return;
     }
