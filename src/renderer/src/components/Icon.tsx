@@ -9,7 +9,6 @@ export type IconName =
   | "settings"
   | "terminal"
   | "preview"
-  | "browser"
   | "chat"
   | "trash"
   | "spark"
@@ -55,12 +54,6 @@ const GLYPHS: Record<IconName, ReactNode> = {
     <>
       <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
       <path d="M14 3v6h6" />
-    </>
-  ),
-  browser: (
-    <>
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="M3 9h18M8 4v5" />
     </>
   ),
   chat: <path d="M21 12a8 8 0 0 1-8 8H7l-4 3V12a8 8 0 1 1 18 0z" />,

@@ -1,16 +1,27 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createReadStream } from "node:fs";
-import { chmod, copyFile, mkdir, open, rename, rm } from "node:fs/promises";
+import { chmod, copyFile, mkdir, open, rename, rm, type FileHandle } from "node:fs/promises";
+import { connect as netConnect, type Socket } from "node:net";
 import { join } from "node:path";
-import { app, shell } from "electron";
-import { Agent, ProxyAgent, fetch as nodeFetch, type Dispatcher } from "undici";
+import { setTimeout as sleep } from "node:timers/promises";
+import { connect as tlsConnect, type TLSSocket } from "node:tls";
+import { app, session, shell } from "electron";
+import {
+	Agent,
+	Pool,
+	Socks5ProxyAgent,
+	buildConnector,
+	fetch as nodeFetch,
+	type Dispatcher,
+	type Response as UndiciResponse,
+} from "undici";
 import { netFetch } from "./net-fetch";
-import { getNodeProxyMode } from "./proxy-host";
+import { readGhToken } from "./github-core";
 import { APP_GITHUB_API_RELEASES } from "../shared/app-meta";
-import type { NodeProxyMode } from "../shared/proxy";
 import {
 	compareVersions,
+	isUpdateReleaseAllowed,
 	matchUpdateAsset,
 	safeAssetFileName,
 	type AppUpdateInfo,
@@ -18,14 +29,8 @@ import {
 } from "../shared/update";
 import { UPDATE_TEMP_DIR_NAME } from "./update-temp";
 
-/** 并发分片数（同时在途的连接数）：Chromium 同域名只复用一条连接，下载走多连接并行。 */
-const PARALLEL_SEGMENTS = 256;
-/** 每条连接承担的分片数：分片多于连接数，连接池滚动取用，尾部不会掉速。 */
-const CHUNKS_PER_CONNECTION = 4;
-/** 连接启动的错峰总时长（毫秒）：几百条隧道同时握手会互相拖累，错峰更稳。 */
-const CONNECT_STAGGER_SPAN_MS = 3000;
-/** 单片最小字节数。 */
-const MIN_SEGMENT_BYTES = 128 * 1024;
+const PARALLEL_SEGMENTS = 128;
+const MIN_SEGMENT_BYTES = 1024 * 1024;
 
 type GithubAsset = {
 	name: string;
@@ -44,7 +49,8 @@ type GithubRelease = {
 	assets?: GithubAsset[];
 };
 
-type Segment = { start: number; end: number };
+type Segment = { start: number; end: number; position: number; reserved: number };
+type ContentRange = { start: number; end: number; total: number };
 
 /** 一次下载会话：可中途取消。 */
 export type AppUpdateDownload = {
@@ -67,12 +73,14 @@ function userAgent(): string {
 	return `pi-desktop/${app.getVersion()}`;
 }
 
-/** GitHub API 要求 User-Agent，缺失会直接返回 403。 */
-function apiHeaders(): Record<string, string> {
-	return {
+/** GitHub API 要求 User-Agent，缺失会直接返回 403；有 gh 登录令牌时带上，避免匿名额度限流。 */
+function apiHeaders(token: string | null): Record<string, string> {
+	const headers: Record<string, string> = {
 		Accept: "application/vnd.github+json",
 		"User-Agent": userAgent(),
 	};
+	if (token) headers.Authorization = `Bearer ${token}`;
+	return headers;
 }
 
 /** 下载请求头。 */
@@ -80,6 +88,7 @@ function downloadHeaders(extra?: Record<string, string>): Record<string, string>
 	return {
 		"User-Agent": userAgent(),
 		Accept: "application/octet-stream",
+		"Accept-Encoding": "identity",
 		...extra,
 	};
 }
@@ -93,9 +102,14 @@ function normalizeDigest(digest: string | null | undefined): string | null {
 /** API 限流时的提示：匿名请求按出口 IP 计额，共享代理下很容易被用完。 */
 const RATE_LIMIT_MESSAGE =
 	"GitHub API 请求限流：未登录请求每个出口 IP 每小时只有 60 次额度，共享代理或同一网络下的人会一起用完。请稍后再试，或改用直连网络。";
+/** 已登录账号的额度也用完时，问题不在出口 IP。 */
+const AUTH_RATE_LIMIT_MESSAGE = "GitHub API 请求限流：当前 GitHub 账号的额度已用完，请稍后再试。";
+/** gh 令牌失效时的提示。 */
+const STALE_TOKEN_MESSAGE = "GitHub 登录凭据已失效，请运行 `gh auth login` 后重试。";
 
 /** 把 API 的失败响应翻译成能直接展示给用户的提示。 */
-async function describeApiError(response: Response): Promise<string> {
+async function describeApiError(response: Response, authenticated: boolean): Promise<string> {
+	if (authenticated && response.status === 401) return STALE_TOKEN_MESSAGE;
 	if (response.status !== 403 && response.status !== 429) {
 		return `GitHub API 请求失败（HTTP ${response.status}）`;
 	}
@@ -105,15 +119,18 @@ async function describeApiError(response: Response): Promise<string> {
 	} catch {
 		body = "";
 	}
-	if (/rate limit/i.test(body)) return RATE_LIMIT_MESSAGE;
+	if (/rate limit/i.test(body)) {
+		return authenticated ? AUTH_RATE_LIMIT_MESSAGE : RATE_LIMIT_MESSAGE;
+	}
 	if (response.status === 429) return "GitHub API 请求过于频繁，请稍后再试。";
 	return `GitHub API 拒绝访问（HTTP ${response.status}），请检查网络或代理设置。`;
 }
 
 async function fetchReleases(): Promise<GithubRelease[]> {
-	const response = await netFetch(APP_GITHUB_API_RELEASES, { headers: apiHeaders() });
+	const token = await readGhToken();
+	const response = await netFetch(APP_GITHUB_API_RELEASES, { headers: apiHeaders(token) });
 	if (!response.ok) {
-		throw new Error(await describeApiError(response));
+		throw new Error(await describeApiError(response, token !== null));
 	}
 	const payload = (await response.json()) as unknown;
 	return Array.isArray(payload) ? (payload as GithubRelease[]) : [];
@@ -127,7 +144,7 @@ export async function checkForAppUpdate(
 	const releases = await fetchReleases();
 	let best: AppUpdateInfo | null = null;
 	for (const release of releases) {
-		if (release.draft || release.prerelease) continue;
+		if (!isUpdateReleaseAllowed(release, currentVersion)) continue;
 		const version = String(release.tag_name ?? "").replace(/^v/i, "");
 		if (!version) continue;
 		if (!force && compareVersions(version, currentVersion) <= 0) continue;
@@ -185,7 +202,7 @@ function createProgressReporter(
 			const first = samples[0]!;
 			const span = now - first.at;
 			const bytesPerSecond =
-				span > 0 ? ((received - first.bytes) * 1000) / span : 0;
+				span > 0 ? Math.max(0, ((received - first.bytes) * 1000) / span) : 0;
 			onProgress({
 				phase: "downloading",
 				percent: percentOf(received, total),
@@ -203,11 +220,25 @@ function toAsyncIterable(body: unknown): AsyncIterable<Uint8Array> {
 	return body as AsyncIterable<Uint8Array>;
 }
 
-/**
- * 写盘攒批大小：逐块写会放大 fs 调用开销，攒够再写更快。
- * 取 64KB 是为了进度能连续爬升——分片只有 135KB，阈值过大就要等整块下完才动。
- */
-const WRITE_BLOCK_BYTES = 64 * 1024;
+const WRITE_BLOCK_BYTES = 1024 * 1024;
+
+async function writeBlock(
+	file: FileHandle,
+	block: Buffer,
+	start: number,
+	onBytes: (bytes: number) => void,
+	signal?: AbortSignal,
+): Promise<void> {
+	let offset = 0;
+	while (offset < block.length) {
+		signal?.throwIfAborted();
+		const { bytesWritten } = await file.write(block, offset, block.length - offset, start + offset);
+		if (bytesWritten === 0) throw new Error("写入下载文件失败");
+		signal?.throwIfAborted();
+		offset += bytesWritten;
+		onBytes(bytesWritten);
+	}
+}
 
 /**
  * 把响应体按顺序写入文件的指定偏移，返回写入字节数。
@@ -215,7 +246,7 @@ const WRITE_BLOCK_BYTES = 64 * 1024;
  */
 async function writeBody(
 	body: AsyncIterable<Uint8Array>,
-	file: Awaited<ReturnType<typeof open>>,
+	file: FileHandle,
 	start: number,
 	onBytes: (bytes: number) => void,
 	signal?: AbortSignal,
@@ -229,14 +260,15 @@ async function writeBody(
 		const block = pending.length === 1 ? pending[0]! : Buffer.concat(pending, pendingBytes);
 		pending = [];
 		pendingBytes = 0;
-		await file.write(block, 0, block.length, position);
-		position += block.length;
-		onBytes(block.length);
+		await writeBlock(file, block, position, (bytes) => {
+			position += bytes;
+			onBytes(bytes);
+		}, signal);
 	}
 
 	for await (const chunk of body) {
 		signal?.throwIfAborted();
-		const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+		const buffer = Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
 		pending.push(buffer);
 		pendingBytes += buffer.length;
 		if (pendingBytes >= WRITE_BLOCK_BYTES) {
@@ -256,172 +288,378 @@ function withTimeout(signal: AbortSignal | undefined, ms: number): AbortSignal {
 	return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
-/** 单个分片：独立连接请求，只写自己负责的区间。 */
-async function downloadSegment(
-	url: string,
-	segment: Segment,
-	filePath: string,
-	dispatcher: Dispatcher,
-	onBytes: (bytes: number) => void,
-	signal?: AbortSignal,
-): Promise<void> {
-	const response = await nodeFetch(url, {
-		dispatcher,
-		redirect: "follow",
-		signal: withTimeout(signal, SEGMENT_TIMEOUT_MS),
-		headers: downloadHeaders({ Range: `bytes=${segment.start}-${segment.end}` }),
-	});
-	if (response.status !== 206 || !response.body) {
-		throw new Error(`下载分片失败（HTTP ${response.status}）`);
-	}
-	const expected = segment.end - segment.start + 1;
-	const file = await open(filePath, "r+");
-	try {
-		const written = await writeBody(
-			toAsyncIterable(response.body),
-			file,
-			segment.start,
-			onBytes,
-			signal,
-		);
-		if (written !== expected) {
-			throw new Error(`分片不完整（${written}/${expected} 字节）`);
-		}
-	} finally {
-		await file.close();
-	}
-}
-
-/** 单个分片的最多尝试次数：连接被掐断时只重试这一片，不牵动其它分片。 */
 const SEGMENT_MAX_ATTEMPTS = 3;
-/** 分片重试的退避基数（毫秒）。 */
 const SEGMENT_RETRY_DELAY_MS = 500;
+const MAX_REDIRECTS = 20;
 
-/** 等待若干毫秒。 */
-function delay(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
+class RangeUnsupportedError extends Error {}
+
+/** 多路并发被服务端/网关限流：不再重试同一分片，直接退回整体下载。 */
+class SegmentThrottledError extends Error {}
+
+type ProxyEndpoint = { secure: boolean; host: string; port: number; auth: string | null };
+
+function parseProxyEndpoint(url: string): ProxyEndpoint | null {
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		return null;
+	}
+	const secure = parsed.protocol === "https:";
+	if (!secure && parsed.protocol !== "http:") return null;
+	const auth = parsed.username
+		? `Basic ${Buffer.from(`${decodeURIComponent(parsed.username)}:${decodeURIComponent(parsed.password)}`).toString("base64")}`
+		: null;
+	return { secure, host: parsed.hostname, port: Number(parsed.port || (secure ? 443 : 80)), auth };
 }
 
-/**
- * 单个分片带重试：代理隧道偶发掐断时只重试这一片。
- * 失败那次已计入的字节要回滚，否则进度会虚高。
- */
-async function downloadSegmentWithRetry(
+function abortSignalOf(options: buildConnector.Options): AbortSignal | undefined {
+	if (!("signal" in options)) return undefined;
+	const signal = options.signal;
+	return signal instanceof AbortSignal ? signal : undefined;
+}
+
+function tunnelConnector(proxy: ProxyEndpoint): buildConnector.connector {
+	return (options, callback) => {
+		const targetHost = options.host ?? options.hostname;
+		const targetPort = Number(options.port || (options.protocol === "https:" ? 443 : 80));
+		const signal = abortSignalOf(options);
+		let settled = false;
+		let raw: Socket | null = null;
+		const finish = (error: Error | null, socket: Socket | TLSSocket | null): void => {
+			if (settled) return;
+			settled = true;
+			signal?.removeEventListener("abort", onAbort);
+			if (error) {
+				socket?.destroy();
+				callback(error, null);
+				return;
+			}
+			if (socket) callback(null, socket);
+		};
+		const onAbort = (): void => {
+			raw?.destroy();
+			finish(new Error("代理连接已取消"), null);
+		};
+		if (signal?.aborted) {
+			finish(new Error("代理连接已取消"), null);
+			return;
+		}
+		signal?.addEventListener("abort", onAbort, { once: true });
+
+		const writeConnect = (channel: Socket | TLSSocket): void => {
+			const lines = [
+				`CONNECT ${targetHost}:${targetPort} HTTP/1.1`,
+				`Host: ${targetHost}:${targetPort}`,
+			];
+			if (proxy.auth) lines.push(`Proxy-Authorization: ${proxy.auth}`);
+			channel.write(`${lines.join("\r\n")}\r\n\r\n`);
+			let head = Buffer.alloc(0);
+			const onHead = (chunk: Buffer): void => {
+				head = Buffer.concat([head, chunk]);
+				const end = head.indexOf("\r\n\r\n");
+				if (end < 0) return;
+				channel.removeListener("data", onHead);
+				const line = head.subarray(0, head.indexOf("\r\n")).toString("latin1");
+				const rest = head.subarray(end + 4);
+				channel.setTimeout(0);
+				if (!/ 200/.test(line)) {
+					channel.destroy();
+					finish(new Error(`代理拒绝连接（${line}）`), null);
+					return;
+				}
+				if (options.protocol !== "https:") {
+					if (rest.length) channel.unshift(rest);
+					finish(null, channel);
+					return;
+				}
+				const secure = tlsConnect({
+					socket: channel,
+					servername: options.servername ?? targetHost,
+					ALPNProtocols: ["http/1.1"],
+				});
+				secure.once("error", (error) => finish(error, null));
+				secure.once("secureConnect", () => {
+					if (rest.length) secure.unshift(rest);
+					finish(null, secure);
+				});
+			};
+			channel.on("data", onHead);
+		};
+
+		raw = netConnect(proxy.port, proxy.host);
+		raw.setTimeout(SEGMENT_TIMEOUT_MS, () => {
+			raw?.destroy();
+			finish(new Error("连接代理超时"), null);
+		});
+		raw.once("error", (error) => finish(error, null));
+		if (proxy.secure) {
+			const proxyTls = tlsConnect({ socket: raw, servername: proxy.host, ALPNProtocols: ["http/1.1"] });
+			proxyTls.once("error", (error) => finish(error, null));
+			proxyTls.once("secureConnect", () => writeConnect(proxyTls));
+			return;
+		}
+		raw.once("connect", () => {
+			if (raw) writeConnect(raw);
+		});
+	};
+}
+
+class DownloadRouter {
+	private readonly dispatchers = new Map<string, Dispatcher>();
+	private readonly routes = new Map<string, string>();
+
+	private async dispatcherFor(url: string, signal: AbortSignal): Promise<Dispatcher | null> {
+		const origin = new URL(url).origin;
+		let route = this.routes.get(origin);
+		if (route === undefined) {
+			signal.throwIfAborted();
+			route = (await session.defaultSession.resolveProxy(url)).split(";")[0]?.trim() ?? "";
+			this.routes.set(origin, route);
+		}
+		const match = /^(PROXY|HTTPS|SOCKS5)\s+(\S+)$/i.exec(route);
+		const kind = match?.[1]?.toUpperCase();
+		const proxyUrl = kind === "PROXY"
+			? `http://${match![2]}`
+			: kind === "HTTPS"
+				? `https://${match![2]}`
+				: kind === "SOCKS5"
+					? `socks5://${match![2]}`
+					: null;
+		const direct = /^DIRECT$/i.test(route);
+		if (!direct && !proxyUrl) return null;
+		const key = direct ? "direct" : `${origin}|${proxyUrl}`;
+		let dispatcher = this.dispatchers.get(key);
+		if (dispatcher) return dispatcher;
+		if (direct) {
+			dispatcher = new Agent({ connections: PARALLEL_SEGMENTS });
+		} else if (proxyUrl!.startsWith("socks5://")) {
+			dispatcher = new Socks5ProxyAgent(proxyUrl!, {
+				connections: PARALLEL_SEGMENTS,
+				connectTimeout: SEGMENT_TIMEOUT_MS,
+			});
+		} else {
+			const endpoint = parseProxyEndpoint(proxyUrl!);
+			if (!endpoint) return null;
+			dispatcher = new Pool(origin, {
+				connections: PARALLEL_SEGMENTS,
+				connect: tunnelConnector(endpoint),
+			});
+		}
+		this.dispatchers.set(key, dispatcher);
+		return dispatcher;
+	}
+
+	async fetch(
+		url: string,
+		headers: Record<string, string>,
+		signal: AbortSignal,
+	): Promise<{ response: Response | UndiciResponse; url: string }> {
+		let currentUrl = url;
+		for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
+			const dispatcher = await this.dispatcherFor(currentUrl, signal);
+			if (!dispatcher) {
+				const response = await netFetch(currentUrl, { headers, signal, redirect: "follow" });
+				return { response, url: currentUrl };
+			}
+			const response = await nodeFetch(currentUrl, { headers, signal, dispatcher, redirect: "manual" });
+			const location = response.headers.get("location");
+			if (![301, 302, 303, 307, 308].includes(response.status) || !location) {
+				return { response, url: currentUrl };
+			}
+			await response.body?.cancel();
+			currentUrl = new URL(location, currentUrl).href;
+		}
+		throw new Error("下载地址重定向次数过多");
+	}
+
+	async close(aborted: boolean): Promise<void> {
+		await Promise.allSettled([...this.dispatchers.values()].map((dispatcher) =>
+			aborted ? dispatcher.destroy() : dispatcher.close(),
+		));
+	}
+}
+
+async function writeSegmentBody(
+	body: AsyncIterable<Uint8Array>,
+	file: FileHandle,
+	segment: Segment,
+	onBytes: (bytes: number) => void,
+	signal: AbortSignal,
+	timeout: NodeJS.Timeout,
+): Promise<void> {
+	let pending: Buffer[] = [];
+	let pendingBytes = 0;
+	const flush = async (): Promise<void> => {
+		if (pendingBytes === 0) return;
+		const block = pending.length === 1 ? pending[0]! : Buffer.concat(pending, pendingBytes);
+		pending = [];
+		pendingBytes = 0;
+		await writeBlock(file, block, segment.position, (bytes) => {
+			segment.position += bytes;
+			onBytes(bytes);
+		}, signal);
+		segment.reserved = segment.position;
+	};
+	for await (const chunk of body) {
+		signal.throwIfAborted();
+		timeout.refresh();
+		const available = Math.max(0, segment.end - segment.reserved + 1);
+		const length = Math.min(chunk.byteLength, available);
+		if (length > 0) {
+			pending.push(Buffer.from(chunk.buffer, chunk.byteOffset, length));
+			pendingBytes += length;
+			segment.reserved += length;
+		}
+		if (pendingBytes >= WRITE_BLOCK_BYTES || segment.reserved > segment.end) await flush();
+		if (segment.position > segment.end) break;
+	}
+	await flush();
+	if (segment.position <= segment.end) {
+		throw new Error(`分片不完整（剩余 ${segment.end - segment.position + 1} 字节）`);
+	}
+}
+
+async function downloadSegment(
+	router: DownloadRouter,
 	url: string,
 	segment: Segment,
-	filePath: string,
-	dispatcher: Dispatcher,
+	total: number,
+	file: FileHandle,
 	onBytes: (bytes: number) => void,
-	signal?: AbortSignal,
+	signal: AbortSignal,
 ): Promise<void> {
-	let written = 0;
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(new Error("分片连接超时")), SEGMENT_TIMEOUT_MS);
+	const requestSignal = AbortSignal.any([signal, controller.signal]);
+	const start = segment.position;
+	const end = segment.end;
+	try {
+		const { response } = await router.fetch(
+			url,
+			downloadHeaders({ Range: `bytes=${start}-${end}` }),
+			requestSignal,
+		);
+		timeout.refresh();
+		const range = parseContentRange(response.headers.get("content-range"));
+		if (response.status !== 206 || !response.body || !range ||
+			range.start !== start || range.end !== end || range.total !== total) {
+			await response.body?.cancel();
+			if (response.status === 200 || response.status === 206) {
+				throw new RangeUnsupportedError("服务器未按要求返回下载分片");
+			}
+			if (response.status === 429 || response.status === 503) {
+				throw new SegmentThrottledError(`下载分片被限流（HTTP ${response.status}）`);
+			}
+			throw new Error(`下载分片失败（HTTP ${response.status}）`);
+		}
+		await writeSegmentBody(toAsyncIterable(response.body), file, segment, onBytes, requestSignal, timeout);
+	} finally {
+		clearTimeout(timeout);
+		segment.reserved = segment.position;
+	}
+}
+
+async function downloadSegmentWithRetry(
+	router: DownloadRouter,
+	url: string,
+	segment: Segment,
+	total: number,
+	file: FileHandle,
+	onBytes: (bytes: number) => void,
+	signal: AbortSignal,
+): Promise<void> {
 	for (let attempt = 1; attempt <= SEGMENT_MAX_ATTEMPTS; attempt++) {
 		try {
-			await downloadSegment(
-				url,
-				segment,
-				filePath,
-				dispatcher,
-				(bytes) => {
-					written += bytes;
-					onBytes(bytes);
-				},
-				signal,
-			);
+			await downloadSegment(router, url, segment, total, file, onBytes, signal);
 			return;
 		} catch (err) {
-			if (signal?.aborted) throw err;
-			if (written > 0) {
-				onBytes(-written);
-				written = 0;
-			}
-			if (attempt >= SEGMENT_MAX_ATTEMPTS) {
+			if (
+				signal.aborted ||
+				err instanceof RangeUnsupportedError ||
+				err instanceof SegmentThrottledError
+			)
+				throw err;
+			if (attempt === SEGMENT_MAX_ATTEMPTS) {
 				throw new Error(
 					`分片 ${segment.start}-${segment.end} 下载失败（重试 ${attempt} 次）：${
 						err instanceof Error ? err.message : String(err)
 					}`,
 				);
 			}
-			await delay(SEGMENT_RETRY_DELAY_MS * attempt);
+			await sleep(SEGMENT_RETRY_DELAY_MS * attempt, undefined, { signal });
 		}
 	}
 }
 
-/**
- * 分片切分：分片数远多于并发连接数，供连接池滚动取用。
- * 一次性把文件平分成 N 段会让尾部只剩少量连接在跑，总速率会掉下去。
- */
 function splitSegments(total: number): Segment[] {
-	const count = Math.max(
-		1,
-		Math.min(
-			PARALLEL_SEGMENTS * CHUNKS_PER_CONNECTION,
-			Math.ceil(total / MIN_SEGMENT_BYTES),
-		),
-	);
+	const count = Math.max(1, Math.min(PARALLEL_SEGMENTS, Math.floor(total / MIN_SEGMENT_BYTES)));
 	const span = Math.ceil(total / count);
 	const segments: Segment[] = [];
 	for (let start = 0; start < total; start += span) {
-		segments.push({
-			start,
-			end: Math.min(start + span, total) - 1,
-		});
+		segments.push({ start, end: Math.min(start + span, total) - 1, position: start, reserved: start });
 	}
 	return segments;
 }
 
-/**
- * 并发分片下载：先按总大小预分配文件，各连接写自己的偏移。
- * 用固定数量的 worker 从分片队列里滚动取任务，任何时刻在途连接数恒定，
- * 速度不会因为尾部连接变少而忽快忽慢。
- */
+function splitLargestSegment(active: Set<Segment>): Segment | undefined {
+	let largest: Segment | undefined;
+	for (const segment of active) {
+		if (!largest || segment.end - segment.reserved > largest.end - largest.reserved) largest = segment;
+	}
+	if (!largest) return undefined;
+	const remaining = largest.end - largest.reserved + 1;
+	if (remaining < MIN_SEGMENT_BYTES * 2) return undefined;
+	const start = largest.reserved + Math.floor(remaining / 2);
+	const segment = { start, end: largest.end, position: start, reserved: start };
+	largest.end = start - 1;
+	return segment;
+}
+
 async function downloadInSegments(
+	router: DownloadRouter,
 	url: string,
 	total: number,
 	filePath: string,
-	dispatcher: Dispatcher,
 	onBytes: (bytes: number, total: number | null) => void,
 	signal?: AbortSignal,
 ): Promise<void> {
-	const seed = await open(filePath, "w");
-	try {
-		await seed.truncate(total);
-	} finally {
-		await seed.close();
-	}
-
-	const segments = splitSegments(total);
-	let cursor = 0;
-
-	const workerCount = Math.min(PARALLEL_SEGMENTS, segments.length);
-	// 错峰步长按总时长摊分，连接数翻倍也不会拉长爬坡阶段。
-	const staggerStep = CONNECT_STAGGER_SPAN_MS / workerCount;
-
-	const worker = async (index: number): Promise<void> => {
-		// 错峰建立连接：避免几百条隧道同时握手把代理打满，也避免开头几秒空转。
-		if (index > 0) await delay(index * staggerStep);
-		for (;;) {
-			const chunk = cursor++;
-			if (chunk >= segments.length) return;
-			await downloadSegmentWithRetry(
-				url,
-				segments[chunk]!,
-				filePath,
-				dispatcher,
-				(bytes) => onBytes(bytes, total),
-				signal,
-			);
+	const file = await open(filePath, "w+");
+	const active = new Set<Segment>();
+	const controller = new AbortController();
+	const workerSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+	let failure: unknown;
+	const worker = async (initial: Segment): Promise<void> => {
+		try {
+			let segment: Segment | undefined = initial;
+			while (segment) {
+				workerSignal.throwIfAborted();
+				active.add(segment);
+				try {
+					await downloadSegmentWithRetry(router, url, segment, total, file, (bytes) => onBytes(bytes, total), workerSignal);
+				} finally {
+					active.delete(segment);
+				}
+				segment = splitLargestSegment(active);
+			}
+		} catch (err) {
+			if (!controller.signal.aborted) {
+				failure = err;
+				controller.abort(err);
+			}
 		}
 	};
-
-	const results = await Promise.allSettled(
-		Array.from({ length: workerCount }, (_, index) => worker(index)),
-	);
-	const failed = results.find((result) => result.status === "rejected");
-	if (failed?.status === "rejected") throw failed.reason;
+	try {
+		await file.truncate(total);
+		await Promise.all(splitSegments(total).map(worker));
+		if (failure !== undefined) throw failure;
+		signal?.throwIfAborted();
+	} finally {
+		await file.close();
+	}
 }
 
-/** 服务端不支持 Range（含 socks 代理）时的单连接下载。 */
 async function downloadWhole(
 	response: Response,
 	filePath: string,
@@ -446,16 +684,15 @@ async function downloadWhole(
 	}
 }
 
-/** 从 Content-Range 头里取出总字节数。 */
-function contentRangeTotal(header: string | null): number | null {
-	const match = /\/(\d+)\s*$/.exec(header ?? "");
-	const total = match ? Number(match[1]) : 0;
-	return total > 0 ? total : null;
-}
-
-/** 分片请求走 Node fetch（undici），代理模式决定用哪种 dispatcher。 */
-function createDispatcher(proxy: NodeProxyMode): Dispatcher {
-	return proxy.kind === "http" ? new ProxyAgent(proxy.url) : new Agent();
+function parseContentRange(header: string | null): ContentRange | null {
+	const match = /^bytes\s+(\d+)-(\d+)\/(\d+)$/i.exec(header ?? "");
+	if (!match) return null;
+	const start = Number(match[1]);
+	const end = Number(match[2]);
+	const total = Number(match[3]);
+	if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || !Number.isSafeInteger(total) ||
+		start > end || end >= total) return null;
+	return { start, end, total };
 }
 
 /** 服务端不支持 Range 时的整体下载（走 Chromium 网络栈，跟随应用代理）。 */
@@ -481,73 +718,82 @@ const PROBE_MAX_ATTEMPTS = 3;
 const PROBE_RETRY_DELAY_MS = 500;
 
 /** 探测文件总长度：服务端支持 Range 时返回 content-range 里的总数。 */
-async function probeTotalSize(
+async function probeAsset(
+	router: DownloadRouter,
 	info: AppUpdateInfo,
 	signal?: AbortSignal,
-): Promise<number | null> {
+): Promise<{ url: string; total: number | null }> {
 	let lastError = "";
 	for (let attempt = 1; attempt <= PROBE_MAX_ATTEMPTS; attempt++) {
 		try {
-			const response = await netFetch(info.downloadUrl, {
-				redirect: "follow",
-				signal: withTimeout(signal, PROBE_TIMEOUT_MS),
-				headers: downloadHeaders({ Range: "bytes=0-0" }),
-			});
-			const total =
-				response.status === 206
-					? contentRangeTotal(response.headers.get("content-range"))
-					: null;
+			const { response, url } = await router.fetch(
+				info.downloadUrl,
+				downloadHeaders({ Range: "bytes=0-0" }),
+				withTimeout(signal, PROBE_TIMEOUT_MS),
+			);
+			const range = response.status === 206
+				? parseContentRange(response.headers.get("content-range"))
+				: null;
 			await response.body?.cancel();
-			return total;
+			return { url, total: range?.start === 0 && range.end === 0 ? range.total : null };
 		} catch (err) {
 			if (signal?.aborted) throw err;
 			lastError = err instanceof Error ? err.message : String(err);
 			if (attempt < PROBE_MAX_ATTEMPTS) {
-				await delay(PROBE_RETRY_DELAY_MS * attempt);
+				await sleep(PROBE_RETRY_DELAY_MS * attempt, undefined, { signal });
 			}
 		}
 	}
 	throw new Error(`无法连接 GitHub 下载服务器：${lastError}`);
 }
 
-/**
- * 下载安装包到目标路径（先写 .part，成功后再改名）。
- * 走多连接分片并行（Chromium 同域名只复用一条连接，单连接太慢）；
- * 某片连接被掐断只重试该片，不整包回退。
- */
 async function downloadAsset(
 	info: AppUpdateInfo,
 	filePath: string,
 	onBytes: (bytes: number, total: number | null) => void,
 	signal?: AbortSignal,
 ): Promise<void> {
-	const total = await probeTotalSize(info, signal);
-	if (!total) {
-		await downloadWholeByChromium(info, filePath, onBytes, signal);
-		return;
+	const router = new DownloadRouter();
+	try {
+		const { url, total } = await probeAsset(router, info, signal);
+		if (!total) {
+			await downloadWholeByChromium(info, filePath, onBytes, signal);
+			return;
+		}
+		let transferred = 0;
+		try {
+			await downloadInSegments(router, url, total, filePath, (bytes, size) => {
+				transferred += bytes;
+				onBytes(bytes, size);
+			}, signal);
+		} catch (err) {
+			if (
+				(!(err instanceof RangeUnsupportedError) &&
+					!(err instanceof SegmentThrottledError)) ||
+				signal?.aborted
+			)
+				throw err;
+			if (transferred > 0) onBytes(-transferred, total);
+			await downloadWholeByChromium(info, filePath, onBytes, signal);
+		}
+	} finally {
+		await router.close(signal?.aborted ?? false);
 	}
-	await downloadInSegments(
-		info.downloadUrl,
-		total,
-		filePath,
-		createDispatcher(getNodeProxyMode()),
-		onBytes,
-		signal,
-	);
 }
 
 /**
  * 校验下载内容与 GitHub 公布的 sha256 是否一致（流式计算，不整块读入内存）。
  * 拿不到摘要就不装：无法确认完整性时执行安装包风险太大。
  */
-async function verifyDigest(filePath: string, expected: string | null): Promise<void> {
+async function verifyDigest(filePath: string, expected: string | null, signal?: AbortSignal): Promise<void> {
 	if (!expected) {
 		throw new Error("GitHub 未提供安装包校验摘要，无法确认文件完整性，请到发布页手动下载");
 	}
 	const hash = createHash("sha256");
-	for await (const chunk of createReadStream(filePath)) {
+	for await (const chunk of createReadStream(filePath, { signal })) {
 		hash.update(chunk);
 	}
+	signal?.throwIfAborted();
 	if (hash.digest("hex").toLowerCase() === expected) return;
 	throw new Error("安装包校验失败，已删除损坏的下载文件");
 }
@@ -572,8 +818,10 @@ export async function downloadAppUpdate(
 	const reporter = createProgressReporter(onProgress);
 	try {
 		await downloadAsset(info, partPath, reporter.report, signal);
-		await verifyDigest(partPath, info.digest);
+		await verifyDigest(partPath, info.digest, signal);
+		signal?.throwIfAborted();
 		await rm(filePath, { force: true });
+		signal?.throwIfAborted();
 		await rename(partPath, filePath);
 	} catch (err) {
 		await rm(partPath, { force: true });

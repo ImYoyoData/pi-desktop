@@ -34,6 +34,32 @@ export function splitPath(path: string): PathParts {
   return { root: norm.startsWith("/") ? "/" : "", segments: segmentsOf(norm) };
 }
 
+/** 单个行范围：`12`、`1-20`、`50-`、`10+5`，以及 pi 的 `L12`、`2724..2727` 写法。 */
+const RANGE_CHUNK = String.raw`L?\d+(?:(?:\.\.|[-+])L?\d*)?`;
+/** 尾部范围：`:-15` 表示最后 15 行。 */
+const TAIL_CHUNK = String.raw`-\d+(?:[-+]\d+)?`;
+/** 选择器片段：`:raw`、`:conflicts`、`:img`，或逗号分隔的行范围列表。 */
+const SELECTOR_CHUNK = new RegExp(
+  String.raw`^(?:raw|conflicts|img|(?:${RANGE_CHUNK}|${TAIL_CHUNK})(?:,(?:${RANGE_CHUNK}|${TAIL_CHUNK}))*)$`,
+  "i",
+);
+
+/**
+ * read 工具允许把选择器内联在路径里（`:12`、`:1-20`、`:19,59`、`:raw`、`:raw:50-100`）。
+ * 取文件名/扩展名前先剥掉，否则扩展名会被后缀污染（`a.ts:1-20` → `ts:1-20`）。
+ */
+export function stripLineSelector(path: string): string {
+  let out = path;
+  // 复合选择器最多两段（`:raw:50-100`），逐段从尾部剥离。
+  for (let i = 0; i < 2; i++) {
+    const idx = out.lastIndexOf(":");
+    if (idx <= 0) break;
+    if (!SELECTOR_CHUNK.test(out.slice(idx + 1))) break;
+    out = out.slice(0, idx);
+  }
+  return out;
+}
+
 /** 绝对路径判定：POSIX 根或 Windows 盘符。 */
 export function isAbsoluteFsPath(path: string): boolean {
   const norm = path.replace(/\\/g, "/");

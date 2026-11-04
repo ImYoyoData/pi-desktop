@@ -1,6 +1,5 @@
-import { readFileSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { type ThinkingLevel } from "../shared/thinking-level";
+import { readFileSync, writeFileSync } from "node:fs";
+import { isThinkingLevel, type ThinkingLevel } from "../shared/thinking-level";
 import {
 	createAgentSessionFromServices,
 	createAgentSessionServices,
@@ -34,19 +33,7 @@ import {
 	ensureSessionFileOnDisk,
 	openExistingSessionFile,
 } from "./session-file";
-import {
-	BUILTIN_BROWSER_SELECTION_HEADER,
-	isBuiltinBrowserToolName,
-	resolveBuiltinBrowserSkillDir,
-	shouldEnableBuiltinBrowserTools,
-} from "../shared/builtin-browser";
-import {
-	DEFAULT_BROWSER_SETTINGS,
-	DESKTOP_PREFS_FILENAME,
-	parseBrowserSettings,
-	type BrowserSettings,
-} from "../shared/browser-settings";
-
+import { BUILTIN_BROWSER_SELECTION_HEADER } from "../shared/builtin-browser";
 import {
 	DEFAULT_STREAM_RENDER_SETTINGS,
 	parseStreamRenderSettings,
@@ -55,11 +42,14 @@ import {
 import {
 	DESKTOP_ASK_USER_PROMPT,
 	DESKTOP_BASH_BACKGROUND_PROMPT,
-	DESKTOP_TODO_PROMPT,
 } from "../shared/desktop-system-prompt";
 import type { BashNoticeLocale } from "../shared/bash-notice-i18n";
 import { createAskUserToolDefinition } from "./ask-user-tool";
-import { createTodoWriteToolDefinition, clearLatestTodoWriteRows } from "./todo-tool";
+import {
+	clearLatestTodoPhases,
+	createTodoToolDefinition,
+	restoreLatestTodoPhases,
+} from "./todo-tool";
 import { createTodoReminderExtension } from "./todo-reminder";
 import { BASH_PROMPT_SNIPPET, createToolPreferenceExtension } from "./tool-preference";
 import { createPermissionGateExtension } from "./permission-gate";
@@ -70,15 +60,12 @@ import {
 	describeCommandShell,
 	detectCommandShell,
 } from "./command-shell";
-import { createBrowserToolDefinitions } from "./browser-tools";
-import {
-	readContextUsage,
-	SessionTimingTracker,
-	type SessionTiming,
-} from "./context-usage";
+import { readContextUsage } from "./context-usage";
 import {
 	parseSessionTiming,
 	sessionTimingPath,
+	SessionTimingTracker,
+	type SessionTiming,
 } from "../shared/session-timing";
 import {
 	createDesktopExtensionUIContext,
@@ -200,76 +187,7 @@ function timingStats() {
 let streamRenderSettings: StreamRenderSettings = { ...DEFAULT_STREAM_RENDER_SETTINGS };
 /** 界面语言，决定后台截断提示的措辞。 */
 let uiLocale: BashNoticeLocale = "zh-CN";
-/** Once unlocked this session, keep browser_* available for follow-up clicks/fills. */
-let browserToolsUnlocked = false;
-let browserPrefsCache: { mtimeMs: number; settings: BrowserSettings } | null = null;
 
-/** 内置浏览器设置来自 desktop-prefs.json，按 mtime 缓存，改完下一回合生效。 */
-function readBrowserSettings(): BrowserSettings {
-	try {
-		const file = join(getAgentDir(), DESKTOP_PREFS_FILENAME);
-		const { mtimeMs } = statSync(file);
-		if (browserPrefsCache && browserPrefsCache.mtimeMs === mtimeMs) {
-			return browserPrefsCache.settings;
-		}
-		const raw: unknown = JSON.parse(readFileSync(file, "utf8"));
-		const map = raw && typeof raw === "object" && !Array.isArray(raw)
-			? (raw as Record<string, string>)
-			: {};
-		const settings = parseBrowserSettings(map);
-		browserPrefsCache = { mtimeMs, settings };
-		return settings;
-	} catch {
-		return DEFAULT_BROWSER_SETTINGS;
-	}
-}
-
-function workerDirname(): string {
-	// electron-vite bundles the worker as CJS; __dirname points at out/agent-worker.
-	return typeof __dirname === "string" ? __dirname : process.cwd();
-}
-
-function syncBuiltinBrowserTools(active: AgentSession, enable: boolean): void {
-	const current = active.getActiveToolNames();
-	const withoutBrowser = current.filter(
-		(name) => !isBuiltinBrowserToolName(name),
-	);
-	if (!enable) {
-		if (withoutBrowser.length !== current.length) {
-			active.setActiveToolsByName(withoutBrowser);
-		}
-		return;
-	}
-	const browserNames = active
-		.getAllTools()
-		.map((t) => t.name)
-		.filter(isBuiltinBrowserToolName);
-	const next = [...new Set([...withoutBrowser, ...browserNames])];
-	if (next.length !== current.length || next.some((n) => !current.includes(n))) {
-		active.setActiveToolsByName(next);
-	}
-}
-
-function applyBuiltinBrowserToolGate(
-	active: AgentSession,
-	message: string,
-	citations?: ElementCitation[] | null,
-): void {
-	const { toolMode } = readBrowserSettings();
-	if (toolMode === "off") {
-		syncBuiltinBrowserTools(active, false);
-		return;
-	}
-	if (toolMode === "always") {
-		browserToolsUnlocked = true;
-	} else if (
-		!browserToolsUnlocked &&
-		shouldEnableBuiltinBrowserTools(message, citations)
-	) {
-		browserToolsUnlocked = true;
-	}
-	syncBuiltinBrowserTools(active, browserToolsUnlocked);
-}
 function normalizePromptImages(
 	images: unknown[] | undefined,
 ): ImageContent[] | undefined {
@@ -645,7 +563,6 @@ async function initSession(
 		return;
 	}
 	initStarted = true;
-	browserToolsUnlocked = false;
 	setRpcWorkspaceRoot(cwd);
 	if (streamRenderSnapshot) {
 		streamRenderSettings = parseStreamRenderSettings(streamRenderSnapshot);
@@ -666,10 +583,6 @@ async function initSession(
 	if (initialSessionFile) {
 		restoreTimingFromDisk(initialSessionFile);
 	}
-	const builtinBrowserSkillDir = resolveBuiltinBrowserSkillDir(
-		workerDirname(),
-		typeof process.resourcesPath === "string" ? process.resourcesPath : undefined,
-	);
 	// Which command shell this machine can actually run (see command-shell.ts).
 	// pi 的 shellPath / shellCommandPrefix 优先于自动探测。
 	const configuredShellPath = settingsManager.getShellPath() ?? "";
@@ -701,16 +614,11 @@ async function initSession(
 			],
 			appendSystemPrompt: [
 				DESKTOP_ASK_USER_PROMPT,
-				DESKTOP_TODO_PROMPT,
 				DESKTOP_BASH_BACKGROUND_PROMPT,
 				...(commandShellPromptText ? [commandShellPromptText] : []),
 			],
-			...(builtinBrowserSkillDir
-				? { additionalSkillPaths: [builtinBrowserSkillDir] }
-				: {}),
 		},
 	});
-	enableAllThinkingLevels(services.modelRuntime);
 	runTracker = createTrackedBashOperations(undefined, {
 		sessionId: sessionManager.getSessionId(),
 		workspaceRoot: cwd,
@@ -733,7 +641,7 @@ async function initSession(
 			// every call would fail with "execvpe(/bin/bash) failed". Deny it and let
 			// the PowerShell tool take over — the tool registry activates every
 			// sibling of the tools that are active, so `powershell` comes on by
-			// itself while `ask_user` / `todo_write` stay active too. (An allowlist
+			// itself while `ask_user` / `todo` stay active too. (An allowlist
 			// (`tools`) would drop those custom tools, hence the denylist only.)
 			...(commandShell.kind === "powershell" ? { excludeTools: ["bash"] } : {}),
 			customTools: [
@@ -760,8 +668,9 @@ async function initSession(
 							),
 						),
 				createAskUserToolDefinition(),
-				createTodoWriteToolDefinition(),
-				...createBrowserToolDefinitions(),
+				createTodoToolDefinition(() =>
+					Boolean(sessionManager.getSessionFile()),
+				),
 			],
 		});
 	// Bind Desktop ExtensionUIContext so ctx.ui.select/confirm/notify work in Electron.
@@ -783,8 +692,6 @@ async function initSession(
 		extensionBindErrors.push(`bindExtensions failed: ${message}`);
 		console.error(`[pi-desktop] bindExtensions failed: ${message}`);
 	}
-	// Registered but inactive until the user mentions browser / selects elements.
-	syncBuiltinBrowserTools(created, false);
 	const sessionEvents = createSnapshotThrottle((event) => {
 		try {
 			post({ kind: "event", event });
@@ -822,6 +729,8 @@ async function initSession(
 		}
 	});
 	session = created;
+	// 清单存于会话分支的 todo 结果里；worker 重启或空闲销毁后据此恢复。
+	restoreLatestTodoPhases(sessionManager.getBranch());
 	const resources = summarizeSessionResources(
 		services,
 		extensionsResult,
@@ -887,55 +796,21 @@ async function refreshSessionModel(active: AgentSession): Promise<void> {
 	}
 }
 
-type SessionModel = NonNullable<ReturnType<AgentSession["modelRuntime"]["getModel"]>>;
+type SessionModel = NonNullable<AgentSession["model"]>;
 
-const ALL_THINKING_LEVELS = [
-	"off",
-	"minimal",
-	"low",
-	"medium",
-	"high",
-	"xhigh",
-	"max",
-] as const;
-
-/**
- * 全档位开放：Pi 规定 xhigh/max 需要模型显式映射，否则 clamp 到 high。
- * 桌面不跟随该规则——给未映射的推理模型补齐全档位，映射值即原始档位名
- * （各 API 层在缺映射时本就按原始名发送），不改写 models.json。
- */
-function withAllThinkingLevels(model: SessionModel): SessionModel {
-	if (!model.reasoning) return model;
-	const map = model.thinkingLevelMap;
-	if (map) {
-		const missing = ALL_THINKING_LEVELS.filter((level) => !(level in map));
-		if (missing.length === 0) return model;
-		const next: Record<string, string> = {};
-		for (const level of ALL_THINKING_LEVELS) {
-			const mapped = map[level];
-			next[level] = mapped === undefined || mapped === null ? level : (mapped as string);
-		}
-		return { ...model, thinkingLevelMap: next };
-	}
-	const next: Record<string, string> = {};
-	for (const level of ALL_THINKING_LEVELS) next[level] = level;
-	return { ...model, thinkingLevelMap: next };
+function thinkingResult(active: AgentSession): {
+	level: ThinkingLevel;
+	thinkingLevels: ThinkingLevel[];
+} {
+	return {
+		level: active.thinkingLevel,
+		thinkingLevels: active.getAvailableThinkingLevels(),
+	};
 }
 
-/** 在 ModelRuntime 视图上开放全部档位，不落盘、不改用户配置。 */
-function enableAllThinkingLevels(runtime: AgentSession["modelRuntime"]): void {
-	const getModel = runtime.getModel.bind(runtime);
-	const getModels = runtime.getModels.bind(runtime);
-	const getAvailable = runtime.getAvailable.bind(runtime);
-	const getAvailableSnapshot = runtime.getAvailableSnapshot.bind(runtime);
-	runtime.getModel = (providerId, modelId) => {
-		const model = getModel(providerId, modelId);
-		return model ? withAllThinkingLevels(model) : undefined;
-	};
-	runtime.getModels = (providerId) => getModels(providerId).map(withAllThinkingLevels);
-	runtime.getAvailable = async (providerId, options) =>
-		(await getAvailable(providerId, options)).map(withAllThinkingLevels);
-	runtime.getAvailableSnapshot = () => getAvailableSnapshot().map(withAllThinkingLevels);
+function requireThinkingLevel(value: string): ThinkingLevel {
+	if (!isThinkingLevel(value)) throw new Error(`invalid thinking level: ${value}`);
+	return value;
 }
 
 /**
@@ -1078,13 +953,10 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			return;
 		case "prompt": {
 			const active = requireSession();
-			// 新回合开始：渲染进程会重置待办面板，这里的旧清单同步作废。
-			clearLatestTodoWriteRows();
 			let message = command.message;
 			if (command.citations?.length) {
 				message = formatCitationsBlock(command.citations) + message;
 			}
-			applyBuiltinBrowserToolGate(active, message, command.citations);
 			dropOrphanToolResults(active);
 			const images = normalizePromptImages(command.images);
 			if (images?.length && !modelAcceptsImages(active)) {
@@ -1111,7 +983,6 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 		}
 		case "steer": {
 			const active = requireSession();
-			applyBuiltinBrowserToolGate(active, command.message);
 			dropOrphanToolResults(active);
 			const images = normalizePromptImages(command.images);
 			if (images?.length && !modelAcceptsImages(active)) {
@@ -1131,6 +1002,8 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 		case "rollback_user": {
 			const active = requireSession();
 			const ok = await rollbackUserTurn(active, command.userIndex, command.expectText);
+			// 渲染层随编辑重置了面板，被丢弃轮次的清单不能再留给模型。
+			if (ok) clearLatestTodoPhases();
 			post({ kind: "result", id, data: { ok } });
 			return;
 		}
@@ -1143,6 +1016,8 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			const ok = await rollbackTurnEnd(active, command.userIndex, command.expectText);
 			// 停在一半的工具调用仍留在保留的链上，就地补齐。
 			if (ok) {
+				// 渲染层已随回滚重置面板，内存清单必须一起作废。
+				clearLatestTodoPhases();
 				fillCancelledToolResults(active);
 				dropOrphanToolResults(active);
 			}
@@ -1151,7 +1026,6 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 		}
 		case "follow_up": {
 			const active = requireSession();
-			applyBuiltinBrowserToolGate(active, command.message);
 			await active.followUp(command.message);
 			post({ kind: "result", id, data: { ok: true } });
 			return;
@@ -1187,19 +1061,20 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			}
 			await active.setModel(model);
 			emitContextUsage(active);
-			post({ kind: "result", id, data: { ok: true } });
+			post({ kind: "result", id, data: { ok: true, ...thinkingResult(active) } });
 			return;
 		}
 		case "set_thinking_level": {
 			// 重新广播一次，界面上的模型/思考标注立即跟上选择器。
-			// persist 时写入 Pi 全局默认：新建会话（无历史档位记录）据此初始化，
-			// 与 Pi 的 defaultThinkingLevel 语义一致。
 			const active = requireSession();
-			active.setThinkingLevel(command.level as ThinkingLevel, {
-				persist: command.persist === true,
-			});
+			const requested = requireThinkingLevel(command.level);
+			active.setThinkingLevel(requested);
+			// SDK 的 persist 记录请求值；这里只保存裁剪后的实际档位。
+			if (command.persist === true) {
+				active.settingsManager.setDefaultThinkingLevel(active.thinkingLevel);
+			}
 			emitContextUsage(active);
-			post({ kind: "result", id, data: { ok: true, level: active.thinkingLevel } });
+			post({ kind: "result", id, data: { ok: true, ...thinkingResult(active) } });
 			return;
 		}
 		case "compact": {
@@ -1217,6 +1092,7 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 				data: {
 					model: active.model,
 					thinkingLevel: active.thinkingLevel,
+					thinkingLevels: active.getAvailableThinkingLevels(),
 					isStreaming: active.isStreaming,
 					sessionFile: active.sessionFile,
 					sessionId: active.sessionId,
@@ -1230,6 +1106,18 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			});
 			return;
 		}
+		case "fork_user_turn":
+			// pi 的分叉在主进程直接读写会话文件（session-fork.ts），不经 worker。
+			post({ kind: "result", id, error: "unsupported command: fork_user_turn" });
+			return;
+		case "set_session_name":
+			// pi 的改名直接改会话文件，worker 不参与；扣到这里说明调用方传错了。
+			post({ kind: "result", id, error: "unsupported command: set_session_name" });
+			return;
+		case "get_agent_transcript":
+			// 子代理对话是 omp 的 AgentRegistry / transcript 能力，pi 没有对应实现。
+			post({ kind: "result", id, error: "unsupported command: get_agent_transcript" });
+			return;
 		default: {
 			const _exhaustive: never = command;
 			void _exhaustive;

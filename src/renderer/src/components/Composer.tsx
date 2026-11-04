@@ -45,6 +45,7 @@ import { useSendShortcutStore } from "@renderer/stores/send-shortcut";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
+import { useLayoutStore } from "@renderer/stores/layout";
 import { plainTextFromClipboard } from "@renderer/utils/composer-rich";
 import { heuristicSessionTitle } from "@renderer/utils/session-title";
 import {
@@ -58,6 +59,7 @@ import {
   serializeSessionPrefs,
   setPrefKey,
   thinkingFromState,
+  thinkingLevelsFromWorker,
   type SessionPrefs,
 } from "@renderer/utils/session-prefs";
 import {
@@ -99,12 +101,19 @@ import {
 import type { LegacyModeTagKind } from "../../../shared/injected-blocks";
 import {
   filterSlashItems,
+  findOmpSlashCommand,
+  findPiSlashCommand,
   isSlashBuiltinId,
+  OMP_SLASH_COMMANDS,
+  PI_SLASH_COMMANDS,
   parseSlashContext,
   replaceSlashLine,
   skillSlashCommand,
+  type SlashBuiltinId,
+  type SlashCatalog,
   type SlashItem,
 } from "../../../shared/slash-commands";
+import { expandCommandText } from "../../../shared/slash-command-template";
 import {
   parseAtFileContext,
   replaceAtFileMention,
@@ -117,9 +126,11 @@ import {
 } from "@renderer/utils/workspace-path-dnd";
 import { getLocale } from "@renderer/i18n";
 import { useI18n } from "@renderer/i18n/use-i18n";
-import { useMessage } from "@renderer/services/feedback";
+import { useDialog, useMessage } from "@renderer/services/feedback";
 import {
+  DEFAULT_SUPPORTED_THINKING_LEVELS,
   THINKING_LEVELS,
+  clampThinkingLevel,
   isThinkingLevel,
   thinkingLevelLabel,
   type ThinkingLevel,
@@ -152,6 +163,30 @@ const TONE_CLASS: Record<string, string> = {
   danger: "ctxDanger",
 };
 
+
+/** 会改动会话、文件或账户状态，执行前需要确认。 */
+const DANGEROUS_OMP_COMMANDS: Record<string, true> = {
+  marketplace: true,
+  install: true,
+  uninstall: true,
+  upgrade: true,
+  update: true,
+  login: true,
+  logout: true,
+  quit: true,
+  exit: true,
+  delete: true,
+  cleanse: true,
+  reset: true,
+  remove: true,
+  "remove-dir": true,
+  "forget-approvals": true,
+  restart: true,
+  kill: true,
+  stop: true,
+  move: true,
+  shake: true,
+};
 function useLatest<T>(initial: T): Latest<T> {
   const [, setValue] = useState(initial);
   const ref = useRef(initial);
@@ -186,6 +221,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   const t = useI18n();
   const composer = useComposerStore();
   const messageApi = useMessage();
+  const dialog = useDialog();
 
   const chatRunning = useChatStore((s) => s.activeRunning);
   const chatStopping = useChatStore((s) => s.activeStopping);
@@ -206,12 +242,13 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     return s.sessions.find((x) => x.id === id)?.status ?? null;
   });
   const workspaceRoot = useWorkspaceStore((s) => s.root);
+  const agentBackend = useWorkspaceStore((s) => s.backend);
   const showCompactButton = useAppearanceStore((s) => s.showCompactButton);
   const queueItems = useSendQueueStore((s) => s.activeItems);
   const queueEditingId = useSendQueueStore((s) => s.editingId);
 
   const availableModels = useLatest<ModelSelectOption[]>([]);
-  /** 模型 → 可用思考档位；缺省表示全部可用。 */
+  /** 模型 → 真实可用思考档位；未加载的模型回退到 Pi 默认档位。 */
   const modelThinkingLevels = useLatest<Record<string, ThinkingLevel[] | undefined>>({});
   const selectedModel = useLatest<string | null>(null);
   const thinking = useLatest<ThinkingLevel>("medium");
@@ -219,6 +256,10 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     parseSessionPrefs(prefsApi.getItem(SESSION_PREFS_KEY)),
   );
   const slashSkills = useLatest<{ name: string; description: string }[]>([]);
+  const slashCatalog = useLatest<SlashCatalog>({
+    skillCommands: false,
+    commands: [],
+  });
   const atFileItems = useLatest<AtFileItem[]>([]);
   const atFileLoading = useLatest(false);
   const skillsCount = useLatest<number | null>(null);
@@ -239,6 +280,9 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   const drainInFlightRef = useRef<string | null>(null);
   const slashSkillsCachedForRef = useRef<string | null>(null);
   const slashSkillsLoadingRef = useRef(false);
+  const slashCatalogCachedForRef = useRef<string | null>(null);
+  const slashCatalogLoadingRef = useRef(false);
+  const slashCatalogPendingRef = useRef(false);
   const atFileSearchGenRef = useRef(0);
   const atFileRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skillsCountCachedForRef = useRef<string | null>(null);
@@ -301,6 +345,11 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     result: unknown,
     key: string | null = currentPrefsKey(),
   ): void {
+    const modelKey = selectedModel.ref.current;
+    const levels = thinkingLevelsFromWorker(result, isThinkingLevel);
+    if (levels && modelKey) {
+      modelThinkingLevels.set({ ...modelThinkingLevels.ref.current, [modelKey]: levels });
+    }
     // worker 未回传实际值时不动界面，只按用户选择记忆。
     const { actual, clamped } = resolveThinkingResult(requested, result, isThinkingLevel);
     if (!clamped) {
@@ -308,6 +357,13 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       return;
     }
     adoptThinking(actual, key);
+  }
+
+  /** 当前模型的真实可用档位；数据缺失时按 Pi 默认，空集合按 off 处理。 */
+  function allowedThinkingLevels(model: string | null): ThinkingLevel[] {
+    const allowed = model ? modelThinkingLevels.ref.current[model] : undefined;
+    if (allowed === undefined) return [...DEFAULT_SUPPORTED_THINKING_LEVELS];
+    return allowed.length ? allowed : ["off"];
   }
 
   function rememberModel(sessionId: string, key: string): void {
@@ -325,13 +381,18 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     updatePrefs(next);
   }
 
-  const thinkingMenu: MenuProps["items"] = thinkingLevelsFor(selectedModel.value).map((o) => ({
+  const thinkingOptions = thinkingLevelsFor(selectedModel.value);
+  const effectiveThinking = clampThinkingLevel(
+    thinking.value,
+    thinkingOptions.map((option) => option.value),
+  );
+  const thinkingMenu: MenuProps["items"] = thinkingOptions.map((o) => ({
     label: o.label,
     key: o.value,
-    style: o.value === thinking.value ? SELECTED_MODEL_STYLE : undefined,
+    style: o.value === effectiveThinking ? SELECTED_MODEL_STYLE : undefined,
   }));
 
-  const thinkingLabel = thinkingLevelLabel(thinking.value) ?? "Medium";
+  const thinkingLabel = thinkingLevelLabel(effectiveThinking) ?? "Medium";
 
   const modelMenu = buildModelMenu(availableModels.value, selectedModel.value);
 
@@ -602,7 +663,8 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     const store = useComposerStore.getState();
     const chipText = store.formatChipsForMessage();
     const displayText = store.draft.trim();
-    const body = [displayText, chipText].filter(Boolean).join("\n\n");
+    const agentDraft = expandCommandText(displayText, slashCatalog.value.commands);
+    const body = [agentDraft, chipText].filter(Boolean).join("\n\n");
     let text = body;
     // Bind cached image paths to the prompt (hidden in the editor): text-only
     // models can locate the files, vision models still get the base64 content.
@@ -966,16 +1028,30 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     // 否则工具栏显示的模式会与实际下发的不一致。
     const snap = snapshotComposerPayload();
 
+    // Bare builtin slash (e.g. `/compact`) — run locally, do not prompt the model.
+    // 必须排在引导分支前：运行中的输入仍是命令，不能被当成 steer 文本发给模型。
+    if (mode === "prompt" && (await tryConsumeBuiltinSlashDraft())) return;
+
+    const clientSlash = bareOmpClientSlashDraft();
+    if (mode === "prompt" && clientSlash) {
+      runOmpClientSlash(clientSlash);
+      return;
+    }
+    if (mode === "prompt" && runBarePiCommand()) return;
+
     // While agent is running, a plain send becomes guidance for the running turn
     // (steer) instead of waiting for the next turn. A pending re-edit is not
     // guidance: it truncates the turn, so it must go through the normal send.
-    if (isRunning() && mode === "prompt" && !isEditingPublished) {
+    // omp 内建命令必须进入 worker 的命令通道，不能被 steer。
+    if (
+      isRunning() &&
+      mode === "prompt" &&
+      !isEditingPublished &&
+      !bareOmpCommandDraft()
+    ) {
       await steerFromComposer();
       return;
     }
-
-    // Bare builtin slash (e.g. `/compact`) — run locally, do not prompt the model.
-    if (mode === "prompt" && (await tryConsumeBuiltinSlashDraft())) return;
 
     if (!snap) return;
 
@@ -1013,7 +1089,11 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       // 不等 worker 冷启动：设置与 prompt 依次下发，主进程保证设置先落地，
       // 用户气泡因此立即上屏。
       void applySelectedModel({ allowStart: true });
-      const level = thinking.ref.current;
+      const level = clampThinkingLevel(
+        thinking.ref.current,
+        allowedThinkingLevels(selectedModel.ref.current),
+      );
+      if (level !== thinking.ref.current) adoptThinking(level, id);
       void useSessionsStore
         .getState()
         .sendCommand(id, {
@@ -1067,7 +1147,13 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
         if (ctx) useComposerStore.getState().setDraft(draft.slice(0, ctx.slashIndex));
         return;
       }
-      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      if (
+        event.key === "Enter" &&
+        !event.shiftKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.isComposing
+      ) {
         event.preventDefault();
         slashMenuRef.current?.confirm();
         return;
@@ -1097,7 +1183,13 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
         }
         return;
       }
-      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      if (
+        event.key === "Enter" &&
+        !event.shiftKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.isComposing
+      ) {
         event.preventDefault();
         atFileMenuRef.current?.confirm();
         return;
@@ -1123,7 +1215,27 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       saveEditingToQueue();
       return;
     }
+    // 菜单未覆盖的裸内置命令也要执行，运行中不能进入发送队列。
+    const builtin = bareBuiltinSlashDraft();
+    if (builtin) {
+      useComposerStore.getState().clear();
+      void runSlashBuiltin(builtin);
+      return;
+    }
+    const clientSlash = bareOmpClientSlashDraft();
+    if (clientSlash) {
+      runOmpClientSlash(clientSlash);
+      return;
+    }
+    if (runBarePiCommand()) return;
+    if (confirmDangerousOmpCommand()) return;
     if (isRunning()) {
+      if (
+        (bareOmpCommandDraft() || bareSkillCommandDraft()) &&
+        sendBareOmpCommandNow()
+      ) {
+        return;
+      }
       enqueueFromComposer();
       return;
     }
@@ -1147,11 +1259,34 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       saveEditingToQueue();
       return;
     }
+    // 运行中点击发送也先执行裸内置命令，不能被排进发送队列。
+    if (!useSendQueueStore.getState().editingId) {
+      const builtin = bareBuiltinSlashDraft();
+      if (builtin) {
+        useComposerStore.getState().clear();
+        void runSlashBuiltin(builtin);
+        return;
+      }
+      const clientSlash = bareOmpClientSlashDraft();
+      if (clientSlash) {
+        runOmpClientSlash(clientSlash);
+        return;
+      }
+      if (runBarePiCommand()) return;
+      if (confirmDangerousOmpCommand()) return;
+    }
     if (isRunning() && !hasSendContent) {
       void onAbort();
       return;
     }
     if (isRunning() && hasSendContent) {
+      if (
+        !useSendQueueStore.getState().editingId &&
+        (bareOmpCommandDraft() || bareSkillCommandDraft()) &&
+        sendBareOmpCommandNow()
+      ) {
+        return;
+      }
       onQueueSendClick();
       return;
     }
@@ -1208,18 +1343,99 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     },
   ];
 
-  const slashSkillItems: SlashItem[] = slashSkills.value.map((s) => ({
-    id: `skill:${s.name}`,
-    kind: "skill" as const,
-    command: skillSlashCommand(s.name),
-    title: `/${skillSlashCommand(s.name)}`,
-    description: s.description || t.slashSkillFallbackDesc,
-  }));
+  const slashSkillItems: SlashItem[] = slashCatalog.value.skillCommands
+    ? slashSkills.value.map((s) => ({
+        id: `skill:${s.name}`,
+        kind: "skill" as const,
+        command: skillSlashCommand(s.name),
+        title: `/${skillSlashCommand(s.name)}`,
+        description: s.description || t.slashSkillFallbackDesc,
+      }))
+    : [];
+
+  const slashCommandItems: SlashItem[] = slashCatalog.value.commands
+    .filter((command) => !isSlashBuiltinId(command.name))
+    .map((command) => ({
+      id: `command:${command.name}`,
+      kind: "command" as const,
+      command: command.name,
+      title: `/${command.name}`,
+      description: command.description || t.slashSkillFallbackDesc,
+    }));
+
+  /** omp 内建命令只在 omp 后端出现；执行由 worker 负责。 */
+  const ompSlashDescriptions: Record<string, string> = {
+    security: t.slashOmpSecurityDesc,
+    settings: t.slashOmpSettingsDesc,
+    setup: t.slashOmpSetupDesc,
+    plan: t.slashOmpPlanDesc,
+    "plan-review": t.slashOmpPlanReviewDesc,
+    vibe: t.slashOmpVibeDesc,
+    goal: t.slashOmpGoalDesc,
+    "guided-goal": t.slashOmpGuidedGoalDesc,
+    loop: t.slashOmpLoopDesc,
+  };
+  const slashOmpItems: SlashItem[] =
+    agentBackend === "omp"
+      ? OMP_SLASH_COMMANDS.filter(
+          (entry) => !isSlashBuiltinId(entry.name),
+        ).map((entry) => ({
+          id: `omp:${entry.name}`,
+          kind: "omp" as const,
+          command: entry.name,
+          title: `/${entry.name}`,
+          description:
+            ompSlashDescriptions[entry.name] ??
+            (entry.hint
+              ? `${entry.description} ${entry.hint}`
+              : entry.description),
+        }))
+      : [];
+
+  /** pi 内建命令只在 pi 后端出现；执行由渲染层映射或提示。 */
+  const slashPiItems: SlashItem[] =
+    agentBackend === "pi"
+      ? PI_SLASH_COMMANDS.filter(
+          (entry) => !isSlashBuiltinId(entry.name),
+        ).map((entry) => ({
+          id: `pi:${entry.name}`,
+          kind: "pi" as const,
+          command: entry.name,
+          title: `/${entry.name}`,
+          description: entry.hint
+            ? `${entry.description} ${entry.hint}`
+            : entry.description,
+        }))
+      : [];
+
+  /** 技能命令关闭时在菜单里直接给出开启入口，避免菜单只剩内置三项。 */
+  const slashActionItems: SlashItem[] =
+    !slashCatalog.value.skillCommands && slashSkills.value.length > 0
+      ? [
+          {
+            id: "action:enable-skill-commands",
+            kind: "action" as const,
+            command: "",
+            title: t.slashEnableSkillCommands,
+            description: t.slashEnableSkillCommandsDesc,
+          },
+        ]
+      : [];
 
   const slashContext = parseSlashContext(composer.draft);
 
   const slashItems: SlashItem[] = slashContext
-    ? filterSlashItems([...slashBuiltins, ...slashSkillItems], slashContext.query)
+    ? filterSlashItems(
+        [
+          ...slashBuiltins,
+          ...slashOmpItems,
+          ...slashPiItems,
+          ...slashCommandItems,
+          ...slashSkillItems,
+          ...slashActionItems,
+        ],
+        slashContext.query,
+      )
     : [];
 
   const slashMenuOpen = Boolean(slashContext) && slashItems.length > 0;
@@ -1323,6 +1539,33 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     }
   }
 
+  async function ensureSlashCatalog(force = false): Promise<void> {
+    const root = useWorkspaceStore.getState().root ?? "";
+    if (!force && slashCatalogCachedForRef.current === root) return;
+    if (slashCatalogLoadingRef.current) {
+      if (force) slashCatalogPendingRef.current = true;
+      return;
+    }
+    slashCatalogLoadingRef.current = true;
+    try {
+      const data = await window.api.slashCommands.list(root || undefined);
+      if ((useWorkspaceStore.getState().root ?? "") !== root) {
+        slashCatalogPendingRef.current = true;
+        return;
+      }
+      slashCatalog.set(data);
+      slashCatalogCachedForRef.current = root;
+    } catch {
+      slashCatalog.set({ skillCommands: true, commands: [] });
+    } finally {
+      slashCatalogLoadingRef.current = false;
+      if (slashCatalogPendingRef.current) {
+        slashCatalogPendingRef.current = false;
+        void ensureSlashCatalog(true);
+      }
+    }
+  }
+
   async function runSlashBuiltin(id: string): Promise<void> {
     if (!isSlashBuiltinId(id)) return;
     switch (id) {
@@ -1342,8 +1585,12 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
           messageApi.warning(t.slashNeedSession);
           return;
         }
-        await useSessionsStore.getState().sendCommand(idSession, { type: "compact" });
-        messageApi.success(t.compactDone);
+        try {
+          await useSessionsStore.getState().sendCommand(idSession, { type: "compact" });
+          messageApi.success(t.compactDone);
+        } catch (err) {
+          messageApi.error(err instanceof Error ? err.message : String(err));
+        }
         return;
       }
       case "model": {
@@ -1375,26 +1622,194 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   async function onSlashSelect(item: SlashItem): Promise<void> {
     const ctx = slashContext;
     if (!ctx) return;
+    if (item.kind === "action") {
+      useComposerStore.getState().clear();
+      if (item.id === "action:enable-skill-commands") {
+        try {
+          await window.api.ompSettings.save({ "skills.enableSkillCommands": true });
+          slashCatalogCachedForRef.current = null;
+          await ensureSlashCatalog(true);
+          messageApi.success(t.slashEnableSkillCommandsDone);
+        } catch (err) {
+          messageApi.error(err instanceof Error ? err.message : String(err));
+        }
+      }
+      return;
+    }
     if (item.kind === "builtin") {
       useComposerStore.getState().clear();
       await runSlashBuiltin(item.id);
       return;
     }
-    // Skills: leave `/skill:name` so AgentSession expands on send; trailing space for optional args.
+    // 命令与技能都留原文：命令发送前展开模板，技能由 AgentSession 展开。
     const draft = useComposerStore.getState().draft;
     useComposerStore
       .getState()
       .setDraft(replaceSlashLine(draft, ctx, item.command, true));
     await nextFrame();
-    focusDraft();
+    // 重建编辑器后光标会落到开头，参数必须接在命令后面。
+    focusDraftAtEnd();
+  }
+
+  /** 整个草稿只有一个内置斜杠命令时返回它。 */
+  function bareBuiltinSlashDraft(): SlashBuiltinId | null {
+    const raw = useComposerStore.getState().draft.trim();
+    if (!raw.startsWith("/") || raw.includes("\n")) return null;
+    const body = raw.slice(1).trim();
+    return isSlashBuiltinId(body) ? body : null;
+  }
+
+  /** 草稿是 omp 内建命令时返回归一化命令名（别名按主名）。 */
+  function bareOmpCommandDraft(): string | null {
+    if (agentBackend !== "omp") return null;
+    const raw = useComposerStore.getState().draft.trim();
+    if (!raw.startsWith("/") || raw.includes("\n")) return null;
+    const name = raw.slice(1).split(/\s+/, 1)[0] ?? "";
+    const command = findOmpSlashCommand(name)?.name;
+    if (!command || isSlashBuiltinId(command)) return null;
+    return command;
+  }
+
+  /** 草稿是 pi 内建命令时返回命令名。 */
+  function barePiCommandDraft(): string | null {
+    if (agentBackend !== "pi") return null;
+    const raw = useComposerStore.getState().draft.trim();
+    if (!raw.startsWith("/") || raw.includes("\n")) return null;
+    const name = raw.slice(1).split(/\s+/, 1)[0] ?? "";
+    return findPiSlashCommand(name)?.name ?? null;
+  }
+
+  async function runPiCommandDraft(command: string): Promise<void> {
+    const raw = useComposerStore.getState().draft.trim();
+    const args = raw.slice(1).split(/\s+/).slice(1).join(" ").trim();
+    const store = useComposerStore.getState();
+    switch (command) {
+      case "settings":
+      case "login":
+      case "logout":
+        store.clear();
+        useLayoutStore.getState().openCustomize("models");
+        return;
+      case "hotkeys":
+        store.clear();
+        useLayoutStore.getState().openCustomize("keys");
+        return;
+      case "session": {
+        const id = currentSessionId();
+        const row = id
+          ? useSessionsStore.getState().sessions.find((s) => s.id === id)
+          : undefined;
+        store.clear();
+        if (!id) messageApi.warning(t.slashNeedSession);
+        else messageApi.info(`Session: ${id}${row?.name ? ` · ${row.name}` : ""}`);
+        return;
+      }
+      case "copy": {
+        const messages = useChatStore.getState().activeMessages;
+        const last = [...messages]
+          .reverse()
+          .find((m) => m.role === "assistant" && m.text.trim());
+        const text = last?.role === "assistant" ? last.text : "";
+        store.clear();
+        if (!text.trim()) {
+          messageApi.warning(t.slashPiNothingToCopy);
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(text);
+          messageApi.success(t.slashPiCopied);
+        } catch (err) {
+          messageApi.error(err instanceof Error ? err.message : String(err));
+        }
+        return;
+      }
+      case "name": {
+        if (!args) {
+          messageApi.warning(t.slashPiNameUsage);
+          return;
+        }
+        const id = currentSessionId();
+        const root = useWorkspaceStore.getState().root;
+        if (!id || !root) {
+          messageApi.warning(t.slashNeedSession);
+          return;
+        }
+        store.clear();
+        await useSessionsStore.getState().renameSession(id, root, args);
+        return;
+      }
+      default:
+        store.clear();
+        messageApi.info(t.slashPiTerminalOnly);
+        return;
+    }
+  }
+
+  /** 接管草稿里的 pi 命令；返回 true 表示已处理。 */
+  function runBarePiCommand(): boolean {
+    const command = barePiCommandDraft();
+    if (!command) return false;
+    void runPiCommandDraft(command);
+    return true;
+  }
+
+  /** 危险命令执行前确认；返回 true 表示已接管本次发送。 */
+  function confirmDangerousOmpCommand(): boolean {
+    const command = bareOmpCommandDraft();
+    if (!command || !DANGEROUS_OMP_COMMANDS[command]) return false;
+    if (useSendQueueStore.getState().editingId) return false;
+    dialog.warning({
+      title: t.slashDangerousTitle.replace("{command}", command),
+      content: t.slashDangerousBody,
+      positiveText: t.slashDangerousRun,
+      negativeText: t.cancel,
+      onPositiveClick: () => {
+        if (isRunning()) sendBareOmpCommandNow();
+        else void submit("prompt");
+      },
+    });
+    return true;
+  }
+
+  /** 运行中的 `/skill:name` 也要即时 steer，不能进入发送队列。 */
+  function bareSkillCommandDraft(): boolean {
+    const raw = useComposerStore.getState().draft.trim();
+    return raw.startsWith("/skill:") && !raw.includes("\n");
+  }
+
+  /** `/settings`、`/setup`（含 providers 别名）只打开桌面设置页。 */
+  function bareOmpClientSlashDraft(): "settings" | "setup" | null {
+    const command = bareOmpCommandDraft();
+    return command === "settings" || command === "setup" ? command : null;
+  }
+
+  function runOmpClientSlash(command: "settings" | "setup"): void {
+    useComposerStore.getState().clear();
+    useLayoutStore
+      .getState()
+      .openCustomize(command === "setup" ? "models" : "general");
+  }
+
+  /** 运行中绕过发送队列，直接把命令交给 worker。 */
+  function sendBareOmpCommandNow(): boolean {
+    const id = currentSessionId();
+    const state = useComposerStore.getState();
+    const text = state.draft.trim();
+    if (!id || state.chips.length || state.images.length || !text) return false;
+    state.clear();
+    void useSessionsStore
+      .getState()
+      .sendCommand(id, { type: "prompt", message: text })
+      .catch((err: unknown) => {
+        messageApi.error(err instanceof Error ? err.message : String(err));
+      });
+    return true;
   }
 
   /** If the whole draft is a bare builtin slash, run it instead of prompting. */
   async function tryConsumeBuiltinSlashDraft(): Promise<boolean> {
-    const raw = useComposerStore.getState().draft.trim();
-    if (!raw.startsWith("/") || raw.includes("\n")) return false;
-    const body = raw.slice(1).trim();
-    if (!isSlashBuiltinId(body)) return false;
+    const body = bareBuiltinSlashDraft();
+    if (!body) return false;
     useComposerStore.getState().clear();
     await runSlashBuiltin(body);
     return true;
@@ -1441,19 +1856,40 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   }
 
   async function onThinkingChange(value: string | number): Promise<void> {
-    const level = String(value) as ThinkingLevel;
-    thinking.set(level);
+    const level = String(value);
+    if (!isThinkingLevel(level)) return;
+    if (!allowedThinkingLevels(selectedModel.ref.current).includes(level)) return;
+    const previous = thinking.ref.current;
     const key = currentPrefsKey();
-    if (key) rememberThinking(key, level);
+    adoptThinking(level, key);
     const id = currentSessionId();
     if (!id) return;
-    // persist: 写入 Pi 全局默认，新会话（无历史记录）据此初始化。
-    const result = await useSessionsStore.getState().sendCommand(id, {
-      type: "set_thinking_level",
-      level,
-      persist: true,
-    });
-    adoptThinkingResult(level, result, key);
+    let result: unknown;
+    try {
+      result = await useSessionsStore.getState().sendCommand(id, {
+        type: "set_thinking_level",
+        level,
+        persist: true,
+      });
+    } catch (err) {
+      adoptThinking(previous, key);
+      const text = err instanceof Error ? err.message : String(err);
+      messageApi.error(formatLlmError(text, getLocale()));
+      return;
+    }
+    const { actual } = resolveThinkingResult(level, result, isThinkingLevel);
+    adoptThinkingResult(actual, result, key);
+    try {
+      // Pi 的首次 persist 记录请求值；再用实际档位覆盖一次。
+      const persisted = await useSessionsStore.getState().sendCommand(id, {
+        type: "set_thinking_level",
+        level: actual,
+        persist: true,
+      });
+      adoptThinkingResult(actual, persisted, key);
+    } catch {
+      // 档位已生效，仅默认值未保存；不回滚界面。
+    }
   }
 
   async function refreshModels(): Promise<void> {
@@ -1545,12 +1981,18 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       ) {
         selectedModel.set(flat[0]?.value ?? null);
       }
+      const desired = clampThinkingLevel(
+        thinking.ref.current,
+        allowedThinkingLevels(selectedModel.ref.current),
+      );
+      if (desired !== thinking.ref.current) adoptThinking(desired, key);
       return;
     }
 
     // Prefer live worker state when agent is already running (never cold-start here).
     let workerKey: string | null = null;
     let workerThinking: ThinkingLevel | null = null;
+    let workerLevels: ThinkingLevel[] | null = null;
     try {
       const state = await useSessionsStore.getState().tryCommand(realId, {
         type: "get_state",
@@ -1558,6 +2000,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       if (state !== undefined) {
         workerKey = modelKeyFromState(state);
         workerThinking = thinkingFromState(state, isThinkingLevel);
+        workerLevels = thinkingLevelsFromWorker(state, isThinkingLevel);
         useSessionsStore.getState().applyContextFromState(realId, state);
       }
     } catch {
@@ -1594,13 +2037,22 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     } else if (workerThinking) {
       adoptThinking(workerThinking, realId);
     }
-    if (workerThinking !== null && workerThinking !== thinking.ref.current) {
+    const modelKeyNow = selectedModel.ref.current;
+    if (workerLevels && modelKeyNow && workerKey === modelKeyNow) {
+      modelThinkingLevels.set({ ...modelThinkingLevels.ref.current, [modelKeyNow]: workerLevels });
+    }
+    const desired = clampThinkingLevel(
+      thinking.ref.current,
+      allowedThinkingLevels(modelKeyNow),
+    );
+    if (desired !== thinking.ref.current) adoptThinking(desired, realId);
+    if (workerThinking !== null && workerThinking !== desired) {
       try {
         const result = await useSessionsStore.getState().tryCommand(realId, {
           type: "set_thinking_level",
-          level: thinking.ref.current,
+          level: desired,
         });
-        adoptThinkingResult(thinking.ref.current, result, realId);
+        adoptThinkingResult(desired, result, realId);
       } catch {
         // ignore thinking sync failures
       }
@@ -1663,11 +2115,25 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     // remembered for the next prompt), so the picker must not silently swallow
     // the click.
     const key = String(value);
+    const requested = thinking.ref.current;
     selectedModel.set(key);
     appliedModelForSessionRef.current = null;
     const prefsKeyValue = currentPrefsKey();
     if (prefsKeyValue && key) rememberModel(prefsKeyValue, key);
     await applySelectedModel({ allowStart: false });
+    const desired = clampThinkingLevel(requested, allowedThinkingLevels(key));
+    adoptThinking(desired, prefsKeyValue);
+    const id = currentSessionId();
+    if (!id) return;
+    try {
+      const result = await useSessionsStore.getState().tryCommand(id, {
+        type: "set_thinking_level",
+        level: desired,
+      });
+      if (result !== undefined) adoptThinkingResult(desired, result, prefsKeyValue);
+    } catch {
+      // 保持本地选择；下一次发送会重新下发。
+    }
   }
 
   /** 快捷键：循环到下一个模型 / 思考等级。 */
@@ -1679,16 +2145,19 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     if (next) void onModelChange(next.value);
   }, [availableModels, selectedModel]);
 
-  /** 思考档位菜单只列当前模型可用的档位；未配置映射时保持全档位。 */
+  /** 思考档位菜单只列当前模型真实可用的档位。 */
   function thinkingLevelsFor(model: string | null): { value: ThinkingLevel; label: string }[] {
-    const allowed = model ? modelThinkingLevels.ref.current[model] : undefined;
-    if (!allowed?.length) return THINKING_LEVELS;
+    const allowed = allowedThinkingLevels(model);
     return THINKING_LEVELS.filter((level) => allowed.includes(level.value));
   }
 
   const cycleThinking = useCallback((): void => {
     const levels = thinkingLevelsFor(selectedModel.ref.current);
-    const index = levels.findIndex((o) => o.value === thinking.ref.current);
+    const current = clampThinkingLevel(
+      thinking.ref.current,
+      levels.map((o) => o.value),
+    );
+    const index = levels.findIndex((o) => o.value === current);
     const next = levels[(index + 1) % levels.length];
     if (next) void onThinkingChange(next.value);
   }, [thinking, selectedModel]);
@@ -1873,9 +2342,21 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   }, [atFileContext?.atIndex, atFileContext?.query]);
 
   useEffect(() => {
+    void ensureSlashCatalog(true);
+  }, [workspaceRoot]);
+
+  useEffect(() => {
     if (!slashContext) return;
     void ensureSlashSkills();
+    void ensureSlashCatalog();
   }, [slashContext?.slashIndex, slashContext?.query]);
+
+  useEffect(() => {
+    return window.api.ompSettings.onChanged(() => {
+      slashCatalogCachedForRef.current = null;
+      void ensureSlashCatalog(true);
+    });
+  }, []);
 
   useEffect(() => {
     void window.api.window.platform().then((p) => {

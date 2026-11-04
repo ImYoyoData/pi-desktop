@@ -4,9 +4,12 @@ import type { ChatMessage } from "../stores/chat-reducer";
 import { safeStringify } from "./safe-json";
 import { languageFromPath } from "./editor-lang";
 import { parseGrepOutput, type GrepFileHits } from "./grep-card";
+import { parseDetailTool, type DetailToolCard } from "./tool-detail";
+import { isRecord, toolCommandFromArgs, toolPathFromArgs } from "./tool-args";
 import {
   isTodoToolName,
-  normalizeTodoRows,
+  todoActionFromPayload,
+  todoItemsFromToolArgs,
   todosFromToolArgs,
   todosFromToolDetails,
 } from "./session-todos";
@@ -49,6 +52,7 @@ export function toolCardFor(msg: ToolMessage): ToolCard {
       card = parseToolCard(msg.toolName, msg.args, msg.result, {
         isError: msg.isError,
         durationMs: typeof msg.durationMs === "number" ? msg.durationMs : undefined,
+        startedAt: typeof msg.startedAt === "number" ? msg.startedAt : undefined,
       });
     } catch {
       card = fallbackToolCard(msg);
@@ -130,7 +134,85 @@ export type TodoToolCard = {
   kind: "todo";
   action: string | null;
   items: Array<{ id: string; text: string; done: boolean }>;
+  /** 全量清单的条目数；增量操作没有全量快照时为 null（进度没有意义）。 */
+  total: number | null;
   summary: string | null;
+};
+
+/** omp 为后台任务生成的实时活动视图（JobWidgetView 的子集）。 */
+export type WaitWidgetBlock =
+  | {
+      kind: "spark";
+      label: string;
+      values: number[];
+      min: number;
+      max: number;
+      last: string;
+      tone: string | null;
+    }
+  | {
+      kind: "bars";
+      label: string;
+      max: number;
+      items: Array<{ label: string; value: number; text: string; tone: string | null }>;
+    }
+  | { kind: "meter"; label: string; value: number; text: string; tone: string | null }
+  | {
+      kind: "stat";
+      items: Array<{ label: string; text: string; tone: string | null; trend: string | null }>;
+    }
+  | {
+      kind: "grid";
+      label: string;
+      items: Array<{ label: string; text: string; tone: string | null }>;
+    }
+  | { kind: "text"; text: string };
+
+export type WaitWidget = {
+  title: string;
+  headline: { text: string; label: string | null; trend: string | null; tone: string | null } | null;
+  /** 任务此刻在做什么：task 的自主阶段，或 bash 的最后一行输出。 */
+  stage: string | null;
+  blocks: WaitWidgetBlock[];
+  state: "authoring" | "live" | "fallback";
+};
+
+/** wait 工具等待的一个后台任务（bash / task / eval），字段取自 omp 的 JobSnapshot。 */
+export type WaitJob = {
+  id: string;
+  type: string;
+  status: "running" | "completed" | "failed" | "cancelled";
+  label: string;
+  intent: string | null;
+  /** task 类型对应的子代理 id（agentUrlId 优先），用于读取对话。 */
+  agentId: string | null;
+  durationMs: number;
+  exitCode: number | null;
+  completionPercent: number | null;
+  stage: string | null;
+  requests: number | null;
+  cost: number | null;
+  contextTokens: number | null;
+  contextWindow: number | null;
+  model: string | null;
+  resultText: string | null;
+  errorText: string | null;
+  widget: WaitWidget | null;
+};
+
+export type WaitToolCard = {
+  kind: "wait";
+  /** 本轮 wait 正在等 / 等待过的后台任务；omp 每 500ms 推一次快照。 */
+  jobs: WaitJob[];
+  /** 工具结果文本：等待结束时的说明，或空等待的原因。 */
+  text: string | null;
+  /** 实时回合的调用开始时间，用于累计等待时长。 */
+  startedAt: number | null;
+  /** 这份任务快照被解析的时刻：两次推送之间按它外推任务耗时。 */
+  observedAt: number | null;
+  /** 等待被消息或中断提前结束。 */
+  interrupted: boolean;
+  durationMs?: number | null;
 };
 
 export type GenericToolCard = {
@@ -155,11 +237,9 @@ export type ToolCard =
   | BashToolCard
   | GrepToolCard
   | TodoToolCard
+  | WaitToolCard
+  | DetailToolCard
   | GenericToolCard;
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return Boolean(v) && typeof v === "object" && !Array.isArray(v);
-}
 
 /** 工具结果里最多渲染的图片块数（生成图可能很大，避免撑爆内存）。 */
 const MAX_TOOL_RESULT_IMAGES = 8;
@@ -235,26 +315,6 @@ function stringArg(args: unknown, key: string): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function pathFromArgs(args: unknown): string | null {
-  if (!isRecord(args)) return null;
-  const p = args.path ?? args.file_path ?? args.filePath;
-  return typeof p === "string" && p.trim() ? p.trim() : null;
-}
-
-export function toolPathFromArgs(args: unknown): string | null {
-  return pathFromArgs(args);
-}
-
-function commandFromArgs(args: unknown): string | null {
-  if (!isRecord(args)) return null;
-  const c = args.command ?? args.cmd;
-  return typeof c === "string" && c.trim() ? c.trim() : null;
-}
-
-export function toolCommandFromArgs(args: unknown): string | null {
-  return commandFromArgs(args);
-}
-
 /** 通用工具的参数里最能说明「干了什么」的字段，按优先级排列。 */
 const GENERIC_TARGET_KEYS = [
   "path",
@@ -268,11 +328,6 @@ const GENERIC_TARGET_KEYS = [
   "prompt",
   "description",
 ];
-
-/** 单行摘要截断：超长就截断加省略号，不给半截 token 之外的额外处理。 */
-export function clipText(text: string, max = 64): string {
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
-}
 
 /** 摘要截断：压掉换行、在词边界断开，避免出现半截 token。 */
 function truncateSummary(text: string, max = 64): string {
@@ -470,7 +525,7 @@ export function parseFileToolCard(
   opts?: { isError?: boolean; durationMs?: number },
 ): FileToolCard {
   const name = toolName.toLowerCase();
-  const path = pathFromArgs(args);
+  const path = toolPathFromArgs(args);
   const { details, text } = extractToolResult(result);
 
   // Blocked tools (e.g. desktop security deny) should surface the reason, not a fake diff.
@@ -545,7 +600,7 @@ export function parseReadToolCard(
   result: unknown,
   opts?: { durationMs?: number },
 ): ReadToolCard {
-  const path = pathFromArgs(args);
+  const path = toolPathFromArgs(args);
   const { details, text } = extractToolResult(result);
   const trunc = truncationFromDetails(details);
   const notice = parseLineRangeNotice(text);
@@ -624,7 +679,7 @@ export function parseBashToolCard(
   const exitCode = structuredNumber(structured, "exit_code") ?? parseExitCode(text);
   return {
     kind: "bash",
-    command: commandFromArgs(args),
+    command: toolCommandFromArgs(args),
     linesRead,
     totalLines: trunc.totalLines ?? notice.totalLines,
     truncated: trunc.truncated,
@@ -643,11 +698,12 @@ export function parseGrepToolCard(
   opts?: { durationMs?: number },
 ): GrepToolCard {
   const { text } = extractToolResult(result);
-  const parsed = parseGrepOutput(text);
+  const searchPath = toolPathFromArgs(args);
+  const parsed = parseGrepOutput(text, searchPath);
   return {
     kind: "grep",
     pattern: stringArg(args, "pattern"),
-    searchPath: pathFromArgs(args),
+    searchPath,
     glob: stringArg(args, "glob"),
     ignoreCase: isRecord(args) && args.ignoreCase === true,
     literal: isRecord(args) && args.literal === true,
@@ -660,36 +716,279 @@ export function parseGrepToolCard(
   };
 }
 
+/** 卡片动作：Cursor 用 action，omp 用 op；两边都拿不到时返回 null。 */
+function todoActionFor(args: unknown, details: unknown): string | null {
+	if (isRecord(args) && typeof args.action === "string") return args.action;
+	const fromDetails = details ? todoActionFromPayload(details) : undefined;
+	if (typeof fromDetails === "string") return fromDetails;
+	if (isRecord(args) && typeof args.op === "string") return args.op;
+	return null;
+}
+
 export function parseTodoToolCard(args: unknown, result: unknown): TodoToolCard {
-  const { details, text } = extractToolResult(result);
-  const fromDetails = details ? todosFromToolDetails("todo", details) : null;
-  const fromResult =
-    !fromDetails && result ? todosFromToolDetails("todo", result) : null;
-  const fromArgs = todosFromToolArgs("todo", args);
-  const list = fromDetails ?? fromResult ?? fromArgs;
-  const items = list?.items ?? normalizeTodoRows(
-    isRecord(args) ? (args.todos ?? args.tasks ?? args.items) : null,
-  );
+	const { details, text } = extractToolResult(result);
+	const fromDetails = details ? todosFromToolDetails("todo", details) : null;
+	const fromResult =
+		!fromDetails && result ? todosFromToolDetails("todo", result) : null;
+	const fromArgs = todosFromToolArgs("todo", args);
+	const list = fromDetails ?? fromResult ?? fromArgs;
+	const items = list?.items ?? todoItemsFromToolArgs(args);
+	const action = todoActionFor(args, details);
+	const total = list ? list.items.length : null;
+	const done = items.filter((item) => item.done).length;
+	const summary =
+		total != null
+			? `${done}/${total}`
+			: text.trim().slice(0, 80) || (action ? action : null);
 
-  let action: string | null = null;
-  if (isRecord(args) && typeof args.action === "string") {
-    action = args.action;
-  } else if (details && typeof (details as { action?: unknown }).action === "string") {
-    action = String((details as { action: string }).action);
+	return {
+		kind: "todo",
+		action,
+		items,
+		total,
+		summary,
+	};
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function trimmedOrNull(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function widgetText(value: unknown, max: number): string | null {
+  const text = trimmedOrNull(value);
+  if (!text) return null;
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function widgetTone(value: unknown): string | null {
+  return typeof value === "string" && value ? value : null;
+}
+
+type WaitWidgetStatItem = {
+  label: string;
+  text: string;
+  tone: string | null;
+  trend: string | null;
+};
+
+function parseWidgetStatItems(raw: unknown, limit: number): WaitWidgetStatItem[] {
+  if (!Array.isArray(raw)) return [];
+  const items: WaitWidgetStatItem[] = [];
+  for (const entry of raw) {
+    if (items.length >= limit) break;
+    if (!isRecord(entry)) continue;
+    const label = widgetText(entry.label, 40);
+    const text = widgetText(entry.text, 80);
+    if (!label || !text) continue;
+    items.push({
+      label,
+      text,
+      tone: widgetTone(entry.tone),
+      trend: isRecord(entry.trend) ? widgetText(entry.trend.text, 40) : null,
+    });
   }
+  return items;
+}
 
-  const done = items.filter((i) => i.done).length;
-  const summary =
-    items.length > 0
-      ? `${done}/${items.length}`
-      : text.trim().slice(0, 80) ||
-        (action ? action : null);
-
+function parseWidgetBars(
+  raw: Record<string, unknown>,
+): Extract<WaitWidgetBlock, { kind: "bars" }> | null {
+  if (!Array.isArray(raw.items)) return null;
+  const items: Array<{ label: string; value: number; text: string; tone: string | null }> = [];
+  for (const entry of raw.items) {
+    if (items.length >= 12) break;
+    if (!isRecord(entry)) continue;
+    const label = widgetText(entry.label, 40);
+    const value = numberOrNull(entry.value);
+    if (!label || value == null) continue;
+    items.push({
+      label,
+      value,
+      text: widgetText(entry.text, 60) ?? String(value),
+      tone: widgetTone(entry.tone),
+    });
+  }
+  if (!items.length) return null;
+  const max = numberOrNull(raw.max) ?? Math.max(...items.map((item) => item.value), 1);
   return {
-    kind: "todo",
-    action,
+    kind: "bars",
+    label: widgetText(raw.label, 80) ?? "",
+    max: max > 0 ? max : 1,
     items,
-    summary,
+  };
+}
+
+function parseWidgetSpark(
+  raw: Record<string, unknown>,
+): Extract<WaitWidgetBlock, { kind: "spark" }> | null {
+  const values = Array.isArray(raw.values)
+    ? raw.values
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+        .slice(-64)
+    : [];
+  const min = numberOrNull(raw.min);
+  const max = numberOrNull(raw.max);
+  const last = widgetText(raw.last, 80);
+  if (!values.length || min == null || max == null || !last) return null;
+  return {
+    kind: "spark",
+    label: widgetText(raw.label, 80) ?? "",
+    values,
+    min,
+    max: max > min ? max : min + 1,
+    last,
+    tone: widgetTone(raw.tone),
+  };
+}
+
+function parseWidgetGrid(
+  raw: Record<string, unknown>,
+): Extract<WaitWidgetBlock, { kind: "grid" }> | null {
+  if (!Array.isArray(raw.items)) return null;
+  const items: Array<{ label: string; text: string; tone: string | null }> = [];
+  for (const entry of raw.items) {
+    if (items.length >= 24) break;
+    if (!isRecord(entry)) continue;
+    const label = widgetText(entry.label, 40);
+    const text = widgetText(entry.text, 60);
+    if (!label || !text) continue;
+    items.push({ label, text, tone: widgetTone(entry.tone) });
+  }
+  if (!items.length) return null;
+  return { kind: "grid", label: widgetText(raw.label, 80) ?? "", items };
+}
+
+function parseWidgetMeter(
+  raw: Record<string, unknown>,
+): Extract<WaitWidgetBlock, { kind: "meter" }> | null {
+  const value = numberOrNull(raw.value);
+  const text = widgetText(raw.text, 80);
+  if (value == null || !text) return null;
+  return {
+    kind: "meter",
+    label: widgetText(raw.label, 80) ?? "",
+    value: Math.max(0, Math.min(1, value)),
+    text,
+    tone: widgetTone(raw.tone),
+  };
+}
+
+function parseWidgetBlock(raw: unknown): WaitWidgetBlock | null {
+  if (!isRecord(raw)) return null;
+  switch (raw.kind) {
+    case "spark":
+      return parseWidgetSpark(raw);
+    case "bars":
+      return parseWidgetBars(raw);
+    case "meter":
+      return parseWidgetMeter(raw);
+    case "stat": {
+      const items = parseWidgetStatItems(raw.items, 8);
+      return items.length ? { kind: "stat", items } : null;
+    }
+    case "grid":
+      return parseWidgetGrid(raw);
+    case "text": {
+      const text = widgetText(raw.text, 500);
+      return text ? { kind: "text", text } : null;
+    }
+    default:
+      return null;
+  }
+}
+
+/** omp 的 JobWidgetView：有 spec 时给指标块，没有时给最后一行与行速率。 */
+function parseWaitWidget(raw: unknown): WaitWidget | null {
+  if (!isRecord(raw)) return null;
+  const blocks: WaitWidgetBlock[] = [];
+  if (Array.isArray(raw.blocks)) {
+    for (const block of raw.blocks) {
+      if (blocks.length >= 8) break;
+      const parsed = parseWidgetBlock(block);
+      if (parsed) blocks.push(parsed);
+    }
+  }
+  const headlineRaw = isRecord(raw.headline) ? raw.headline : null;
+  const headlineText = headlineRaw ? widgetText(headlineRaw.text, 100) : null;
+  const trendRaw = headlineRaw && isRecord(headlineRaw.trend) ? headlineRaw.trend : null;
+  const headline = headlineText
+    ? {
+        text: headlineText,
+        label: headlineRaw ? widgetText(headlineRaw.label, 40) : null,
+        trend: trendRaw ? widgetText(trendRaw.text, 40) : null,
+        tone: trendRaw ? widgetTone(trendRaw.tone) : null,
+      }
+    : null;
+  const title = widgetText(raw.title, 120) ?? "";
+  const stage = widgetText(raw.stage, 300);
+  if (!title && !stage && !headline && !blocks.length) return null;
+  return {
+    title,
+    headline,
+    stage,
+    blocks,
+    state: raw.state === "live" || raw.state === "authoring" ? raw.state : "fallback",
+  };
+}
+
+function waitJobStatus(value: unknown): WaitJob["status"] {
+  if (value === "running" || value === "failed" || value === "cancelled") {
+    return value;
+  }
+  return "completed";
+}
+
+function parseWaitJob(raw: unknown): WaitJob | null {
+  if (!isRecord(raw) || typeof raw.id !== "string" || !raw.id) return null;
+  return {
+    id: raw.id,
+    type: typeof raw.type === "string" && raw.type ? raw.type : "job",
+    status: waitJobStatus(raw.status),
+    label: trimmedOrNull(raw.label) ?? raw.id,
+    intent: trimmedOrNull(raw.intent),
+    agentId:
+      trimmedOrNull(raw.agentUrlId) ??
+      (raw.type === "task" ? raw.id : null),
+    durationMs: numberOrNull(raw.durationMs) ?? 0,
+    exitCode: numberOrNull(raw.exitCode),
+    completionPercent: numberOrNull(raw.completionPercent),
+    stage: trimmedOrNull(raw.stage),
+    requests: numberOrNull(raw.requests),
+    cost: numberOrNull(raw.cost),
+    contextTokens: numberOrNull(raw.contextTokens),
+    contextWindow: numberOrNull(raw.contextWindow),
+    model: trimmedOrNull(raw.resolvedModel),
+    resultText: trimmedOrNull(raw.resultText),
+    errorText: trimmedOrNull(raw.errorText),
+    widget: parseWaitWidget(raw.widget),
+  };
+}
+
+/**
+ * wait 没有参数，进度全部在 partialResult.details.jobs 里。
+ * 不要把空参数 `{}` 当结果：那正是卡片一直显示空壳的原因。
+ */
+export function parseWaitToolCard(
+  result: unknown,
+  opts?: { startedAt?: number; durationMs?: number },
+): WaitToolCard {
+  const { details, text } = extractToolResult(result);
+  const rawJobs = details && Array.isArray(details.jobs) ? details.jobs : [];
+  const jobs = rawJobs
+    .map(parseWaitJob)
+    .filter((job): job is WaitJob => job !== null);
+  return {
+    kind: "wait",
+    jobs,
+    text: text.trim() ? text : null,
+    startedAt: opts?.startedAt ?? null,
+    observedAt: Date.now(),
+    interrupted: details?.interrupted === true,
+    durationMs: opts?.durationMs ?? null,
   };
 }
 
@@ -697,9 +996,12 @@ export function parseToolCard(
   toolName: string,
   args: unknown,
   result: unknown,
-  opts?: { isError?: boolean; durationMs?: number },
+  opts?: { isError?: boolean; durationMs?: number; startedAt?: number },
 ): ToolCard {
   const name = toolName.toLowerCase();
+  if (name === "wait") {
+    return parseWaitToolCard(result, opts);
+  }
   if (isFileMutationTool(name)) {
     return parseFileToolCard(toolName, args, result, opts);
   }
@@ -715,10 +1017,16 @@ export function parseToolCard(
   if (isTodoToolName(toolName)) {
     return parseTodoToolCard(args, result);
   }
-  const { text, images, structured } = extractToolResult(result);
+  const extracted = extractToolResult(result);
+  const detail = parseDetailTool(toolName, args, extracted, {
+    isError: opts?.isError,
+    durationMs: opts?.durationMs,
+  });
+  if (detail) return detail;
+  const { text, images, structured } = extracted;
   const summary =
-    commandFromArgs(args) ??
-    pathFromArgs(args) ??
+    toolCommandFromArgs(args) ??
+    toolPathFromArgs(args) ??
     genericSummary(args);
   return {
     kind: "generic",
@@ -790,7 +1098,7 @@ export function toolCardForNested(call: {
 }
 
 /** 卡片是否有可展开的内容：没有内容的行不显示展开箭头。 */
-export function toolCardHasBody(card: ToolCard): boolean {
+export function toolCardExpandable(card: ToolCard): boolean {
   switch (card.kind) {
     case "read":
       return Boolean(card.preview);
@@ -806,6 +1114,10 @@ export function toolCardHasBody(card: ToolCard): boolean {
       return Boolean(card.preview || card.structured);
     case "todo":
       return card.items.length > 0;
+    case "wait":
+      return card.jobs.length > 0 || Boolean(card.text) || card.startedAt != null;
+    case "detail":
+      return card.sections.length > 0 || card.transcripts.length > 0;
     default: {
       const _never: never = card;
       return Boolean(_never);

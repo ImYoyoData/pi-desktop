@@ -18,7 +18,7 @@
   gap: 14px;
 }
 
-/* 左栏整体是一张胶囊卡片：标题、列表都在卡片内滚动 */
+/* 左栏：标题与列表都在这里滚动 */
 .modelsSidebar {
   display: flex;
   flex-direction: column;
@@ -26,8 +26,6 @@
   width: 210px;
   min-height: 0;
   padding: 10px 8px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
   background: var(--w-elevated-surface, transparent);
   overflow: hidden;
 }
@@ -163,7 +161,7 @@
   white-space: nowrap;
 }
 
-/* 右栏同样是一张胶囊卡片：标题、表单、模型列表与底部操作都在卡片内 */
+/* 右栏：标题、表单、模型列表与底部操作都在这里 */
 .modelsDetail {
   display: flex;
   flex-direction: column;
@@ -171,8 +169,6 @@
   min-width: 0;
   min-height: 0;
   padding: 12px 14px 10px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
   background: var(--w-elevated-surface, transparent);
   overflow: hidden;
 }

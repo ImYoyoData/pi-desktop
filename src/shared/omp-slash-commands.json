@@ -1,0 +1,1444 @@
+[
+	{
+		"name": "security",
+		"aliases": [],
+		"description": "Plan, run, inspect, import, and compare OMP-native security scans",
+		"hint": "<plan|scan|status|cancel|scans|show|import|export|validate|compare|disposition>",
+		"subcommands": [
+			{
+				"name": "plan",
+				"description": "Create an immutable security scan plan"
+			},
+			{
+				"name": "scan",
+				"description": "Start a planned or newly planned native scan"
+			},
+			{
+				"name": "status",
+				"description": "Show native scan operation status"
+			},
+			{
+				"name": "cancel",
+				"description": "Cancel a running native scan"
+			},
+			{
+				"name": "scans",
+				"description": "List stored project security scans"
+			},
+			{
+				"name": "show",
+				"description": "Render a scan or security:// resource"
+			},
+			{
+				"name": "import",
+				"description": "Import SARIF or a Codex Security bundle"
+			},
+			{
+				"name": "export",
+				"description": "Export a canonical bundle, SARIF, or report"
+			},
+			{
+				"name": "validate",
+				"description": "Validate one finding with OMP-native tools"
+			},
+			{
+				"name": "compare",
+				"description": "Compare finding lineage across two scans"
+			},
+			{
+				"name": "disposition",
+				"description": "Set a finding disposition with rationale"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "settings",
+		"aliases": [],
+		"description": "Open settings menu",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "setup",
+		"aliases": [
+			"providers"
+		],
+		"description": "Open provider setup",
+		"hint": null,
+		"subcommands": [
+			{
+				"name": "providers",
+				"description": "Configure sign-in and web search providers"
+			}
+		],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "plan",
+		"aliases": [],
+		"description": "Toggle plan mode (agent plans before executing)",
+		"hint": "[prompt]",
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "plan-review",
+		"aliases": [],
+		"description": "Re-open the plan review for the latest plan (plan mode only)",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "vibe",
+		"aliases": [],
+		"description": "Toggle vibe mode (direct persistent fast/good worker sessions; read-only toolset)",
+		"hint": "[prompt]",
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "goal",
+		"aliases": [],
+		"description": "Toggle goal mode (persistent autonomous objective for this session)",
+		"hint": "[objective]",
+		"subcommands": [
+			{
+				"name": "set",
+				"description": "Set or replace the goal"
+			},
+			{
+				"name": "show",
+				"description": "Show current goal details"
+			},
+			{
+				"name": "pause",
+				"description": "Pause the current goal"
+			},
+			{
+				"name": "resume",
+				"description": "Resume a paused goal"
+			},
+			{
+				"name": "drop",
+				"description": "Drop the current goal"
+			},
+			{
+				"name": "budget",
+				"description": "Adjust the token budget"
+			}
+		],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "guided-goal",
+		"aliases": [],
+		"description": "Have the agent interview you in chat, then set up goal mode",
+		"hint": "[rough objective]",
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "loop",
+		"aliases": [],
+		"description": "Toggle loop mode. While enabled, the next prompt you send re-submits after every yield. Bound it with a count/duration, or gate it with `--until '<cmd>'` / `--while '<cmd>'` — the command's exit status decides whether the next iteration runs. Esc suspends the ongoing loop; /loop again to disable.",
+		"hint": "[count|duration] [--while|--until '<cmd>'] [prompt]",
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "queue",
+		"aliases": [],
+		"description": "Queue a message for after the agent yields",
+		"hint": "<message>",
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "model",
+		"aliases": [
+			"models"
+		],
+		"description": "Switch model for this session",
+		"hint": null,
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "switch",
+		"aliases": [],
+		"description": "Switch model for this session (same as Alt+P); accepts fuzzy ids, provider/id, @role, :level",
+		"hint": "[model]",
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "fast",
+		"aliases": [],
+		"description": "Toggle fast service (OpenAI service_tier=priority or ultrafast, Anthropic speed=fast, Google priority)",
+		"hint": "[on|ultra|off|status]",
+		"subcommands": [
+			{
+				"name": "on",
+				"description": "Enable fast mode (priority tier)"
+			},
+			{
+				"name": "ultra",
+				"description": "Enable Ultrafast (OpenAI API, or Codex and relay models that offer it)"
+			},
+			{
+				"name": "off",
+				"description": "Disable fast mode"
+			},
+			{
+				"name": "status",
+				"description": "Show fast mode status"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "slow",
+		"aliases": [],
+		"description": "Toggle slow mode: flex tier on OpenAI/Google; on Anthropic, continue at low priority after the Claude session limit",
+		"hint": "[on|off|status]",
+		"subcommands": [
+			{
+				"name": "on",
+				"description": "Flex tier, or Anthropic low priority at the session limit (auto)"
+			},
+			{
+				"name": "off",
+				"description": "Standard service; stop Anthropic low priority"
+			},
+			{
+				"name": "status",
+				"description": "Show slow mode status"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "skillful",
+		"aliases": [],
+		"description": "Toggle listing available skills in the system prompt (session only)",
+		"hint": "[on|off|status]",
+		"subcommands": [
+			{
+				"name": "on",
+				"description": "List skills in the prompt for this session"
+			},
+			{
+				"name": "off",
+				"description": "Omit the skills listing for this session"
+			},
+			{
+				"name": "status",
+				"description": "Show skill listing status"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "extended-context",
+		"aliases": [],
+		"description": "Toggle extended context windows",
+		"hint": "[on|off|status]",
+		"subcommands": [
+			{
+				"name": "on",
+				"description": "Enable larger context windows"
+			},
+			{
+				"name": "off",
+				"description": "Use default or standard-pricing context windows"
+			},
+			{
+				"name": "status",
+				"description": "Show extended context status"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "computer",
+		"aliases": [],
+		"description": "Toggle the native computer-use eval prelude for this session",
+		"hint": "[on|off|status]",
+		"subcommands": [
+			{
+				"name": "on",
+				"description": "Enable computer use for this session"
+			},
+			{
+				"name": "off",
+				"description": "Disable computer use for this session"
+			},
+			{
+				"name": "status",
+				"description": "Show computer use status"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "ratchet",
+		"aliases": [],
+		"description": "Build (or reuse) an eval for an LLM flow, then hillclimb it unattended",
+		"hint": "[flow and goal]",
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "prewalk",
+		"aliases": [],
+		"description": "Arm, restart, or cancel a one-shot model handoff",
+		"hint": "[into] | restart [from] [into] | off",
+		"subcommands": [
+			{
+				"name": "restart",
+				"description": "Return to the planning model and re-arm the handoff (default prewalk.from → prewalk.into)"
+			},
+			{
+				"name": "off",
+				"description": "Cancel this session's handoff without changing the active model"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "modelpreset",
+		"aliases": [],
+		"description": "Save and switch model presets (role models + thinking level)",
+		"hint": "[list|save|switch|delete] [name]",
+		"subcommands": [
+			{
+				"name": "list",
+				"description": "List saved presets"
+			},
+			{
+				"name": "save",
+				"description": "Save the current role models and thinking level"
+			},
+			{
+				"name": "switch",
+				"description": "Apply a saved preset"
+			},
+			{
+				"name": "delete",
+				"description": "Delete a saved preset"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "effort",
+		"aliases": [],
+		"description": "Set reasoning effort (thinking level, intelligence) for this session; Shift+Tab cycles levels",
+		"hint": "[level]",
+		"subcommands": [
+			{
+				"name": "off",
+				"description": "No reasoning"
+			},
+			{
+				"name": "minimal",
+				"description": "Very brief reasoning (~1k tokens)"
+			},
+			{
+				"name": "low",
+				"description": "Light reasoning (~2k tokens)"
+			},
+			{
+				"name": "medium",
+				"description": "Moderate reasoning (~8k tokens)"
+			},
+			{
+				"name": "high",
+				"description": "Deep reasoning (~16k tokens)"
+			},
+			{
+				"name": "xhigh",
+				"description": "Extended reasoning (~32k tokens)"
+			},
+			{
+				"name": "max",
+				"description": "Maximum reasoning the model supports"
+			},
+			{
+				"name": "auto",
+				"description": "Auto-detect per prompt"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "advisor",
+		"aliases": [],
+		"description": "Toggle the advisor (a second model that reviews each turn and injects notes)",
+		"hint": "[on|off|status|dump [raw]|configure]",
+		"subcommands": [
+			{
+				"name": "on",
+				"description": "Enable the advisor"
+			},
+			{
+				"name": "off",
+				"description": "Disable the advisor"
+			},
+			{
+				"name": "status",
+				"description": "Show advisor status"
+			},
+			{
+				"name": "dump",
+				"description": "Copy the advisor's transcript to clipboard"
+			},
+			{
+				"name": "configure",
+				"description": "Open the advisor configuration editor (TUI)"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "export",
+		"aliases": [],
+		"description": "Export session to HTML file",
+		"hint": "[--themes] [path]",
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "trace",
+		"aliases": [],
+		"description": "Open this session's trace in the stats dashboard",
+		"hint": null,
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "dump",
+		"aliases": [],
+		"description": "Copy session transcript to clipboard (and write LLM request JSON to tmp)",
+		"hint": "[all|anon]",
+		"subcommands": [
+			{
+				"name": "all",
+				"description": "Write a zip with the main transcript, LLM request JSON, and one file per subagent"
+			},
+			{
+				"name": "anon",
+				"description": "Write a zip of anonymized session JSONL (contents redacted, metadata kept) plus subagents"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "share",
+		"aliases": [],
+		"description": "Share session via an encrypted link (share server or secret gist)",
+		"hint": null,
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "collab",
+		"aliases": [],
+		"description": "Share this session live via a relay",
+		"hint": "[start|view|list|stop|status] [relayUrl]",
+		"subcommands": [
+			{
+				"name": "view",
+				"description": "Share a read-only link (guests can watch, not prompt)"
+			},
+			{
+				"name": "list",
+				"description": "List active local Collab hosts (no links; use `omp collab link`)"
+			},
+			{
+				"name": "status",
+				"description": "Show link + participants"
+			},
+			{
+				"name": "stop",
+				"description": "Stop sharing"
+			}
+		],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "join",
+		"aliases": [],
+		"description": "Join a shared collab session",
+		"hint": "<link>",
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "leave",
+		"aliases": [],
+		"description": "Leave the collab session",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "browser",
+		"aliases": [],
+		"description": "Toggle browser eval-prelude headless vs visible mode",
+		"hint": "[headless|visible]",
+		"subcommands": [
+			{
+				"name": "headless",
+				"description": "Switch to headless mode"
+			},
+			{
+				"name": "visible",
+				"description": "Switch to visible mode"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "copy",
+		"aliases": [],
+		"description": "Pick text or code from the conversation to copy",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "open",
+		"aliases": [],
+		"description": "Open the last link from the conversation in your browser (or pick one with /copy)",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "todo",
+		"aliases": [],
+		"description": "View or modify the agent's todo list",
+		"hint": "<subcommand>",
+		"subcommands": [
+			{
+				"name": "edit",
+				"description": "Open todos in $EDITOR (Markdown round-trip)"
+			},
+			{
+				"name": "copy",
+				"description": "Copy todos as Markdown to clipboard"
+			},
+			{
+				"name": "expand",
+				"description": "Show every phase and task in the HUD"
+			},
+			{
+				"name": "collapse",
+				"description": "Restore the bounded HUD preview"
+			},
+			{
+				"name": "export",
+				"description": "Write todos as Markdown to a file (default: TODO.md)"
+			},
+			{
+				"name": "import",
+				"description": "Replace todos from a Markdown file (default: TODO.md)"
+			},
+			{
+				"name": "append",
+				"description": "Append a task; phase fuzzy-matched or auto-created"
+			},
+			{
+				"name": "start",
+				"description": "Mark task in_progress (fuzzy-matched)"
+			},
+			{
+				"name": "done",
+				"description": "Mark task/phase/all completed (fuzzy-matched)"
+			},
+			{
+				"name": "drop",
+				"description": "Mark task/phase/all abandoned (fuzzy-matched)"
+			},
+			{
+				"name": "rm",
+				"description": "Remove task/phase/all (fuzzy-matched)"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "session",
+		"aliases": [],
+		"description": "Session management commands",
+		"hint": "[info|delete|pin [account]]",
+		"subcommands": [
+			{
+				"name": "info",
+				"description": "Show session info and stats"
+			},
+			{
+				"name": "delete",
+				"description": "Delete current session and return to selector"
+			},
+			{
+				"name": "pin",
+				"description": "Pin a stored OAuth account to the current provider for this session"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "jobs",
+		"aliases": [],
+		"description": "Show async background jobs status",
+		"hint": "[full|kill <id>|kill all]",
+		"subcommands": [
+			{
+				"name": "full",
+				"description": "Show full, untruncated command lines"
+			},
+			{
+				"name": "kill",
+				"description": "Cancel a running background job"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "usage",
+		"aliases": [],
+		"description": "Show provider usage and limits",
+		"hint": "[show|reset [provider/credential-id|provider/active]]",
+		"subcommands": [
+			{
+				"name": "show",
+				"description": "Show provider usage and limits"
+			},
+			{
+				"name": "reset",
+				"description": "Spend a saved provider rate-limit reset"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "stats",
+		"aliases": [],
+		"description": "Launch the local stats dashboard",
+		"hint": "[--port <port>] [--host <host>]",
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "changelog",
+		"aliases": [],
+		"description": "Show changelog entries",
+		"hint": "[full|last [N]]",
+		"subcommands": [
+			{
+				"name": "full",
+				"description": "Show complete changelog"
+			},
+			{
+				"name": "last",
+				"description": "Show the last N releases (default 1)"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "hotkeys",
+		"aliases": [],
+		"description": "Show all keyboard shortcuts",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "tools",
+		"aliases": [],
+		"description": "Show tools currently visible to the agent",
+		"hint": null,
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "context",
+		"aliases": [],
+		"description": "Browse context usage and detailed content",
+		"hint": null,
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "extensions",
+		"aliases": [
+			"status"
+		],
+		"description": "Open Extension Control Center dashboard",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "agents",
+		"aliases": [],
+		"description": "Open the agents hub (per-agent model, prewalk, and advisor)",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "git",
+		"aliases": [],
+		"description": "Open the git UI (split diff viewer, staging, commit composer)",
+		"hint": "[revision]",
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "local",
+		"aliases": [],
+		"description": "Open a session local:// file in $EDITOR (picker when no name given)",
+		"hint": "[name]",
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "hub",
+		"aliases": [
+			"subagents"
+		],
+		"description": "Open the live Agent Hub (subagents, including finished ones)",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "branch",
+		"aliases": [
+			"rewind"
+		],
+		"description": "Rewind to a previous message, keeping the old path as a branch",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "fork",
+		"aliases": [],
+		"description": "Fork this session, or open it in a multiplexer pane or window",
+		"hint": null,
+		"subcommands": [
+			{
+				"name": "pane",
+				"description": "Open the fork in a new terminal pane"
+			},
+			{
+				"name": "window",
+				"description": "Open the fork in a new multiplexer window"
+			},
+			{
+				"name": "tab",
+				"description": "Alias for window"
+			}
+		],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "tree",
+		"aliases": [],
+		"description": "Navigate session tree (switch branches)",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "login",
+		"aliases": [],
+		"description": "Login with OAuth provider",
+		"hint": "[provider|redirect URL]",
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "logout",
+		"aliases": [],
+		"description": "Logout from OAuth provider",
+		"hint": "[provider]",
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "mcp",
+		"aliases": [],
+		"description": "Manage MCP servers (add, list, remove, test)",
+		"hint": "<subcommand>",
+		"subcommands": [
+			{
+				"name": "add",
+				"description": "Add a new MCP server"
+			},
+			{
+				"name": "list",
+				"description": "List all configured MCP servers"
+			},
+			{
+				"name": "remove",
+				"description": "Remove an MCP server"
+			},
+			{
+				"name": "test",
+				"description": "Test connection to a server"
+			},
+			{
+				"name": "reauth",
+				"description": "Reauthorize OAuth for a server"
+			},
+			{
+				"name": "unauth",
+				"description": "Remove OAuth auth from a server"
+			},
+			{
+				"name": "enable",
+				"description": "Enable an MCP server"
+			},
+			{
+				"name": "disable",
+				"description": "Disable an MCP server"
+			},
+			{
+				"name": "smithery-search",
+				"description": "Search Smithery registry and deploy an MCP server"
+			},
+			{
+				"name": "smithery-login",
+				"description": "Login to Smithery and cache API key"
+			},
+			{
+				"name": "smithery-logout",
+				"description": "Remove cached Smithery API key"
+			},
+			{
+				"name": "reconnect",
+				"description": "Reconnect to a specific MCP server"
+			},
+			{
+				"name": "reload",
+				"description": "Force reload MCP runtime tools"
+			},
+			{
+				"name": "resources",
+				"description": "List available resources from connected servers"
+			},
+			{
+				"name": "prompts",
+				"description": "List available prompts from connected servers"
+			},
+			{
+				"name": "notifications",
+				"description": "Show notification capabilities and subscriptions"
+			},
+			{
+				"name": "help",
+				"description": "Show help message"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "ssh",
+		"aliases": [],
+		"description": "Manage SSH hosts (add, list, remove)",
+		"hint": "<subcommand>",
+		"subcommands": [
+			{
+				"name": "add",
+				"description": "Add an SSH host"
+			},
+			{
+				"name": "list",
+				"description": "List all configured SSH hosts"
+			},
+			{
+				"name": "remove",
+				"description": "Remove an SSH host"
+			},
+			{
+				"name": "help",
+				"description": "Show help message"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "new",
+		"aliases": [],
+		"description": "Start a new session",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "fresh",
+		"aliases": [],
+		"description": "Reset provider stream state without changing the local transcript",
+		"hint": null,
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "clear",
+		"aliases": [],
+		"description": "Clear the conversation context in place, keeping the session",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "delete",
+		"aliases": [],
+		"description": "Delete the current session and start a new one",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "compact",
+		"aliases": [],
+		"description": "Manually compact the session context",
+		"hint": "[soft|remote|snapcompact] [focus]",
+		"subcommands": [
+			{
+				"name": "soft",
+				"description": "Summarize locally with the active model (skip server compaction)"
+			},
+			{
+				"name": "remote",
+				"description": "Summarize via OpenAI-compatible server compaction, then fall back to a local summary"
+			},
+			{
+				"name": "snapcompact",
+				"description": "Archive history onto dense bitmap images the model reads back (no LLM call)"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "shake",
+		"aliases": [],
+		"description": "Drop heavy content from context (tool results, large blocks)",
+		"hint": "[elide|images|thinking]",
+		"subcommands": [
+			{
+				"name": "elide",
+				"description": "Strip tool results + large blocks (default)"
+			},
+			{
+				"name": "images",
+				"description": "Strip image blocks"
+			},
+			{
+				"name": "thinking",
+				"description": "Drop all thinking blocks"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "handoff",
+		"aliases": [],
+		"description": "Summarize the session into a handoff document and compact in place",
+		"hint": "[focus instructions]",
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "seance",
+		"aliases": [],
+		"description": "Consult a saved session without resuming it",
+		"hint": "[session id|path] [--model selector]",
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "resume",
+		"aliases": [],
+		"description": "Resume a different session",
+		"hint": "[session id|@claude|@codex]",
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "pin",
+		"aliases": [],
+		"description": "Pin or unpin a session at the top of the resume list",
+		"hint": "[session id]",
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "btw",
+		"aliases": [],
+		"description": "Ask a side question, or browse this session's BTW history",
+		"hint": "[question]",
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "tan",
+		"aliases": [],
+		"description": "Run a full background agent on tangential work",
+		"hint": "<work>",
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "omfg",
+		"aliases": [],
+		"description": "Forge a TTSR rule from a complaint to stop a recurring behavior",
+		"hint": "<complaint>",
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "cleanse",
+		"aliases": [],
+		"description": "Detect and fix project diagnostics with weighted parallel subagents",
+		"hint": "[request] [--all]",
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "retry",
+		"aliases": [],
+		"description": "Retry the last failed agent turn",
+		"hint": null,
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "debug",
+		"aliases": [],
+		"description": "Open debug tools selector",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "memory",
+		"aliases": [],
+		"description": "Inspect and operate memory maintenance",
+		"hint": "<subcommand>",
+		"subcommands": [
+			{
+				"name": "view",
+				"description": "Show current memory injection payload"
+			},
+			{
+				"name": "stats",
+				"description": "Show memory backend statistics"
+			},
+			{
+				"name": "diagnose",
+				"description": "Run memory backend diagnostics"
+			},
+			{
+				"name": "queue",
+				"description": "Show pending memory deltas awaiting consolidation"
+			},
+			{
+				"name": "sync",
+				"description": "Run memory consolidation now"
+			},
+			{
+				"name": "clear",
+				"description": "Clear persisted memory data and artifacts"
+			},
+			{
+				"name": "reset",
+				"description": "Alias for clear"
+			},
+			{
+				"name": "enqueue",
+				"description": "Enqueue memory consolidation maintenance"
+			},
+			{
+				"name": "rebuild",
+				"description": "Alias for enqueue"
+			},
+			{
+				"name": "mm list",
+				"description": "List mental models on the active bank"
+			},
+			{
+				"name": "mm show",
+				"description": "Show one mental model (id required)"
+			},
+			{
+				"name": "mm refresh",
+				"description": "Refresh auto-refresh models bank-wide, or one model by id"
+			},
+			{
+				"name": "mm history",
+				"description": "Diff the change history of a mental model"
+			},
+			{
+				"name": "mm seed",
+				"description": "Create any built-in mental models that are missing"
+			},
+			{
+				"name": "mm delete",
+				"description": "Delete a mental model from the bank (id required)"
+			},
+			{
+				"name": "mm reload",
+				"description": "Re-pull the cached <mental_models> block"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "rename",
+		"aliases": [],
+		"description": "Rename the current session (omit title to generate)",
+		"hint": "[title]",
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "move",
+		"aliases": [],
+		"description": "Move the current session to a different directory",
+		"hint": "[<path>]",
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "wt",
+		"aliases": [
+			"worktree"
+		],
+		"description": "Move this session into a new worktree, changes included",
+		"hint": "[<branch>]",
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "add-dir",
+		"aliases": [],
+		"description": "Add a workspace directory to this session (multi-root)",
+		"hint": "<path>",
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "remove-dir",
+		"aliases": [],
+		"description": "Remove a workspace directory from this session",
+		"hint": "<path>",
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "dirs",
+		"aliases": [],
+		"description": "List this session's workspace directories",
+		"hint": null,
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "exit",
+		"aliases": [],
+		"description": "Exit the application",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "restart",
+		"aliases": [],
+		"description": "Restart omp with the same launch flags, resuming this session",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "marketplace",
+		"aliases": [],
+		"description": "Manage marketplace plugin sources and installed plugins",
+		"hint": "<subcommand>",
+		"subcommands": [
+			{
+				"name": "add",
+				"description": "Add a marketplace source"
+			},
+			{
+				"name": "remove",
+				"description": "Remove a marketplace source"
+			},
+			{
+				"name": "update",
+				"description": "Update marketplace catalog(s)"
+			},
+			{
+				"name": "list",
+				"description": "List configured marketplaces"
+			},
+			{
+				"name": "discover",
+				"description": "Browse available plugins"
+			},
+			{
+				"name": "install",
+				"description": "Install a plugin (interactive browser if no args)"
+			},
+			{
+				"name": "uninstall",
+				"description": "Uninstall a plugin (selector if no args)"
+			},
+			{
+				"name": "installed",
+				"description": "List installed marketplace plugins"
+			},
+			{
+				"name": "upgrade",
+				"description": "Upgrade outdated plugins"
+			},
+			{
+				"name": "help",
+				"description": "Show usage guide"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "plugins",
+		"aliases": [
+			"plugin"
+		],
+		"description": "View and manage installed plugins",
+		"hint": "[list|enable|disable]",
+		"subcommands": [
+			{
+				"name": "list",
+				"description": "List all installed plugins (npm + marketplace)"
+			},
+			{
+				"name": "enable",
+				"description": "Enable an installed plugin"
+			},
+			{
+				"name": "disable",
+				"description": "Disable an installed plugin"
+			}
+		],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "reload-plugins",
+		"aliases": [],
+		"description": "Reload all plugins (skills, commands, hooks, tools, agents, MCP)",
+		"hint": null,
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "skills",
+		"aliases": [],
+		"description": "Search, install, and update skills from the skills.omp.sh registry",
+		"hint": null,
+		"subcommands": [
+			{
+				"name": "search",
+				"description": "Search the skill registry"
+			},
+			{
+				"name": "install",
+				"description": "Install registry skills"
+			},
+			{
+				"name": "installed",
+				"description": "List installed registry skills"
+			},
+			{
+				"name": "update",
+				"description": "Update registry skills within their ranges"
+			}
+		],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "force",
+		"aliases": [
+			"force:"
+		],
+		"description": "Force next turn to use a specific tool",
+		"hint": "<tool-name> [prompt]",
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "live",
+		"aliases": [],
+		"description": "Start Codex-backed realtime voice mode",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "record",
+		"aliases": [],
+		"description": "Start or stop recording this screen to a replayable file (omp play)",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "pause",
+		"aliases": [],
+		"description": "Freeze all agents (main, subagents, advisor) until resumed",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "forget-approvals",
+		"aliases": [],
+		"description": "Forget every file and folder approval Ask and remember has recorded",
+		"hint": null,
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "quit",
+		"aliases": [
+			"q"
+		],
+		"description": "Quit the application",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "builtin"
+	},
+	{
+		"name": "green",
+		"aliases": [],
+		"description": "Generate a prompt to iterate on CI failures until the branch is green",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "custom"
+	},
+	{
+		"name": "review",
+		"aliases": [],
+		"description": "Launch interactive code review",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "custom"
+	},
+	{
+		"name": "annotate",
+		"aliases": [],
+		"description": "Annotate a diff or text from a file, prompt, latest reply, or session",
+		"hint": null,
+		"subcommands": [],
+		"handles": false,
+		"source": "custom"
+	}
+]

@@ -158,7 +158,7 @@ export function SessionTodoPanel(): ReactNode {
   const onResume = useCallback((): void => {
     const id = useSessionsStore.getState().activeId;
     if (!id) return;
-    // 先解除暂停：本次 sendPrompt 的新任务重置由 skipNextReset 跳过，列表得以保留。
+    // 先解除暂停，再发继续指令；清单会跨回合保留。
     useSessionWidgetsStore.getState().resumeTodosForSession(id);
     void useChatStore.getState().sendPrompt(id, t.todoResumeTask);
   }, [t]);
@@ -273,7 +273,15 @@ export function SessionTodoPanel(): ReactNode {
                     className={`${styles.stMark} ${item.done ? styles.done : item.unreported ? styles.unreported : item.active ? styles.inProgress : styles.open}`}
                   />
                 </span>
-                <span className={styles.todoText}>{item.text}</span>
+                <span className={styles.todoText}>
+                  {item.text}
+                  {item.blocker ? (
+                    <span
+                      className={styles.todoBlocker}
+                      title={item.blocker}
+                    >{` · ${item.blocker}`}</span>
+                  ) : null}
+                </span>
                 {duration ? (
                   <span
                     className={`${styles.todoDur} ${item.active && !item.done ? styles.live : ""}`}

@@ -1,6 +1,7 @@
 import type {
 	AgentCommand,
 	AgentEvent,
+	AgentTranscript,
 	ElementCitation,
 	MenuCommand,
 	SessionHistoryMessage,
@@ -12,6 +13,17 @@ import type {
 	TerminalShellOption,
 } from "./protocol";
 import { IpcChannels } from "./protocol";
+import type { AgentBackend } from "./agent-backend";
+import type { OmpCliStatus } from "./omp-cli";
+import type { OmpModelsSnapshot, OmpProviderRow } from "./omp-models";
+import type {
+	OmpMcpTestResult,
+	OmpMcpTestTarget,
+	OmpResourceItem,
+	OmpResourcesSnapshot,
+} from "./omp-resources";
+import type { OmpSettingsSnapshot } from "./omp-settings";
+import type { SlashCatalog } from "./slash-commands";
 import type { StateChange } from "./state-sync";
 import type { EditContextMenuAction, EditContextMenuPayload } from "./context-menu";
 import type { EditMenuLocale } from "./edit-menu-i18n";
@@ -327,6 +339,15 @@ export function createApi(
 				IpcChannels.workspace.setArchivedSessions,
 				ids,
 			) as Promise<string[]>,
+		getBackend: () =>
+			ipcRenderer.invoke(IpcChannels.workspace.getBackend) as Promise<
+				AgentBackend
+			>,
+		setBackend: (backend: AgentBackend) =>
+			ipcRenderer.invoke(
+				IpcChannels.workspace.setBackend,
+				backend,
+			) as Promise<AgentBackend>,
 		revealInFolder: (root: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.workspace.revealInFolder,
@@ -334,21 +355,28 @@ export function createApi(
 			) as Promise<void>,
 	},
 	sessions: {
-		list: (cwd: string) =>
-			ipcRenderer.invoke(IpcChannels.sessions.list, cwd) as Promise<
+		list: (cwd: string, backend?: AgentBackend) =>
+			ipcRenderer.invoke(IpcChannels.sessions.list, cwd, backend) as Promise<
 				SessionSummary[]
 			>,
-		create: (cwd: string) =>
+		create: (cwd: string, backend?: AgentBackend) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.create,
 				cwd,
+				backend,
 			) as Promise<SessionSummary>,
-		open: (sessionId: string, cwd: string, filePath?: string) =>
+		open: (
+			sessionId: string,
+			cwd: string,
+			filePath?: string,
+			backend?: AgentBackend,
+		) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.open,
 				sessionId,
 				cwd,
 				filePath,
+				backend,
 			) as Promise<SessionSummary | null>,
 		close: (sessionId: string) =>
 			ipcRenderer.invoke(IpcChannels.sessions.close, sessionId) as Promise<void>,
@@ -374,18 +402,25 @@ export function createApi(
 				IpcChannels.sessions.restartWorker,
 				sessionId,
 			) as Promise<void>,
-		delete: (sessionId: string, cwd: string) =>
+		delete: (sessionId: string, cwd: string, backend?: AgentBackend) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.delete,
 				sessionId,
 				cwd,
+				backend,
 			) as Promise<void>,
-		rename: (sessionId: string, cwd: string, name: string) =>
+		rename: (
+			sessionId: string,
+			cwd: string,
+			name: string,
+			backend?: AgentBackend,
+		) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.rename,
 				sessionId,
 				cwd,
 				name,
+				backend,
 			) as Promise<SessionSummary | null>,
 		history: (filePath: string, query?: SessionHistoryQuery) =>
 			ipcRenderer.invoke(
@@ -393,20 +428,39 @@ export function createApi(
 				filePath,
 				query,
 			) as Promise<SessionHistoryPage>,
-		fork: (sessionId: string, cwd: string, userIndex: number, expectText?: string) =>
+		agentTranscript: (filePath: string, agentId: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.sessions.agentTranscript,
+				filePath,
+				agentId,
+			) as Promise<AgentTranscript | null>,
+		fork: (
+			sessionId: string,
+			cwd: string,
+			userIndex: number,
+			expectText?: string,
+			backend?: AgentBackend,
+		) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.fork,
 				sessionId,
 				cwd,
 				userIndex,
 				expectText,
+				backend,
 			) as Promise<SessionForkResult>,
-		setUserMessageMeta: (sessionId: string, text: string, tags: unknown[]) =>
+		setUserMessageMeta: (
+			sessionId: string,
+			text: string,
+			tags: unknown[],
+			displayText?: string,
+		) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.setUserMessageMeta,
 				sessionId,
 				text,
 				tags,
+				displayText,
 			),
 		cacheImage: (sessionId: string, source: { dataUrl?: string; url?: string }) =>
 			ipcRenderer.invoke(
@@ -420,17 +474,19 @@ export function createApi(
 				sessionId,
 				cachePath,
 			),
-		clearContext: (sessionId: string, cwd: string) =>
+		clearContext: (sessionId: string, cwd: string, backend?: AgentBackend) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.clearContext,
 				sessionId,
 				cwd,
+				backend,
 			) as Promise<void>,
-		status: (sessionId: string, cwd: string) =>
+		status: (sessionId: string, cwd: string, backend?: AgentBackend) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.status,
 				sessionId,
 				cwd,
+				backend,
 			) as Promise<SessionStatus | null>,
 		onEvent: (callback: (event: AgentEvent) => void) => {
 			const listener = (_event: Electron.IpcRendererEvent, payload: AgentEvent) =>
@@ -1094,6 +1150,58 @@ export function createApi(
 			};
 		},
 	},
+	ompSettings: {
+		get: () =>
+			ipcRenderer.invoke(
+				IpcChannels.ompSettings.get,
+			) as Promise<OmpSettingsSnapshot>,
+		save: (patch: Record<string, unknown>) =>
+			ipcRenderer.invoke(
+				IpcChannels.ompSettings.save,
+				patch,
+			) as Promise<OmpSettingsSnapshot>,
+		onChanged: (callback: () => void) => {
+			const listener = (): void => callback();
+			ipcRenderer.on(IpcChannels.ompSettings.changed, listener);
+			return () => {
+				ipcRenderer.removeListener(IpcChannels.ompSettings.changed, listener);
+			};
+		},
+	},
+	slashCommands: {
+		list: (root?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.slashCommands.list,
+				root,
+			) as Promise<SlashCatalog>,
+	},
+	ompResources: {
+		list: (root?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.ompResources.list,
+				root,
+			) as Promise<OmpResourcesSnapshot>,
+		setEnabled: (item: OmpResourceItem, enabled: boolean) =>
+			ipcRenderer.invoke(
+				IpcChannels.ompResources.setEnabled,
+				item,
+				enabled,
+			) as Promise<void>,
+		testMcp: (targets: OmpMcpTestTarget[]) =>
+			ipcRenderer.invoke(
+				IpcChannels.ompResources.testMcp,
+				targets,
+			) as Promise<OmpMcpTestResult[]>,
+	},
+	ompModels: {
+		get: () =>
+			ipcRenderer.invoke(IpcChannels.ompModels.get) as Promise<OmpModelsSnapshot>,
+		save: (providers: OmpProviderRow[]) =>
+			ipcRenderer.invoke(
+				IpcChannels.ompModels.save,
+				providers,
+			) as Promise<OmpModelsSnapshot>,
+	},
 	models: {
 		get: (payload?: { refreshCatalog?: boolean }) =>
 			ipcRenderer.invoke(IpcChannels.models.get, payload) as Promise<ModelsGetResult>,
@@ -1202,11 +1310,6 @@ export function createApi(
 				IpcChannels.browser.stopSelect,
 				webContentsId,
 			) as Promise<void>,
-		openDevTools: (webContentsId: number) =>
-			ipcRenderer.invoke(
-				IpcChannels.browser.openDevTools,
-				webContentsId,
-			) as Promise<void>,
 		attachDevTools: (
 			pageWebContentsId: number,
 			devtoolsWebContentsId: number,
@@ -1225,53 +1328,8 @@ export function createApi(
 			) as Promise<{
 				ok: boolean;
 			}>,
-		reportTab: (info: {
-			tabId: string;
-			webContentsId: number;
-			url: string;
-			title: string;
-			visible: boolean;
-			workspaceRoot: string | null;
-		}) =>
-			ipcRenderer.invoke(IpcChannels.browser.reportTab, info) as Promise<{
-				ok: boolean;
-			}>,
-		unreportTab: (tabId: string) =>
-			ipcRenderer.invoke(IpcChannels.browser.unreportTab, tabId) as Promise<{
-				ok: boolean;
-			}>,
-		openTabAck: (payload: {
-			requestId: string;
-			tabId?: string;
-			error?: string;
-		}) =>
-			ipcRenderer.invoke(IpcChannels.browser.openTabAck, payload) as Promise<{
-				ok: boolean;
-			}>,
 		openExternal: (url: string) =>
 			ipcRenderer.invoke(IpcChannels.browser.openExternal, url) as Promise<void>,
-		onOpenTab: (
-			callback: (payload: { requestId: string; url: string | null }) => void,
-		) => {
-			const listener = (
-				_event: Electron.IpcRendererEvent,
-				payload: { requestId: string; url: string | null },
-			) => callback(payload);
-			ipcRenderer.on(IpcChannels.browser.openTab, listener);
-			return () => {
-				ipcRenderer.removeListener(IpcChannels.browser.openTab, listener);
-			};
-		},
-		onCloseTab: (callback: (payload: { tabId: string }) => void) => {
-			const listener = (
-				_event: Electron.IpcRendererEvent,
-				payload: { tabId: string },
-			) => callback(payload);
-			ipcRenderer.on(IpcChannels.browser.closeTab, listener);
-			return () => {
-				ipcRenderer.removeListener(IpcChannels.browser.closeTab, listener);
-			};
-		},
 		onElementSelected: (callback: (citation: ElementCitation) => void) => {
 			const listener = (
 				_event: Electron.IpcRendererEvent,
@@ -1374,6 +1432,12 @@ export function createApi(
 				ipcRenderer.removeListener(IpcChannels.piCli.progress, listener);
 			};
 		},
+	},
+	ompVersions: {
+		sdkVersion: () =>
+			ipcRenderer.invoke(IpcChannels.ompVersions.sdkVersion) as Promise<string | null>,
+		cliStatus: () =>
+			ipcRenderer.invoke(IpcChannels.ompVersions.cliStatus) as Promise<OmpCliStatus>,
 	},
 	market: {
 		list: (opts?: { query?: string; type?: PiPackageType; page?: number }) =>

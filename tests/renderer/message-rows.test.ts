@@ -4,6 +4,7 @@ import {
   buildRoundUserByRow,
   buildSettledRowIds,
   buildWorkSectionMembership,
+  findPendingAskRowId,
   isLatestUserRead,
   lastIdPerRound,
 } from "../../src/renderer/src/utils/message-rows";
@@ -136,5 +137,38 @@ describe("isLatestUserRead", () => {
   it("ignores transcripts with no user row", () => {
     expect(isLatestUserRead([])).toBe(false);
     expect(isLatestUserRead([answer("a1")])).toBe(false);
+  });
+});
+
+describe("findPendingAskRowId", () => {
+  const askRow = (
+    id: string,
+    toolCallId: string,
+    streaming: boolean,
+  ): ChatMessage => ({ id, role: "tool", toolName: "ask_user", toolCallId, streaming });
+
+  it("matches the tool call that started the ask, not the newest ask_user row", () => {
+    const old = askRow("old", "tc-old", false);
+    const current = askRow("current", "tc-current", true);
+    expect(
+      findPendingAskRowId([old, current, askRow("later", "tc-later", false)], {
+        toolCallId: "tc-current",
+      }),
+    ).toBe("current");
+  });
+
+  it("falls back to a streaming ask_user row when the id is missing", () => {
+    expect(
+      findPendingAskRowId([askRow("old", "tc-old", false), askRow("live", "tc-live", true)], {
+        toolCallId: "tc-unknown",
+      }),
+    ).toBe("live");
+  });
+
+  it("returns null when no ask_user row is waiting", () => {
+    expect(
+      findPendingAskRowId([askRow("old", "tc-old", false)], { toolCallId: "tc-x" }),
+    ).toBeNull();
+    expect(findPendingAskRowId([], null)).toBeNull();
   });
 });

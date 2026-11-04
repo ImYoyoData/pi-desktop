@@ -1,5 +1,4 @@
 import type { AgentCommand } from "./protocol";
-import type { BrowserRpcMethod } from "./browser-automation";
 import type { StreamRenderSettings } from "./stream-render";
 import type { WorkerResourceSummary } from "./worker-resources";
 import type { BashNoticeLocale } from "./bash-notice-i18n";
@@ -36,6 +35,8 @@ export type WorkerOutbound =
   | { kind: "event"; event: Record<string, unknown> }
   | { kind: "pong" }
   | { kind: "fatal"; error: string }
+  /** omp worker 的桌面模式（loop/vibe）是否仍持有会话状态；持有期间不重建 worker。 */
+  | { kind: "desktop_modes"; active: boolean }
   | {
       kind: "run_started";
       run: {
@@ -54,6 +55,6 @@ export type WorkerOutbound =
   | {
       kind: "rpc_request";
       id: string;
-      method: BrowserRpcMethod | string;
+      method: string;
       params: Record<string, unknown>;
     };

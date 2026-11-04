@@ -20,7 +20,6 @@ import { useComposerStore } from "@renderer/stores/composer";
 import { recordHistory } from "@renderer/stores/browser-library";
 import { useBrowserNavStore } from "@renderer/stores/browser-nav";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
-import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { truncateTabLabel } from "../../../shared/tab-label";
 import { useMessage } from "@renderer/services/feedback";
 import { useI18n } from "@renderer/i18n/use-i18n";
@@ -45,7 +44,6 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
   const composer = useComposerStore();
   const message = useMessage();
   const browserNav = useBrowserNavStore();
-  const workspace = useWorkspaceStore();
 
   const webviewRef = useRef<Electron.WebviewTag | null>(null);
   const devtoolsRef = useRef<Electron.WebviewTag | null>(null);
@@ -362,7 +360,6 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
     syncTabTitle(title);
     recordHistory(tabIdRef.current, { url, title });
     useRightTabsStore.getState().patchTab(tabIdRef.current, { url });
-    reportTabToMain();
   }
 
   function onDidNavigate(event: Event): void {
@@ -476,20 +473,6 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
     const id = guestId();
     if (id === null) return;
     await window.api.browser.registerGuest(id);
-    reportTabToMain();
-  }
-
-  function reportTabToMain(): void {
-    const id = guestId();
-    if (id === null) return;
-    void window.api.browser.reportTab({
-      tabId: tabIdRef.current,
-      webContentsId: id,
-      url: urlInput || DEFAULT_URL,
-      title: pageTitle,
-      visible: visibleRef.current !== false,
-      workspaceRoot: useWorkspaceStore.getState().root,
-    });
   }
 
   function onSelectCancelled(): void {
@@ -546,7 +529,6 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
       loadUrlWhenReady(restored);
     }
     return () => {
-      void window.api.browser.unreportTab(tabIdRef.current);
       offElementSelected();
       offElementScreenshot();
       offSelectCancelled();
@@ -570,17 +552,6 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
   useEffect(() => {
     applyPendingNavigate();
   }, [browserNav.seq, visible, tabId]);
-
-  const workspaceRootRef = useRef(workspace.root);
-
-  useEffect(() => {
-    if (workspaceRootRef.current === workspace.root) return;
-    workspaceRootRef.current = workspace.root;
-  }, [tabId, workspace.root]);
-
-  useEffect(() => {
-    reportTabToMain();
-  }, [visible, tabId, urlInput, pageTitle, workspace.root]);
 
   useEffect(() => {
     bindDevtoolsHost();

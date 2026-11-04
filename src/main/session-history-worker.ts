@@ -103,7 +103,7 @@ function extractTextContent(content: unknown): string {
     .join(" ");
 }
 
-function summarizeSessionFile(filePath: string): DiskSessionRow | null {
+export function summarizeSessionFile(filePath: string): DiskSessionRow | null {
   try {
     const raw = readFileSync(filePath, "utf8");
     let header: Record<string, unknown> | null = null;
@@ -119,17 +119,25 @@ function summarizeSessionFile(filePath: string): DiskSessionRow | null {
         continue;
       }
       if (!header) {
-        if (entry.type !== "session" || typeof entry.id !== "string")
-          return null;
+        // omp 的会话文件第一行是标题槽（type: "title"，没有 id），header 在其后。
+        // 不跳过它就会把整个会话当成无效文件从侧栏里丢掉。
+        if (entry.type === "title" && typeof entry.title === "string") {
+          const rawTitle = entry.title.trim();
+          if (rawTitle) name = rawTitle;
+          continue;
+        }
+        if (entry.type !== "session" || typeof entry.id !== "string") continue;
         header = entry;
+        // omp 的 header 也可能自带 title（分叉出来的会话就是这样）。
+        const headerTitle = (entry as { title?: unknown }).title;
+        if (!name && typeof headerTitle === "string" && headerTitle.trim()) {
+          name = headerTitle.trim();
+        }
         continue;
       }
-      if (entry.type === "session_info") {
-        const rawName = (entry as { name?: unknown }).name;
-        name =
-          typeof rawName === "string" && rawName.trim()
-            ? rawName.trim()
-            : undefined;
+      if (entry.type === "session_info" || entry.type === "title_change") {
+        const rawName = entry.name ?? entry.title;
+        if (typeof rawName === "string" && rawName.trim()) name = rawName.trim();
         continue;
       }
       if (entry.type !== "message") continue;

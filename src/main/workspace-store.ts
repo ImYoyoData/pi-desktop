@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { isAgentBackend, type AgentBackend } from "../shared/agent-backend";
 
 export type WorkspacePersistedState = {
   root: string | null;
@@ -10,6 +11,8 @@ export type WorkspacePersistedState = {
   aliases: Record<string, string>;
   /** 已归档的会话 id：从侧栏隐藏，可恢复。 */
   archivedSessions: string[];
+  /** 全局智能体后端（缺省 pi）：所有工作区共用同一个引擎。 */
+  backend: AgentBackend;
 };
 
 const DEFAULT_STATE: WorkspacePersistedState = {
@@ -18,6 +21,7 @@ const DEFAULT_STATE: WorkspacePersistedState = {
   dismissedPi: [],
   aliases: {},
   archivedSessions: [],
+  backend: "pi",
 };
 
 /**
@@ -58,10 +62,41 @@ function readIdList(input: unknown): string[] {
   return out;
 }
 
+function readBackends(input: unknown): Record<string, AgentBackend> {
+  if (!input || typeof input !== "object") return {};
+  const out: Record<string, AgentBackend> = {};
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (key.trim() && isAgentBackend(value)) out[key] = value;
+  }
+  return out;
+}
+
+/** 旧版持久化格式：后端按工作区分别记。 */
+type LegacyPersistedState = Partial<WorkspacePersistedState> & {
+  backends?: unknown;
+};
+
+/**
+ * 旧版本按工作区分别记后端，升级后全局只有一个引擎。
+ * 取当前工作区的旧值，没有就沿用任意一条旧记录（多为 omp），全无则 pi。
+ */
+function readBackend(state: LegacyPersistedState): AgentBackend {
+  if (isAgentBackend(state.backend)) return state.backend;
+  const legacy = readBackends(state.backends);
+  const root = normalizeStoredWorkspacePath(state.root);
+  if (root) {
+    for (const [key, value] of Object.entries(legacy)) {
+      if (pathKey(key) === pathKey(root)) return value;
+    }
+  }
+  const first = Object.values(legacy)[0];
+  return first ?? "pi";
+}
+
 function readState(statePath: string): WorkspacePersistedState {
   try {
     const raw = fs.readFileSync(statePath, "utf8");
-    const parsed = JSON.parse(raw) as Partial<WorkspacePersistedState>;
+    const parsed = JSON.parse(raw) as LegacyPersistedState;
     return {
       root: normalizeStoredWorkspacePath(parsed.root),
       // Drop non-strings AND blanks left behind by older builds, which used to
@@ -78,6 +113,7 @@ function readState(statePath: string): WorkspacePersistedState {
         : [],
       aliases: readAliases(parsed.aliases),
       archivedSessions: readIdList(parsed.archivedSessions),
+      backend: readBackend(parsed),
     };
   } catch {
     return { ...DEFAULT_STATE };
@@ -174,6 +210,16 @@ export function createWorkspaceStore(statePath: string) {
       else for (const k of Object.keys(aliases)) if (pathKey(k) === pathKey(root)) delete aliases[k];
       state = { ...state, aliases };
       persist();
+    },
+
+    getBackend(): AgentBackend {
+      return state.backend;
+    },
+
+    setBackend(backend: AgentBackend): AgentBackend {
+      state = { ...state, backend };
+      persist();
+      return backend;
     },
 
     /** 重新定位：旧路径的整体记录（root / recent / dismissedPi / 别名）换成新路径。 */

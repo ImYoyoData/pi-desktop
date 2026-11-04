@@ -327,6 +327,10 @@
   color: var(--chat-desc-fg, var(--fg-muted));
 }
 
+.todoBlocker {
+  color: var(--warning);
+}
+
 .todoDur {
   flex-shrink: 0;
   margin-left: auto;

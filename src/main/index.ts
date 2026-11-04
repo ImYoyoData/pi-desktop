@@ -14,26 +14,24 @@ import {
 	systemPreferences,
 } from "electron";
 import { electronApp, is } from "@electron-toolkit/utils";
+import { homedir } from "node:os";
 import { join } from "path";
 import { existsSync } from "fs";
 import { IpcChannels } from "../shared/protocol";
 import { createUtilityProcessSpawnWorker } from "./agent-worker-host";
+import { createAgentBackends } from "./agent-backends";
 import { createAgentRunRegistry } from "./agent-run-registry";
 import { broadcastRunsEvent, registerAgentRunsIpc } from "./agent-runs-ipc";
 import { createSessionBroker } from "./session-broker";
 import { registerModelsIpc } from "./models-ipc";
+import { registerOmpModelsIpc } from "./omp-models-ipc";
+import { registerOmpSettingsIpc } from "./omp-settings-ipc";
+import { registerSlashCommandsIpc } from "./slash-commands-ipc";
+import { registerOmpResourcesIpc } from "./omp-resources-ipc";
 import { registerSessionsIpc } from "./sessions-ipc";
 import { allowForceClose, createMainWindow } from "./window";
 import { cleanupUpdateTempDir } from "./update-temp";
-import {
-	bindBrowserTabRegistry,
-	registerBrowserIpc,
-	requestOpenBrowserTab,
-	waitForBrowserTabReady,
-} from "./browser-host";
-import { createBrowserTabRegistry } from "./browser-tab-registry";
-import { createBrowserAutomationHost } from "./browser-automation-host";
-import type { BrowserRpcMethod } from "../shared/browser-automation";
+import { registerBrowserIpc } from "./browser-host";
 import type { WorkerOutbound } from "../shared/agent-worker-messages";
 import { registerPreviewIpc } from "./preview-ipc";
 import { registerPreviewWatchIpc } from "./preview-watch-host";
@@ -49,6 +47,7 @@ import { registerWindowIpc } from "./window-ipc";
 import { registerUpdateIpc } from "./update-host";
 import { registerContributorsIpc } from "./contributors-host";
 import { registerPiCliIpc } from "./pi-cli-host";
+import { registerOmpVersionIpc } from "./omp-version-host";
 import { registerMarketIpc } from "./market-host";
 import { registerCheckpointIpc } from "./checkpoint-ipc";
 import { initRetrySettings, registerRetryIpc } from "./retry-ipc";
@@ -86,6 +85,14 @@ import {
 	registerLocalFileScheme,
 } from "./local-file-protocol";
 import { guardChromiumCacheDirs } from "./cache-guard";
+import { migrateDesktopDataFiles } from "./desktop-data";
+
+/**
+ * Windows 上 Git Bash / MSYS 会把 HOME 设成 POSIX 风格路径，而 pi SDK 用 HOME
+ * 展开 ~；从终端启动 dev 时主进程、worker 就会与安装包解析出不同的配置目录。
+ * 启动时统一回系统主目录，两个模式得到同一个 ~。
+ */
+if (process.platform === "win32") process.env.HOME = homedir();
 
 /** GPU raster / compositing before ready (no-op if only software GL). */
 enableHardwareAcceleration();
@@ -115,6 +122,10 @@ if (process.env.PI_DESKTOP_USER_DATA) {
 // run are locked (second instance / crash / AV) — reset unusable ones now,
 // before any BrowserWindow exists.
 guardChromiumCacheDirs();
+
+// 设置与工作区状态统一放 agent 目录：这里先把旧 userData 里的文件补过去，
+// 必须早于代理快照恢复与任何设置读取。
+migrateDesktopDataFiles();
 
 // NODE_USE_ENV_PROXY 只在进程启动时生效：恢复上次生效的代理 env，
 // 让 OAuth 登录等 SDK 裸 fetch 走代理（须早于任何网络请求）。
@@ -198,25 +209,6 @@ function boot(): void {
 	} = {
 		current: null,
 	};
-	const browserTabs = createBrowserTabRegistry();
-	const browserAutomation = createBrowserAutomationHost({
-		tabs: browserTabs,
-		openTab: async ({ url }) => {
-			const { tabId } = await requestOpenBrowserTab({ url });
-			try {
-				const ready = await waitForBrowserTabReady(tabId);
-				return {
-					tabId: ready.tabId,
-					url: ready.url || url || "about:blank",
-					webContentsId: ready.webContentsId,
-				};
-			} catch {
-				// Tab was created; guest may still be spinning up — return id for follow-up tools.
-				return { tabId, url: url || "about:blank" };
-			}
-		},
-	});
-	bindBrowserTabRegistry(browserTabs);
 	const brokerHolder: {
 		current: ReturnType<typeof createSessionBroker> | null;
 	} = {
@@ -225,6 +217,7 @@ function boot(): void {
 
 	const broker = createSessionBroker({
 		spawnWorker: createUtilityProcessSpawnWorker(),
+		backends: createAgentBackends(),
 		onWorkerMessage: (sessionId, msg: WorkerOutbound) => {
 			registryHolder.current?.handleWorkerMessage(sessionId, msg);
 			if (msg.kind !== "rpc_request") return;
@@ -238,10 +231,15 @@ function boot(): void {
 								"desktop.askUser: need 1-3 questions, each with a unique id, a header (<=12 chars), a prompt, and 2-3 options",
 							);
 						}
+						const toolCallId =
+							typeof msg.params?.toolCallId === "string"
+								? msg.params.toolCallId
+								: undefined;
 						result = await askRendererAskUser({
 							sessionId,
 							requestId: msg.id,
 							questions,
+							...(toolCallId ? { toolCallId } : {}),
 						});
 					} else if (msg.method === "desktop.permissionCheck") {
 						result = await handlePermissionCheck(sessionId, msg.id, msg.params ?? {});
@@ -259,10 +257,7 @@ function boot(): void {
 					} else if (msg.method === "desktop.extensionUi") {
 						result = await handleExtensionUiRpc(sessionId, msg.id, msg.params ?? {});
 					} else {
-						result = await browserAutomation.handle({
-							method: msg.method as BrowserRpcMethod,
-							params: msg.params ?? {},
-						});
+						throw new Error(`Unknown rpc method: ${msg.method}`);
 					}
 					await brokerHolder.current?.sendRawIfAlive(sessionId, {
 						kind: "rpc_response",
@@ -371,7 +366,11 @@ function boot(): void {
 		registerSessionsIpc(broker);
 		registerAgentRunsIpc(registryHolder.current!);
 		registerModelsIpc(broker);
+		registerOmpModelsIpc(broker);
+		registerOmpSettingsIpc(broker);
+		registerOmpResourcesIpc(broker);
 		registerAskUserIpc();
+		registerSlashCommandsIpc();
 		registerPermissionsIpc();
 		registerExtensionUiIpc();
 		registerThinkingLanguageIpc();
@@ -491,6 +490,7 @@ function boot(): void {
 			registerUpdateIpc();
 			registerContributorsIpc();
 			registerPiCliIpc();
+			registerOmpVersionIpc();
 			registerMarketIpc(broker);
 			markStartup("main:defer:hosts");
 			markStartup("main:deferred-init-done");

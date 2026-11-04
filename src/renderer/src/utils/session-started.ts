@@ -13,3 +13,11 @@ export function isUnstartedSession(session: SessionSummary | null | undefined): 
   if (first && first !== "(no messages)") return false;
   return !session.name?.trim();
 }
+
+/** 预热草稿与崩溃残留的空会话不上侧栏；活动会话始终保留。 */
+export function visibleSessionRows(
+  rows: SessionSummary[],
+  activeId: string | null,
+): SessionSummary[] {
+  return rows.filter((row) => row.id === activeId || !isUnstartedSession(row));
+}

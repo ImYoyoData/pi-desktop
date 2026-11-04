@@ -164,7 +164,6 @@ jobs:
           name: pi-desktop-${{ matrix.name }}
           path: |
             ${{ matrix.artifact_glob }}
-            release/latest*.yml
           if-no-files-found: error
           retention-days: 14
 
@@ -196,7 +195,7 @@ jobs:
         run: |
           mkdir -p upload
           find dist-artifacts -type f \
-            \( -name '*-setup.exe' -o -name '*.dmg' -o -name '*.AppImage' -o -name 'latest*.yml' \) \
+            \( -name '*-setup.exe' -o -name '*.dmg' -o -name '*.AppImage' \) \
             -print -exec cp {} upload/ \;
           echo "=== release assets ==="
           ls -lah upload || true
@@ -206,90 +205,39 @@ jobs:
             exit 1
           fi
 
+      - name: Extract release notes
+        shell: bash
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          VERSION="${TAG#v}"
+          awk -v h="## v${VERSION} " '
+            index($0, h) == 1 { f = 1; next }
+            /^## / { f = 0 }
+            f
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "CHANGELOG.md has no section for v${VERSION}" >&2
+            exit 1
+          fi
+          {
+            echo
+            echo "## 下载 / Downloads"
+            echo "- **Windows x64**: \`Pi-Desktop-*-win-x64-setup.exe\`"
+            echo "- **Windows ARM64**: \`Pi-Desktop-*-win-arm64-setup.exe\`"
+            echo "- **macOS Apple Silicon**: \`Pi-Desktop-*-mac-arm64.dmg\`"
+            echo "- **macOS Intel**: \`Pi-Desktop-*-mac-x64.dmg\`"
+            echo "- **Linux x64**: \`Pi-Desktop-*-linux-x86_64.AppImage\`"
+          } >> release-notes.md
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           name: Pi Desktop ${{ needs.version.outputs.tag }}
           draft: false
-          prerelease: false
-          generate_release_notes: true
-          body: |
-
-            ## 主要更新
-
-            本版重做过程区可视化：工具结果按语义分型渲染（文件视图 / 词级 diff /
-            终端卡 / JSON 树），工作区块展开即为过程时间线，思考行支持 Markdown、
-            字数与实时耗时；同时新增浏览器直连 dev 页面的开发预览桥、内置工具
-            使用偏好引导与流式渲染 0ms 实时档。
-
-            ### 新功能 Features
-
-            - **过程区可视化重做**：工具行改为「动作+目标 / 状态+结果」两行结构，
-              展开工作区块即为过程时间线。工具结果分型渲染——读取走文件视图，
-              编辑走词级 diff，命令走终端卡，其余走 JSON 树、路径清单或脚本报告；
-              嵌套调用缩进列出，可展开看参数、结果与失败原因。
-            - **思考行**：思考内容支持 Markdown 与折叠，行尾显示字数与耗时，
-              思考中每秒刷新实时耗时。
-            - **浏览器直连 dev 页面预览**：外部浏览器打开 Vite dev 页面即可操作
-              同一份桌面状态，文件、Git、会话、终端都可用。
-            - **流式渲染 0ms 实时档**：不节流、逐帧渲染。
-            - **内置工具使用偏好**：把内容搜索、读文件与列目录推回内置工具。
-
-            - **Process area rebuilt**: tool rows use an "action + target / status +
-              result" layout and expanding a work section turns it into a process
-              timeline; results render by kind (file view, word-level diff, terminal
-              card, JSON tree, path list or script report), and nested calls are
-              listed with their arguments, results and failure reasons.
-            - **Thinking rows**: Markdown rendering and collapsing, with character
-              count and a live duration while thinking.
-            - **Browser preview**: an external browser can open the Vite dev page and
-              drive the same desktop state (files, Git, sessions, terminals).
-            - **0 ms realtime streaming option**: no throttling, per-frame rendering.
-            - **Built-in tool usage preferences**: content search, file reads and
-              directory listings go back to the built-in tools.
-
-            ### 变更 Changes
-
-            - **工具步骤行**：度量紧跟内容显示，去掉重复的待办进度与耗时。
-            - **diff 统一为 unified**：底层格式归一化，底色走主题变量、词级改动加深。
-            - **codemode 卡片**：标题改用调用概况（「N 个调用」）。
-
-            - **Tool step rows**: metrics sit right after the content, duplicated todo
-              progress and durations are gone.
-            - **Diffs normalized to unified** with theme-variable backgrounds and
-              darker word-level changes.
-            - **codemode cards**: the title uses the call summary ("N calls").
-
-            ### 修复 Fixes
-
-            - **上一轮工具与思考内容被裁掉**：不再删除最新 user 之前的过程行。
-            - **思考过程中停止自动滚动**：跟随判定只认滚轮、自身滚动条与中键。
-            - **JSON 树与结构化输出**：折叠失效、多文件补丁行数、空 diff、路径清单误判。
-            - **嵌套调用**：展开可看失败原因，标签统一为工具名。
-            - **会话排序**：固定会话优先，运行中的会话不因活动抢位。
-            - **安装器**：安装目录修正后同步 `$appExe`，快捷方式不再指向旧路径。
-
-            - **Previous-turn tool and thinking rows were dropped**: process rows before
-              the newest user message are no longer deleted.
-            - **Auto-scroll stopped during thinking**: follow mode now keys off the wheel,
-              the scroller's own scrollbar and middle-click only.
-            - **JSON tree and structured output**: collapsing, multi-file patch counts,
-              empty diffs and path-list misdetection.
-            - **Nested calls**: failure reasons are shown on expand and labels use the
-              tool name.
-            - **Session ordering**: pinned sessions come first and running sessions no
-              longer jump position on activity.
-            - **Installer**: `$appExe` is re-synced after the install directory is
-              corrected, so shortcuts no longer point at the old path.
-
-            ## 下载 / Downloads
-            - **Windows x64**: `Pi-Desktop-*-win-x64-setup.exe`
-            - **Windows ARM64**: `Pi-Desktop-*-win-arm64-setup.exe`
-            - **macOS Apple Silicon**: `Pi-Desktop-*-mac-arm64.dmg`
-            - **macOS Intel**: `Pi-Desktop-*-mac-x64.dmg`
-            - **Linux x64**: `Pi-Desktop-*-linux-x86_64.AppImage`
-
+          prerelease: ${{ contains(needs.version.outputs.tag, '-') }}
+          body_path: release-notes.md
           files: upload/*
           fail_on_unmatched_files: false
         env:

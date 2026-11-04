@@ -32,11 +32,13 @@ export function toolCardAutoExpandAllowed(kind: ToolCard["kind"]): boolean {
     case "edit":
     case "bash":
     case "todo":
+    case "wait":
       return true;
     case "read":
     case "grep":
     case "generic":
     case "other":
+    case "detail":
       return false;
     default: {
       const _never: never = kind;

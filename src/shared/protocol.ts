@@ -118,6 +118,9 @@ export const IpcChannels = {
 		/** 已归档会话 id 列表：读取与覆写。 */
 		listArchivedSessions: "workspace:listArchivedSessions",
 		setArchivedSessions: "workspace:setArchivedSessions",
+		/** 全局智能体后端：pi 或 omp，所有工作区共用。 */
+		getBackend: "workspace:getBackend",
+		setBackend: "workspace:setBackend",
 	},
 	sessions: {
 		list: "sessions:list",
@@ -132,6 +135,8 @@ export const IpcChannels = {
 		restartWorker: "sessions:restartWorker",
 		delete: "sessions:delete",
 		history: "sessions:history",
+		/** 只读读取子代理转录（优先磁盘，不冷启动 worker）。 */
+		agentTranscript: "sessions:agentTranscript",
 		rename: "sessions:rename",
 		/** 把到某一轮 user 消息为止的对话复制成新会话文件。 */
 		fork: "sessions:fork",
@@ -275,6 +280,35 @@ export const IpcChannels = {
 		oauthCancel: "models:oauthCancel",
 		oauthEvent: "models:oauthEvent",
 	},
+	/** OMP 自己的模型配置（~/.omp/agent/models.yml），与 pi 的 models.json 无关。 */
+	ompModels: {
+		get: "ompModels:get",
+		save: "ompModels:save",
+	},
+	/** OMP 自己的通用设置（~/.omp/agent/config.yml）。 */
+	ompSettings: {
+		get: "ompSettings:get",
+		save: "ompSettings:save",
+		/** Main → renderer: 配置写盘后通知菜单重新读取命令开关。 */
+		changed: "ompSettings:changed",
+	},
+	/** 桌面斜杠菜单的文件型命令（.claude/.opencode）。 */
+	slashCommands: {
+		list: "slashCommands:list",
+	},
+	/** OMP 自己的资源：技能 / 指令 / MCP / 扩展。 */
+	ompResources: {
+		list: "ompResources:list",
+		setEnabled: "ompResources:setEnabled",
+		testMcp: "ompResources:testMcp",
+	},
+	/** OMP 内置 SDK 版本与系统 omp CLI 的安装状态。 */
+	ompVersions: {
+		/** Renderer → main: 应用内置 omp SDK 的版本。 */
+		sdkVersion: "ompVersions:sdkVersion",
+		/** Renderer → main: 系统 PATH 中 omp CLI 的安装与版本状态。 */
+		cliStatus: "ompVersions:cliStatus",
+	},
 	terminal: {
 		create: "terminal:create",
 		listShells: "terminal:listShells",
@@ -299,14 +333,8 @@ export const IpcChannels = {
 		elementSelected: "browser:elementSelected",
 		elementScreenshot: "browser:elementScreenshot",
 		selectCancelled: "browser:selectCancelled",
-		openDevTools: "browser:openDevTools",
 		attachDevTools: "browser:attachDevTools",
 		registerGuest: "browser:registerGuest",
-		reportTab: "browser:reportTab",
-		unreportTab: "browser:unreportTab",
-		openTab: "browser:openTab",
-		openTabAck: "browser:openTabAck",
-		closeTab: "browser:closeTab",
 		openExternal: "browser:openExternal",
 		toggleEmbeddedDevTools: "browser:toggleEmbeddedDevTools",
 	},
@@ -451,6 +479,42 @@ export type PromptImageContent = {
 	mimeType: string;
 };
 
+/** 子代理对话的一条：消息或一次工具调用（结果合并进同一条）。 */
+export type AgentTranscriptEntry =
+	| {
+			kind: "message";
+			role: "user" | "assistant";
+			text: string;
+			thinking?: string;
+			timestamp?: number;
+	  }
+	| {
+			kind: "tool";
+			toolName: string;
+			/** 模型给这次调用的 id，用于稳定渲染 key。 */
+			callId?: string;
+			/** 参数 JSON 文本，解析失败或超长时作展示兜底。 */
+			args?: string;
+			/** 裁剪后的参数对象，供工具卡片复用主消息区的解析。 */
+			argsValue?: unknown;
+			text?: string;
+			/** 裁剪后的工具结果 details，供 read/grep/task 等卡片解析。 */
+			resultDetails?: unknown;
+			isError?: boolean;
+			/** 运行中且结果尚未到达：卡片显示进行中。 */
+			pending?: boolean;
+			timestamp?: number;
+	  };
+
+export type AgentTranscript = {
+	id: string;
+	messages: AgentTranscriptEntry[];
+	/** 只保留最近 200 条，早期对话已裁掉。 */
+	truncated?: boolean;
+	/** 读取来源：运行中 agent 的内存，或落盘的 `.jsonl`。 */
+	source: "live" | "disk";
+};
+
 export type AgentCommand =
 	| {
 			type: "prompt";
@@ -463,11 +527,15 @@ export type AgentCommand =
 	| { type: "abort" }
 	| { type: "clear_queue" }
 	| { type: "set_model"; provider: string; modelId: string }
+	| { type: "fork_user_turn"; userIndex: number; expectText?: string }
+	| { type: "set_session_name"; name: string }
 	| { type: "set_thinking_level"; level: string; persist?: boolean }
 	| { type: "compact"; customInstructions?: string }
 	| { type: "get_state" }
 	| { type: "ping" }
 	| { type: "hang" }
+	/** 读取子代理的对话（omp 的 AgentRegistry 或落盘 transcript）。 */
+	| { type: "get_agent_transcript"; agentId: string }
 	/**
 	 * Abandon a user turn on the session tree (leaf moves to its parent).
 	 * Used when re-editing a published bubble, or to heal after a rejected
@@ -587,6 +655,8 @@ export type SessionHistoryMessage =
 			id: string;
 			role: "user";
 			text: string;
+			/** 实际下发给模型的文本；气泡展示原文时用它对齐历史轮次。 */
+			agentText?: string;
 			/** Restored image content parts (data URLs) — survives session reloads. */
 			images?: { mimeType: string; dataUrl: string }[];
 			/** Restored attachment chips (file / url / element) — survives session reloads. */
@@ -679,6 +749,8 @@ export type SessionSummary = {
 	id: string;
 	filePath: string;
 	cwd: string;
+	/** 会话属于哪个智能体后端；旧数据缺省按 pi。 */
+	backend?: import("./agent-backend").AgentBackend;
 	name?: string;
 	modified: string;
 	/** 会话文件 header 的创建时间（缺失时回退 modified）。 */

@@ -77,6 +77,22 @@ export function isNewerVersion(latest: string, current: string): boolean {
 	return compareVersions(latest, current) > 0;
 }
 
+/** 版本号是否带预发布标识（`0.3.8-rc.1` 为 true，`0.3.8+build.1` 为 false）。 */
+export function isPrereleaseVersion(version: string): boolean {
+	const [core = ""] = String(version).trim().replace(/^v/i, "").split("+");
+	return core.includes("-");
+}
+
+/** 发布是否可作为更新：预发布只喂给同样是预发布的版本。 */
+export function isUpdateReleaseAllowed(
+	release: { draft?: boolean; prerelease?: boolean },
+	currentVersion: string,
+): boolean {
+	if (release.draft === true) return false;
+	if (release.prerelease !== true) return true;
+	return isPrereleaseVersion(currentVersion);
+}
+
 /** 各平台安装包文件名后缀，与 electron-builder.yml 的 artifactName 对应。 */
 const ASSET_SUFFIXES: Record<string, string[]> = {
 	"win32-x64": ["-win-x64-setup.exe"],
@@ -159,3 +175,30 @@ export type AppUpdateState = {
 	progress: AppUpdateProgress | null;
 	error: string | null;
 };
+
+/** 自动检查更新的桌面偏好键：缺省为开启。 */
+export const AUTO_UPDATE_CHECK_PREF = "update:autoCheck";
+
+/** 检查更新间隔（小时）的桌面偏好键。 */
+export const UPDATE_CHECK_INTERVAL_PREF = "update:checkIntervalHours";
+
+/** 可选的检查更新间隔（小时）。 */
+export const UPDATE_CHECK_INTERVAL_HOURS = [1, 6, 12, 24] as const;
+
+/** 默认检查更新间隔（小时）。 */
+export const DEFAULT_UPDATE_CHECK_INTERVAL_HOURS = 24;
+
+/** 只有显式写成 off 才关闭自动检查。 */
+export function isAutoUpdateCheckEnabled(
+	prefs: Record<string, string | undefined>,
+): boolean {
+	return prefs[AUTO_UPDATE_CHECK_PREF] !== "off";
+}
+
+/** 解析检查间隔：非法值退回默认值，避免 0 或异常间隔造成高频请求。 */
+export function parseUpdateCheckIntervalHours(raw: string | undefined): number {
+	const hours = Number(raw);
+	return (UPDATE_CHECK_INTERVAL_HOURS as readonly number[]).includes(hours)
+		? hours
+		: DEFAULT_UPDATE_CHECK_INTERVAL_HOURS;
+}

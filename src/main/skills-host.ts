@@ -1,6 +1,7 @@
 import fs from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
-import { agentDir, homeDir } from "./agent-dir";
+import { agentDir } from "./agent-dir";
 import { withFrontmatterName } from "./frontmatter";
 import { SKILL_NAME_PATTERN } from "./skill-validate";
 import { isPathInsideRoot } from "../shared/path-sandbox";
@@ -101,7 +102,7 @@ function skillActionRoots(
   cwd?: string,
   workspaces: readonly string[] = [],
 ): string[] {
-  const roots = [agentSkills, path.resolve(homeDir(), ".agents", "skills")];
+  const roots = [agentSkills, path.resolve(homedir(), ".agents", "skills")];
   const bases = [...(cwd?.trim() ? [cwd.trim()] : []), ...workspaces];
   for (const base of bases) {
     const projectSkills = path.resolve(base, ".pi", "skills");

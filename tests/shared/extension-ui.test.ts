@@ -20,6 +20,23 @@ describe("extension-ui protocol", () => {
     });
   });
 
+  it("keeps the extra message that carries the approval details", () => {
+    const detail = ["Run rm -rf build", "", "folder: build"].join(String.fromCharCode(10));
+    const parsed = parseExtensionUiDialogParams(
+      {
+        method: "select",
+        title: "Run rm -rf build",
+        options: ["Approve this call", "Deny"],
+        message: detail,
+      },
+      "req-2",
+    );
+    expect(parsed).toMatchObject({
+      method: "select",
+      message: detail,
+    });
+  });
+
   it("rejects select without options", () => {
     expect(
       parseExtensionUiDialogParams({ method: "select", title: "x", options: [] }, "r"),

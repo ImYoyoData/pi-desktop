@@ -1,0 +1,93 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 12px;
+  padding: 14px 16px 18px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+.header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.headerText {
+  min-width: 0;
+}
+
+.headerActions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.0769rem;
+  font-weight: 600;
+}
+
+.hint {
+  margin: 4px 0 0;
+  color: var(--fg-muted);
+  font-size: 0.9231rem;
+  line-height: 1.45;
+}
+
+.scroll {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+/* 控件区：右侧控件 + 「恢复默认」小按钮 */
+.control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.resetButton {
+  flex-shrink: 0;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 0.8462rem;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.resetButton:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.empty {
+  margin: 0;
+  padding: 24px 0;
+  color: var(--fg-muted);
+  font-size: 0.9231rem;
+  text-align: center;
+}

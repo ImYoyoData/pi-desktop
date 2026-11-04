@@ -8,14 +8,15 @@
   font-size: 1rem;
 }
 
+/* 侧栏顶到标题栏：分组切换与右上角窗口按钮同行，不额外占一行。
+   上移量由浮层定义 --customize-header-height；独立渲染时为 0，不上移。 */
 .managementSidebar {
   flex-shrink: 0;
   min-width: 0;
-  height: 100%;
+  height: calc(100% + var(--customize-header-height, 0px));
+  margin-top: calc(var(--customize-header-height, 0px) * -1);
   box-sizing: border-box;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 12px;
   background: var(--bg);
 }
 
@@ -32,9 +33,10 @@
   flex: 0 0 auto;
   display: flex;
   gap: 3px;
-  margin-bottom: 8px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--bg-hover);
 }
 
 .groupTab {
@@ -54,8 +56,62 @@
   transition: background-color 0.1s ease, color 0.1s ease;
 }
 
+/* 配置管理展开后的二级页签：pi / omp，下划线指示当前页 */
+.sourceTabs {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+  padding: 0 1px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sourceTab {
+  position: relative;
+  height: 30px;
+  padding: 0 8px;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 0.9231rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.1s ease;
+}
+
+.sourceTab:hover {
+  color: var(--fg);
+}
+
+.sourceTabActive,
+.sourceTabActive:hover {
+  color: var(--fg);
+}
+
+.sourceTabActive::after {
+  content: "";
+  position: absolute;
+  inset: auto 4px -1px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--fg);
+  animation: source-tab-underline 180ms var(--ease-out-soft) both;
+}
+
+@keyframes source-tab-underline {
+  from {
+    opacity: 0;
+    transform: scaleX(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
 .groupTab:hover {
-  background: var(--bg-hover);
   color: var(--fg);
 }
 
@@ -66,11 +122,12 @@
 }
 
 .sidebarSectionsList {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  overflow: hidden;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .sectionListItem {

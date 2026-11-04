@@ -23,10 +23,11 @@ import {
 import type { MenuProps } from "antd";
 import { NO_OVERLAY_MOTION } from "@renderer/components/overlay-motion";
 import { PullRequestIcon } from "@renderer/components/icons/PullRequestIcon";
+import PiMarkIcon from "@renderer/components/icons/PiMarkIcon";
+import OmpLogoIcon from "@renderer/components/icons/OmpLogoIcon";
 import {
   AddOutline,
   ChatboxOutline,
-  CheckmarkOutline,
   ChevronDownOutline,
   ChevronForwardOutline,
   CopyOutline,
@@ -44,6 +45,21 @@ import {
 import Sortable from "sortablejs";
 import type { SessionStatus, SessionSummary } from "../../../shared/protocol";
 import { SESSION_HISTORY_INITIAL_LIMIT } from "../../../shared/protocol";
+import {
+  AGENT_BACKENDS,
+  AGENT_BACKEND_LABELS,
+  type AgentBackend,
+} from "../../../shared/agent-backend";
+
+/** 两套后端各自的品牌图标。 */
+const BACKEND_ICONS: Record<
+  AgentBackend,
+  (props: { size?: number }) => ReactNode
+> = {
+  pi: PiMarkIcon,
+  omp: OmpLogoIcon,
+};
+import { currentBackend } from "@renderer/utils/current-backend";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useSessionWidgetsStore } from "@renderer/stores/session-widgets";
 import { useChatStore } from "@renderer/stores/chat";
@@ -51,7 +67,10 @@ import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useWorkspaceStore, type WorkspaceState } from "@renderer/stores/workspace";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useKeybindingsStore } from "@renderer/stores/keybindings";
-import { isUnstartedSession } from "@renderer/utils/session-started";
+import {
+  isUnstartedSession,
+  visibleSessionRows,
+} from "@renderer/utils/session-started";
 import { isTextEntryTarget } from "@renderer/utils/keyboard-target";
 import { buildSessionTree, type SessionTreeItem } from "@renderer/utils/session-tree";
 import {
@@ -328,6 +347,7 @@ export function SessionSidebar(): ReactNode {
     [workspace],
   );
   const workspacePathsKey = workspacePaths.join("\0");
+  const activeBackend = currentBackend();
 
   const localRef = useRef<SidebarLocal>({
     sessionsByRoot,
@@ -609,7 +629,12 @@ export function SessionSidebar(): ReactNode {
 
   async function loadSessions(root: string): Promise<SessionSummary[]> {
     markRendererStartup("renderer:sessions-request");
-    const list = await window.api.sessions.list(root);
+    const rows = await window.api.sessions.list(root, currentBackend());
+    // 预热草稿是主进程里的活动记录，会混进列表；侧栏只展示正式会话。
+    const list = visibleSessionRows(
+      rows,
+      useSessionsStore.getState().activeId,
+    );
     setSessionsByRoot((prev) => ({ ...prev, [root]: list }));
     pruneSessionRanks(root, new Set(list.map((s) => s.id)));
     useSessionsStore.getState().replaceList(root, list);
@@ -717,6 +742,23 @@ export function SessionSidebar(): ReactNode {
     if (!root) return;
     setExpanded((prev) => ({ ...prev, [root]: true }));
     await loadSessions(root);
+  }
+
+  /**
+   * 切换全局智能体后端：所有工作区一起换引擎。
+   * pi 与 omp 的会话目录不同，换后端后每个工作区的列表都得重载。
+   */
+  async function switchBackend(backend: AgentBackend): Promise<void> {
+    if (currentBackend() === backend) return;
+    const root = useWorkspaceStore.getState().root;
+    if (root) await discardActiveUnstartedForRoot(root);
+    await useWorkspaceStore.getState().setBackend(backend);
+    const roots = new Set([
+      ...Object.keys(localRef.current.sessionsByRoot),
+      ...(root ? [root] : []),
+    ]);
+    await Promise.all([...roots].map((r) => loadSessions(r)));
+    if (root) useSessionsStore.getState().beginDraft(root);
   }
 
   /** Discard the active session (of a root) when the user leaves it unstarted. */
@@ -1653,12 +1695,8 @@ export function SessionSidebar(): ReactNode {
   }
 
   function moreMenuItems(): MenuItem[] {
-    const activeIcon = (active: boolean): ReactNode =>
-      active ? (
-        <CheckmarkOutline size={14} />
-      ) : (
-        <span className={styles.menuMark} />
-      );
+    const activeStyle = (active: boolean): CSSProperties | undefined =>
+      active ? { backgroundColor: "var(--bg-selected)", fontWeight: 600 } : undefined;
     return [
       { label: t.selectSessions, key: "select-mode", icon: <ListOutline /> },
       { type: "divider", key: "d-view-0" },
@@ -1670,12 +1708,12 @@ export function SessionSidebar(): ReactNode {
           {
             key: "group:project",
             label: t.sessionViewGroupProject,
-            icon: activeIcon(view.group === "project"),
+            style: activeStyle(view.group === "project"),
           },
           {
             key: "group:task",
             label: t.sessionViewGroupTask,
-            icon: activeIcon(view.group === "task"),
+            style: activeStyle(view.group === "task"),
           },
         ],
       },
@@ -1687,22 +1725,22 @@ export function SessionSidebar(): ReactNode {
           {
             key: "time:all",
             label: t.sessionViewTimeAll,
-            icon: activeIcon(view.time === "all"),
+            style: activeStyle(view.time === "all"),
           },
           {
             key: "time:1d",
             label: t.sessionViewTime1d,
-            icon: activeIcon(view.time === "1d"),
+            style: activeStyle(view.time === "1d"),
           },
           {
             key: "time:3d",
             label: t.sessionViewTime3d,
-            icon: activeIcon(view.time === "3d"),
+            style: activeStyle(view.time === "3d"),
           },
           {
             key: "time:7d",
             label: t.sessionViewTime7d,
-            icon: activeIcon(view.time === "7d"),
+            style: activeStyle(view.time === "7d"),
           },
         ],
       },
@@ -1714,12 +1752,12 @@ export function SessionSidebar(): ReactNode {
           {
             key: "sort:recent",
             label: t.sessionViewSortRecent,
-            icon: activeIcon(view.sort === "recent"),
+            style: activeStyle(view.sort === "recent"),
           },
           {
             key: "sort:created",
             label: t.sessionViewSortCreated,
-            icon: activeIcon(view.sort === "created"),
+            style: activeStyle(view.sort === "created"),
           },
         ],
       },
@@ -2165,6 +2203,44 @@ export function SessionSidebar(): ReactNode {
   return (
     <aside className="sidebar">
       <div className={styles.topActions}>
+        <Dropdown
+          {...NO_OVERLAY_MOTION}
+          trigger={["click"]}
+          menu={{
+            selectable: true,
+            selectedKeys: [activeBackend],
+            items: AGENT_BACKENDS.map((backend) => ({
+              key: backend,
+              label: (
+                <span className={styles.backendMenuLabel}>
+                  {BACKEND_ICONS[backend]({ size: 14 })}
+                  <span>{AGENT_BACKEND_LABELS[backend]}</span>
+                </span>
+              ),
+              // 选中态用项目自己的中性灰底，避免 antd 默认的深蓝高亮与整体配色打架。
+              style:
+                backend === activeBackend
+                  ? { backgroundColor: "var(--bg-selected)", fontWeight: 600 }
+                  : undefined,
+            })),
+            onClick: ({ key }) => void switchBackend(key as AgentBackend),
+          }}
+        >
+          <Button
+            type="text"
+            size="small"
+            className={`pi-interactive ${styles.topBtn}`}
+            styles={{ root: { justifyContent: "flex-start" } }}
+            title={t.workspaceBackend}
+          >
+            <span className={styles.btnContent}>
+              {BACKEND_ICONS[activeBackend]({ size: 14 })}
+              <span className={styles.btnLabel}>
+                {AGENT_BACKEND_LABELS[activeBackend]}
+              </span>
+            </span>
+          </Button>
+        </Dropdown>
         <Button
           type="text"
           size="small"
@@ -2248,6 +2324,12 @@ export function SessionSidebar(): ReactNode {
               {...NO_OVERLAY_MOTION}
               trigger={["click"]}
               menu={{
+                selectable: true,
+                selectedKeys: [
+                  `group:${view.group}`,
+                  `time:${view.time}`,
+                  `sort:${view.sort}`,
+                ],
                 items: moreMenuItems(),
                 onClick: ({ key }) => void onMoreMenuSelect(key),
               }}

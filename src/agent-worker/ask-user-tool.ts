@@ -89,6 +89,7 @@ export type AskUserAnswers = {
 export type AskUserWaitForAnswers = (
   questions: AskUserQuestion[],
   signal?: AbortSignal,
+  toolCallId?: string,
 ) => Promise<string | AskUserAnswers>;
 
 function normalizeAnswers(raw: string | AskUserAnswers): AskUserAnswers {
@@ -99,12 +100,18 @@ function normalizeAnswers(raw: string | AskUserAnswers): AskUserAnswers {
 async function defaultWaitForAnswers(
   questions: AskUserQuestion[],
   signal?: AbortSignal,
+  toolCallId?: string,
 ): Promise<string | AskUserAnswers> {
   // No auto-timeout: the ask waits until the user answers or the turn is
   // aborted (Stop). Passing null (NOT undefined — undefined triggers the
   // default timeout) disables the RPC timer. Aborting rejects the RPC so the
   // tool returns an error and the agent turn ends cleanly.
-  const raw = await rpcToMain("desktop.askUser", { questions }, null, signal);
+  const raw = await rpcToMain(
+    "desktop.askUser",
+    { questions, ...(toolCallId ? { toolCallId } : {}) },
+    null,
+    signal,
+  );
 
   if (typeof raw === "string") {
     if (!raw.trim()) throw new Error("ask_user: no answers from user");
@@ -140,14 +147,16 @@ export function createAskUserToolDefinition(deps?: {
     promptGuidelines: [...ASK_USER_RULES],
     executionMode: "sequential",
     parameters: askUserSchema,
-    async execute(_toolCallId, params, signal) {
+    async execute(toolCallId, params, signal) {
       const parsed = parseAskUserArgs(params);
       if (!parsed) {
         throw new Error(
           "ask_user: need 1-3 questions, each with a unique id, a header (<=12 chars), a prompt, and 2-3 options",
         );
       }
-      const answers = normalizeAnswers(await waitForAnswers(parsed.questions, signal));
+      const answers = normalizeAnswers(
+        await waitForAnswers(parsed.questions, signal, toolCallId),
+      );
       if (!answers.text) {
         throw new Error("ask_user: no answers from user");
       }

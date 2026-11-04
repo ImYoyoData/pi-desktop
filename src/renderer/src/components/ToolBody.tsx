@@ -2,19 +2,19 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState,
   type ReactNode,
 } from "react";
 import { ToolDiffView } from "@renderer/components/ToolDiffView";
 import {
   CheckmarkCircleOutline,
+  CloseOutline,
   EllipseOutline,
   FolderOutline,
+  SyncOutline,
 } from "@renderer/components/icons/ionicons";
 import FileChip from "@renderer/components/FileChip";
 import {
   readPreviewText,
-  clipText,
   type BashToolCard,
   type FileToolCard,
   type GenericToolCard,
@@ -22,7 +22,18 @@ import {
   type ReadToolCard,
   type TodoToolCard,
   type ToolCard,
+  type WaitJob,
+  type WaitToolCard,
 } from "@renderer/utils/tool-diff";
+import { clipText } from "@renderer/utils/tool-args";
+import { formatTokenCount } from "@renderer/utils/agent-wait";
+import { sortWaitJobs, waitJobCounts } from "@renderer/utils/tool-wait";
+import { formatDuration } from "@renderer/utils/format-duration";
+import { useNow } from "@renderer/utils/use-now";
+import WaitJobWidget from "@renderer/components/WaitJobWidget";
+import ToolDetailBody from "@renderer/components/ToolDetailBody";
+import { JsonTree } from "@renderer/components/ToolJsonTree";
+import SubagentTranscript from "@renderer/components/SubagentTranscript";
 import { grepOpenPath, type GrepLine } from "@renderer/utils/grep-card";
 import {
   browserResultHead,
@@ -32,12 +43,7 @@ import {
   toolResultCount,
 } from "@renderer/utils/tool-family";
 
-import {
-  buildJsonTree,
-  defaultClosedNodeIds,
-  parseJsonPayload,
-  type JsonTreeNode,
-} from "@renderer/utils/json-tree";
+import { buildJsonTree, parseJsonPayload } from "@renderer/utils/json-tree";
 import {
   parseScriptReport,
   pathListFromOutput,
@@ -96,6 +102,10 @@ function renderToolBody({
       return <GrepBody card={card} onOpen={onOpen} />;
     case "todo":
       return <TodoBody card={card} />;
+    case "wait":
+      return <WaitBody card={card} streaming={streaming} />;
+    case "detail":
+      return <ToolDetailBody card={card} streaming={streaming} onOpen={onOpen} />;
     case "generic":
       return (
         <JsonBody
@@ -294,6 +304,14 @@ function GrepLineRow({
   onOpen?: () => void;
 }): ReactNode {
   const html = useMemo(() => highlightToSafeHtml(row.text, lang), [row.text, lang]);
+  if (row.gap) {
+    return (
+      <div className={`${styles.grepLine} ${styles.grepGap}`}>
+        <span className={styles.grepLineNo} />
+        <span className={styles.grepLineText}>…</span>
+      </div>
+    );
+  }
   return (
     <button
       type="button"
@@ -334,7 +352,7 @@ function GrepBody({
         {card.hits.length ? (
           <div className={styles.grepFiles}>
             {card.hits.map((group) => {
-              const path = grepOpenPath(card.searchPath, group.path);
+              const path = grepOpenPath(card.searchPath, group.path, group.pathBase);
               const lang = languageFromPath(group.path);
               return (
                 <div key={path} className={styles.grepFile}>
@@ -374,6 +392,10 @@ function GrepBody({
 }
 
 function TodoBody({ card }: { card: TodoToolCard }): ReactNode {
+  const t = useI18n();
+  if (!card.items.length) {
+    return <p className={styles.todoEmpty}>{t.toolTodoEmpty}</p>;
+  }
   return (
     <ul className={styles.todoList}>
       {card.items.map((item) => (
@@ -390,110 +412,198 @@ function TodoBody({ card }: { card: TodoToolCard }): ReactNode {
   );
 }
 
-function jsonScalarClass(type: string): string {
-  if (type === "string") return styles.jsonStr;
-  if (type === "number") return styles.jsonNum;
-  if (type === "boolean") return styles.jsonBool;
-  return styles.jsonNull;
+/** wait 的运行中计时：只在流式期间每秒重渲染，任务耗时仍以 500ms 快照为准。 */
+function firstOutputLine(text: string): string {
+  return (
+    text
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .find((line) => line.trim())
+      ?.trim() ?? ""
+  );
 }
 
-function jsonScalarText(value: string | number | boolean | null, type: string): string {
-  if (type === "string") {
-    const text = String(value);
-    return `"${text.length > 120 ? `${text.slice(0, 119)}…` : text}"`;
-  }
-  return String(value);
-}
-
-/** 树节点：容器可折叠，标量直接显示。 */
-function JsonNodeRow({
-  node,
-  closed,
-  onToggle,
-  guide,
-  isLast,
+function WaitJobRow({
+  job,
+  now,
+  streaming,
+  observedAt,
 }: {
-  node: JsonTreeNode;
-  closed: Set<string>;
-  onToggle: (id: string) => void;
-  guide: string;
-  isLast: boolean;
+  job: WaitJob;
+  now: number;
+  streaming: boolean;
+  observedAt: number | null;
 }): ReactNode {
   const t = useI18n();
-  const isContainer = node.children != null;
-  const open = isContainer && !closed.has(node.id);
-  const rowGuide = guide + (isLast ? "└─ " : "├─ ");
-  const childGuide = guide + (isLast ? "   " : "│  ");
+  const running = job.status === "running";
+  const live = running && streaming;
+  const failed = job.status === "failed";
+  const statusLabel = failed
+    ? t.toolWaitStatusFailed
+    : job.status === "completed"
+      ? t.toolWaitStatusDone
+      : job.status === "cancelled"
+        ? t.toolWaitStatusCancelled
+        : t.toolWaitStatusRunning;
+  const Icon = running
+    ? SyncOutline
+    : failed
+      ? CloseOutline
+      : job.status === "completed"
+        ? CheckmarkCircleOutline
+        : EllipseOutline;
+  const iconClass = [
+    styles.waitJobIcon,
+    live ? styles.waitJobIconRunning : "",
+    failed ? styles.waitJobIconFailed : "",
+    job.status === "completed" ? styles.waitJobIconDone : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
-  if (!isContainer) {
-    return (
-      <div className={styles.jsonRow}>
-        <span className={styles.jsonChev} />
-        <span className={styles.jsonGuide}>{rowGuide}</span>
-        {node.key !== null ? <span className={styles.jsonKey}>{node.key}</span> : null}
-        <span className={styles.jsonPunct}>: </span>
-        <span className={`${jsonScalarClass(node.type)} ${styles.jsonValue}`}>
-          {jsonScalarText(node.value, node.type)}
-        </span>
-      </div>
+  const meta: string[] = [];
+  if (job.model) meta.push(job.model);
+  if (job.requests != null && job.requests > 0) {
+    meta.push(t.toolWaitRequests(job.requests));
+  }
+  if (job.cost != null && job.cost > 0) {
+    meta.push(t.toolWaitCost(job.cost < 0.005 ? "<0.01" : job.cost.toFixed(2)));
+  }
+  if (job.contextTokens != null && job.contextTokens > 0) {
+    meta.push(
+      t.toolWaitContext(
+        formatTokenCount(job.contextTokens),
+        job.contextWindow ? formatTokenCount(job.contextWindow) : null,
+      ),
     );
   }
+  if (job.exitCode != null && job.exitCode !== 0) {
+    meta.push(t.toolBodyExitCode(job.exitCode));
+  }
 
-  const label =
-    node.type === "array" ? `[${node.children?.length ?? 0}]` : `{${node.children?.length ?? 0}}`;
+  const percent =
+    running && job.completionPercent != null
+      ? Math.max(0, Math.min(100, Math.round(job.completionPercent)))
+      : null;
+  const outcome =
+    job.status === "failed"
+      ? job.errorText
+      : job.status === "cancelled"
+        ? (job.errorText ?? job.resultText)
+        : job.resultText;
+  const activity = job.widget?.stage ?? job.stage;
+  const widget =
+    job.widget && (job.widget.headline || job.widget.blocks.length)
+      ? job.widget
+      : null;
+  const jobDurationMs =
+    live && observedAt != null
+      ? job.durationMs + Math.max(0, now - observedAt)
+      : job.durationMs;
+
+  return (
+    <li className={styles.waitJob}>
+      <div className={styles.waitJobHead}>
+        <Icon size={13} className={iconClass} aria-hidden="true" />
+        <span className={styles.srOnly}>{statusLabel}</span>
+        <span className={styles.waitJobType}>{job.type}</span>
+        <span className={styles.waitJobLabel} title={job.label}>
+          {job.intent || job.label}
+        </span>
+        {percent != null ? <span className={styles.waitJobPercent}>{percent}%</span> : null}
+        <span className={styles.waitJobTime}>{formatDuration(jobDurationMs)}</span>
+      </div>
+      {percent != null ? (
+        <div
+          className={styles.waitMeter}
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percent}
+        >
+          <span className={styles.waitMeterFill} style={{ width: `${percent}%` }} />
+        </div>
+      ) : null}
+      {activity ? (
+        <div className={styles.waitJobActivity} title={activity}>
+          {activity}
+        </div>
+      ) : null}
+      {widget ? <WaitJobWidget widget={widget} activity={activity} /> : null}
+      {meta.length ? <div className={styles.waitJobMeta}>{meta.join(" · ")}</div> : null}
+      {!running && outcome && (job.type !== "task" || job.status !== "completed") ? (
+        <div className={failed ? styles.waitJobError : styles.waitJobResult}>
+          {firstOutputLine(outcome)}
+        </div>
+      ) : null}
+      {job.type === "task" && job.agentId ? (
+        <SubagentTranscript agentId={job.agentId} active={live} />
+      ) : null}
+    </li>
+  );
+}
+
+/** wait 的进度全在 details.jobs：等待哪些任务、各自的完成度与阶段。 */
+function WaitBody({
+  card,
+  streaming,
+}: {
+  card: WaitToolCard;
+  streaming?: boolean;
+}): ReactNode {
+  const t = useI18n();
+  const counts = waitJobCounts(card.jobs);
+  const now = useNow(Boolean(streaming) && card.jobs.length > 0);
+  const jobs = useMemo(() => sortWaitJobs(card.jobs), [card.jobs]);
+
   return (
     <>
-      <button
-        type="button"
-        className={`${styles.jsonRow} ${open ? styles.jsonOpen : ""}`}
-        aria-expanded={open}
-        onClick={() => onToggle(node.id)}
-      >
-        <span className={styles.jsonChev}>›</span>
-        <span className={styles.jsonGuide}>{rowGuide}</span>
-        {node.key !== null ? <span className={styles.jsonKey}>{node.key}</span> : null}
-        <span className={styles.jsonPunct}>: </span>
-        <span className={styles.jsonType}>{label}</span>
-        {node.truncated ? (
-          <span className={styles.jsonTruncated}>{t.toolBodyJsonTruncated}</span>
+      <div className={styles.head}>
+        <span className={styles.langBadge}>wait</span>
+        {counts.running ? (
+          <span className={styles.waitCountRunning}>
+            {t.toolWaitRunningCount(counts.running)}
+          </span>
         ) : null}
-      </button>
-      {open && node.children?.length
-        ? node.children.map((child, index) => (
-            <JsonNodeRow
-              key={child.id}
-              node={child}
-              closed={closed}
-              onToggle={onToggle}
-              guide={childGuide}
-              isLast={index === node.children!.length - 1}
-            />
-          ))
-        : null}
+        {counts.completed ? (
+          <span className={styles.waitCountDone}>
+            {t.toolWaitDoneCount(counts.completed)}
+          </span>
+        ) : null}
+        {counts.failed ? (
+          <span className={styles.waitCountFailed}>
+            {t.toolWaitFailedCount(counts.failed)}
+          </span>
+        ) : null}
+        {counts.cancelled ? (
+          <span className={styles.waitCountCancelled}>
+            {t.toolWaitCancelledCount(counts.cancelled)}
+          </span>
+        ) : null}
+      </div>
+      <div className={styles.body} data-inner-scroll="">
+        {jobs.length ? (
+          <ul className={styles.waitJobs}>
+            {jobs.map((job) => (
+              <WaitJobRow
+                key={job.id}
+                job={job}
+                now={now}
+                streaming={Boolean(streaming)}
+                observedAt={card.observedAt}
+              />
+            ))}
+          </ul>
+        ) : (
+          <p className={styles.plain}>
+            {streaming ? t.toolWaitPending : (card.text ?? t.toolWaitEmpty)}
+          </p>
+        )}
+      </div>
     </>
   );
 }
 
-function JsonTree({ tree }: { tree: JsonTreeNode }): ReactNode {
-  const [closed, setClosed] = useState<Set<string>>(() => defaultClosedNodeIds(tree));
-
-  function toggle(id: string): void {
-    setClosed((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  return (
-    <div className={styles.jsonTree}>
-      <JsonNodeRow node={tree} closed={closed} onToggle={toggle} guide="" isLast />
-    </div>
-  );
-}
-
-/** 路径清单条目：ls / find 的结果，带文件图标与目录标记。 */
 function PathList({ entries }: { entries: string[] }): ReactNode {
   return (
     <ul className={styles.pathList}>
@@ -614,21 +724,6 @@ function ScriptReportBody({ report }: { report: ScriptReport }): ReactNode {
         {report.error ? <div className={styles.scriptError}>{report.error}</div> : null}
       </div>
     </>
-  );
-}
-
-/** JSON 树：既用于 generic 工具结果，也用于嵌套调用的参数。 */
-export function ToolJsonTree({ value }: { value: unknown }): ReactNode {
-  const tree = useMemo(() => {
-    if (value == null || typeof value !== "object") return null;
-    return buildJsonTree(value);
-  }, [value]);
-  if (tree) return <JsonTree tree={tree} />;
-  if (value == null) return null;
-  return (
-    <pre className={styles.plain}>
-      {typeof value === "string" ? value : String(value)}
-    </pre>
   );
 }
 

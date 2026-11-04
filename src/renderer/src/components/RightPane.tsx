@@ -3,7 +3,6 @@ import BrowserPage from "@renderer/components/BrowserPage";
 import ChangesPage from "@renderer/components/ChangesPage";
 import FilesPage from "@renderer/components/FilesPage";
 import { useAgentRunsStore } from "@renderer/stores/agent-runs";
-import { useBrowserNavStore } from "@renderer/stores/browser-nav";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useKeybindingsStore } from "@renderer/stores/keybindings";
 import { usePreviewStore } from "@renderer/stores/preview";
@@ -97,35 +96,8 @@ export function RightPane(): ReactNode {
     keybindings.register("right-pane-files", () => showView("files"));
     void useAgentRunsStore.getState().refresh(useWorkspaceStore.getState().root);
 
-    const offOpenBrowserTab = window.api.browser.onOpenTab((payload) => {
-      try {
-        if (useLayoutStore.getState().rightCollapsed) {
-          useLayoutStore.setState({ rightCollapsed: false });
-        }
-        const store = useRightTabsStore.getState();
-        const tab = store.addTab("browser");
-        const url = (payload.url || "").trim();
-        if (url && /^https?:\/\//i.test(url)) {
-          store.patchTab(tab.id, { url });
-          useBrowserNavStore.getState().requestNavigate(url, tab.id);
-        }
-        void window.api.browser.openTabAck({ requestId: payload.requestId, tabId: tab.id });
-      } catch (err) {
-        void window.api.browser.openTabAck({
-          requestId: payload.requestId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    });
-    const offCloseBrowserTab = window.api.browser.onCloseTab((payload) => {
-      const id = (payload.tabId || "").trim();
-      if (!id) return;
-      useRightTabsStore.getState().closeTab(id);
-    });
     return () => {
       useKeybindingsStore.getState().unregister("right-pane-files");
-      offOpenBrowserTab();
-      offCloseBrowserTab();
       window.removeEventListener("keydown", onLayoutKeydown);
     };
   }, []);

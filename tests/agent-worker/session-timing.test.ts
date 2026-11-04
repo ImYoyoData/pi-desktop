@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { SessionTimingTracker } from "../../src/agent-worker/context-usage";
 import {
   parseSessionTiming,
+  SessionTimingTracker,
   sessionTimingPath,
 } from "../../src/shared/session-timing";
 

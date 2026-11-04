@@ -6,7 +6,7 @@ import {
 	writeFileSync,
 	chmodSync,
 } from "fs";
-import { join } from "path";
+import { delimiter, dirname, join } from "path";
 import { tmpdir } from "os";
 import { execFile, spawn } from "child_process";
 import { promisify } from "util";
@@ -17,6 +17,7 @@ import {
 	bundledNpmEnv,
 	bundledNpmLabel,
 } from "./bundled-npm";
+import { desktopDataPath } from "./desktop-data";
 import {
 	PI_CLI_PACKAGE,
 	PI_DOCS_INSTALL_URL,
@@ -44,7 +45,7 @@ type MethodResult = { ok: boolean; log: string; openedExternal?: boolean };
 let installBusy = false;
 
 function prefsPath(): string {
-	return join(app.getPath("userData"), PREFS_FILE);
+	return desktopDataPath(PREFS_FILE);
 }
 
 function readPrefs(): Prefs {
@@ -61,7 +62,7 @@ function readPrefs(): Prefs {
 
 function writePrefs(patch: Partial<Prefs>): Prefs {
 	const next = { ...readPrefs(), ...patch };
-	mkdirSync(app.getPath("userData"), { recursive: true });
+	mkdirSync(dirname(prefsPath()), { recursive: true });
 	writeFileSync(prefsPath(), `${JSON.stringify(next, null, 2)}\n`, "utf8");
 	return next;
 }
@@ -79,12 +80,29 @@ function looksLikeCommand(out: string): boolean {
 	);
 }
 
-async function resolveCommand(name: string): Promise<string | null> {
+/**
+ * 探测 CLI 用环境：dev 下主进程 PATH 被 node_modules/.bin 污染，
+ * where.exe 会先命中项目依赖的 bin shim，故剥离后只解析系统安装的命令。
+ */
+export function cleanProbeEnv(): NodeJS.ProcessEnv {
+	const raw = process.env.PATH;
+	if (!raw) return process.env;
+	const kept = raw
+		.split(delimiter)
+		.filter((dir) => !dir.includes("node_modules"));
+	return { ...process.env, PATH: kept.join(delimiter) };
+}
+
+export async function resolveCommand(
+	name: string,
+	env?: NodeJS.ProcessEnv,
+): Promise<string | null> {
 	try {
 		if (process.platform === "win32") {
 			const { stdout } = await execFileAsync("where.exe", [name], {
 				windowsHide: true,
 				timeout: 8000,
+				env,
 			});
 			const first = stdout
 				.split(/\r?\n/)
@@ -95,6 +113,7 @@ async function resolveCommand(name: string): Promise<string | null> {
 		} else {
 			const { stdout } = await execFileAsync("which", [name], {
 				timeout: 8000,
+				env,
 			});
 			const first = stdout.trim().split(/\n/)[0]?.trim();
 			if (first) return first;
@@ -139,13 +158,18 @@ async function resolveCommand(name: string): Promise<string | null> {
 	return null;
 }
 
-async function runCapture(
+export async function runCapture(
 	command: string,
 	args: string[],
 	opts?: { shell?: boolean; timeoutMs?: number; env?: NodeJS.ProcessEnv },
 ): Promise<{ code: number; stdout: string; stderr: string }> {
 	return new Promise((resolve) => {
-		const child = spawn(command, args, {
+		// shell 模式下 cmd 会按空格切分命令，路径含空格时必须自行加引号。
+		const spawnCommand =
+			opts?.shell && process.platform === "win32" && /\s/.test(command)
+				? `"${command}"`
+				: command;
+		const child = spawn(spawnCommand, args, {
 			windowsHide: true,
 			shell: opts?.shell === true,
 			env: { ...process.env, ...opts?.env, CI: "1", NO_COLOR: "1" },
@@ -201,15 +225,20 @@ export function getPiSdkVersion(): string | null {
 	return null;
 }
 
-async function probePiVersion(piPath: string): Promise<string | null> {
+export async function probeCliVersion(
+	command: string,
+	env?: NodeJS.ProcessEnv,
+): Promise<string | null> {
 	try {
-		const { stdout, stderr, code } = await runCapture(piPath, ["--version"], {
+		const { stdout, stderr, code } = await runCapture(command, ["--version"], {
 			timeoutMs: 12_000,
 			shell: process.platform === "win32",
+			env,
 		});
 		const text = `${stdout}\n${stderr}`.trim();
-		if (code !== 0 && !text) return null;
+		if (!text) return null;
 		const m = text.match(/\d+\.\d+\.\d+[\w.-]*/);
+		if (code !== 0) return m?.[0] ?? null;
 		return (
 			m?.[0] ?? (looksLikeCommand(text) ? text.split(/\r?\n/)[0]!.trim() : null)
 		);
@@ -247,9 +276,10 @@ async function listAvailableMethods(): Promise<PiCliInstallMethod[]> {
 }
 
 export async function getPiCliStatus(): Promise<PiCliStatus> {
+	const env = cleanProbeEnv();
 	const availableMethods = await listAvailableMethods();
 	const preferredMethod = availableMethods[0] ?? null;
-	const piPath = await resolveCommand("pi");
+	const piPath = await resolveCommand("pi", env);
 	if (!piPath) {
 		return {
 			installed: false,
@@ -260,7 +290,7 @@ export async function getPiCliStatus(): Promise<PiCliStatus> {
 			preferredMethod,
 		};
 	}
-	const version = await probePiVersion(piPath);
+	const version = await probeCliVersion(piPath, env);
 	return {
 		installed: true,
 		path: piPath,

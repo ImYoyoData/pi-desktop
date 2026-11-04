@@ -15,13 +15,11 @@ export type UserRowView = {
   text: string;
   /** 去掉旧版模式标记后的可见标签。 */
   tags: UserTag[];
-  /** 长卡片需要折叠开关：正文、图、标签任一过多时折叠显示。 */
+  /** 正文超过阈值需要折叠四行，实际是否截断由渲染高度决定。 */
   needsToggle: boolean;
 };
 
 const TOGGLE_TEXT_LEN = 140;
-const TOGGLE_IMG_COUNT = 2;
-const TOGGLE_TAG_COUNT = 4;
 
 export function buildUserRowView(msg: UserMessage): UserRowView {
   const text = stripInjectedBlocks(msg.text);
@@ -29,9 +27,6 @@ export function buildUserRowView(msg: UserMessage): UserRowView {
   return {
     text,
     tags,
-    needsToggle:
-      text.length > TOGGLE_TEXT_LEN ||
-      (msg.images?.length ?? 0) > TOGGLE_IMG_COUNT ||
-      tags.length > TOGGLE_TAG_COUNT,
+    needsToggle: text.length > TOGGLE_TEXT_LEN,
   };
 }

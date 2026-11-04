@@ -13,8 +13,10 @@ import {
 	clearPendingAskUser,
 	clearPendingExtensionUi,
 	clearPendingPermission,
+	clearSlashEcho,
 	createChatState,
 	hasLiveTurnState,
+	markSlashEcho,
 	reduceChatEvent,
 	setPendingAskUser,
 	setPendingExtensionUi,
@@ -36,6 +38,8 @@ import { useCheckpointStore } from "./checkpoint";
 import { useComposerStore } from "./composer";
 import { useNotifyStore } from "./notify";
 import { useSessionWidgetsStore } from "./session-widgets";
+import { usePreviewStore } from "./preview";
+import { useLayoutStore } from "./layout";
 import { useWorkspaceStore } from "./workspace";
 import { extractToolResult } from "../utils/tool-diff";
 import { isTodoToolName } from "../utils/session-todos";
@@ -532,6 +536,7 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 				id: row.id,
 				role: "user" as const,
 				text: stripInjectedBlocks(row.text),
+				...(row.agentText ? { agentText: stripInjectedBlocks(row.agentText) } : {}),
 				...(row.images?.length ? { images: row.images } : {}),
 				...(row.elementTags?.length ? { elementTags: row.elementTags } : {}),
 			};
@@ -635,6 +640,7 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 				sessionId: ask.sessionId,
 				requestId: ask.requestId,
 				questions: ask.questions,
+				...(ask.toolCallId ? { toolCallId: ask.toolCallId } : {}),
 			});
 		}
 		for (const dialog of snapshot.extensionDialogs ?? []) {
@@ -742,15 +748,42 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 		}
 	}
 
+	/** 命令回显吸收了真实提示词后登记 sidecar：重载历史仍显示命令原文。 */
+	function persistSlashEchoMeta(
+		sessionId: string,
+		before: ChatState,
+		after: ChatState,
+	): void {
+		const prev = before.messages.at(-1);
+		const next = after.messages.at(-1);
+		if (prev?.role !== "user" || !prev.slashEcho) return;
+		if (next?.role !== "user" || next.slashEcho || !next.agentText) return;
+		if (next.text !== prev.text) return;
+		void window.api.sessions
+			.setUserMessageMeta(
+				sessionId,
+				next.agentText,
+				prev.elementTags ?? [],
+				prev.text,
+			)
+			.catch(() => {
+				// best-effort — 侧写失败只会退化成展开文本
+			});
+	}
+
 	function applyEvent(event: AgentEvent): void {
 		const sessionId = event.sessionId;
+		const before = stateFor(sessionId);
+		let after = before;
 		try {
-			setSessionState(sessionId, reduceChatEvent(stateFor(sessionId), event));
+			after = reduceChatEvent(before, event);
+			setSessionState(sessionId, after);
 		} catch (err) {
 			// 一条事件归约失败不能影响后续事件（也避免异常穿透 ipcRenderer 回调）。
 			console.error(`[chat] reduce failed for ${event.type}:`, err);
 			return;
 		}
+		persistSlashEchoMeta(sessionId, before, after);
 
 		if (event.type === "agent_event") {
 			const payload = event.event as {
@@ -760,6 +793,10 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 				result?: unknown;
 				partialResult?: unknown;
 				isError?: unknown;
+				level?: unknown;
+				message?: unknown;
+				path?: unknown;
+				command?: unknown;
 			};
 			if (payload.type === "agent_start" || payload.type === "turn_start") {
 				softHangReported.delete(sessionId);
@@ -787,6 +824,38 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 					widgets.applyTodoToolResult(sessionId, details ?? payload.result);
 				}
 			}
+			if (
+				payload.type === "model_changed" ||
+				payload.type === "thinking_level_changed"
+			) {
+				window.dispatchEvent(new Event("pi-models-changed"));
+			}
+			if (payload.type === "desktop_open_file" && typeof payload.path === "string") {
+				if (useLayoutStore.getState().rightCollapsed) {
+					useLayoutStore.getState().toggleRightCollapsed();
+				}
+				usePreviewStore.getState().openPreview(payload.path);
+			}
+			if (payload.type === "desktop_slash_prompt" && typeof payload.command === "string") {
+				setSessionState(
+					sessionId,
+					markSlashEcho(stateFor(sessionId), payload.command),
+				);
+			}
+			if (payload.type === "notice" && typeof payload.message === "string") {
+				const level =
+					payload.level === "error"
+						? "error"
+						: payload.level === "warning"
+							? "warning"
+							: "info";
+				const message = payload.message.trim();
+				if (message) {
+					getMessage()[level](
+						message.length > 2000 ? `${message.slice(0, 2000)}…` : message,
+					);
+				}
+			}
 			// Recover banner must clear when the agent loop finishes (prompt IPC may still lag).
 			if (payload.type === "agent_end" || payload.type === "agent_settled") {
 				clearAutoRecovering(sessionId);
@@ -796,6 +865,9 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 		}
 
 		if (event.type === "prompt_done" || event.type === "prompt_error") {
+			const beforeClear = stateFor(sessionId);
+			const cleared = clearSlashEcho(beforeClear);
+			if (cleared !== beforeClear) setSessionState(sessionId, cleared);
 			void useCheckpointStore.getState().finishActive(sessionId);
 			softHangReported.delete(sessionId);
 			stallReported.delete(sessionId);
@@ -957,7 +1029,7 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 			recoveringIds.delete(sessionId);
 			await sendPrompt(
 				sessionId,
-				userMsg.text,
+				userMsg.agentText ?? userMsg.text,
 				undefined,
 				images,
 				userMsg.elementTags,
@@ -1116,9 +1188,10 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 		const liveUser = liveMessages.findLastIndex((m) => m.role === "user");
 		const liveUserMsg = liveUser >= 0 ? liveMessages[liveUser] : undefined;
 		if (liveUserMsg?.role !== "user") return mapped;
-		const text = liveUserMsg.text;
+		const liveText = liveUserMsg.agentText ?? liveUserMsg.text;
 		const diskUser = mapped.findLastIndex(
-			(m) => m.role === "user" && m.text === text,
+			(m) =>
+				m.role === "user" && (m.agentText ?? m.text) === liveText,
 		);
 		const head = diskUser >= 0 ? mapped.slice(0, diskUser) : mapped;
 		return [...head, ...liveMessages.slice(liveUser)];
@@ -1243,7 +1316,11 @@ softHangReported.delete(sessionId);
 		const state = get().bySession[sessionId];
 		if (!state?.running && !state?.autoRecovering) return;
 
-		const status = await window.api.sessions.status(sessionId, row.cwd);
+		const status = await window.api.sessions.status(
+			sessionId,
+			row.cwd,
+			row.backend,
+		);
 		if (status === null || status === "running" || status === "stuck") return;
 
 		sessions.applyStatus(sessionId, status);
@@ -1357,6 +1434,7 @@ softHangReported.delete(sessionId);
 				sessionId: req.sessionId,
 				requestId: req.requestId,
 				questions: req.questions,
+				...(req.toolCallId ? { toolCallId: req.toolCallId } : {}),
 			});
 			const notify = useNotifyStore.getState();
 			if (notify.soundEnabled) {
@@ -1476,11 +1554,10 @@ softHangReported.delete(sessionId);
 					// Agent may already be past that leaf — continue with the new prompt.
 				}
 			}
+			// 被编辑轮次的待办随历史一起作废；正常新回合则保留会话清单。
+			useSessionWidgetsStore.getState().resetTodosForSession(sessionId);
 		}
 
-		// A new task starts a clean slate: drop the previous round's todos so
-		// fresh items never accumulate on top of the old list.
-		useSessionWidgetsStore.getState().resetTodosForSession(sessionId);
 		setSessionState(
 			sessionId,
 			appendUserMessage(
@@ -1488,6 +1565,7 @@ softHangReported.delete(sessionId);
 				bubbleText,
 				toChatImages(promptImages),
 				elementTags?.length ? elementTags : undefined,
+				message !== bubbleText ? message : undefined,
 			),
 		);
 		const last = stateFor(sessionId).messages.at(-1);
@@ -1495,10 +1573,15 @@ softHangReported.delete(sessionId);
 			// Must finish begin (baseline snapshot) before the agent starts writing files.
 			await useCheckpointStore.getState().begin(sessionId, last.id);
 		}
-		// Persist attachment chips so they survive a session reload (sidecar keyed by agent text).
-		if (elementTags?.length) {
+		// Persist attachment chips / the unexpanded command text so they survive a session reload.
+		if (elementTags?.length || (bubbleText && message !== bubbleText)) {
 			void window.api.sessions
-				.setUserMessageMeta(sessionId, message, elementTags)
+				.setUserMessageMeta(
+					sessionId,
+					message,
+					elementTags ?? [],
+					message !== bubbleText ? bubbleText : undefined,
+				)
 				.catch(() => {
 					// best-effort — chips degrade to text if the sidecar write fails
 				});
@@ -1707,7 +1790,7 @@ softHangReported.delete(sessionId);
 		});
 		await sendPrompt(
 			sessionId,
-			userMsg.text,
+			userMsg.agentText ?? userMsg.text,
 			undefined,
 			images,
 			userMsg.elementTags,
@@ -1741,7 +1824,7 @@ softHangReported.delete(sessionId);
 			const result = await useSessionsStore.getState().sendCommand(sessionId, {
 				type: "rollback_turn_end",
 				userIndex: located.userIndex,
-				expectText: located.message.text,
+				expectText: located.message.agentText ?? located.message.text,
 			});
 			rolledBack = Boolean((result as { ok?: unknown } | null)?.ok);
 		} catch {
@@ -1785,7 +1868,9 @@ softHangReported.delete(sessionId);
 			sessionId,
 			root,
 			located.userIndex,
-			located.message.text,
+			located.message.agentText ?? located.message.text,
+			useSessionsStore.getState().sessions.find((s) => s.id === sessionId)
+				?.backend,
 		);
 		const sessions = useSessionsStore.getState();
 		await sessions.refresh(root);
@@ -1886,8 +1971,6 @@ softHangReported.delete(sessionId);
 		sessionId: string,
 		userMsg: Extract<ChatMessage, { role: "user" }>,
 	): Promise<void> {
-		// New round: clear the previous round's todos before re-driving the prompt.
-		useSessionWidgetsStore.getState().resetTodosForSession(sessionId);
 		const images = userMsg.images?.map((img) => {
 			const raw = img.dataUrl.replace(/^data:[^;]+;base64,/, "");
 			return { type: "image" as const, data: raw, mimeType: img.mimeType };
@@ -1910,7 +1993,7 @@ softHangReported.delete(sessionId);
 		try {
 			await useSessionsStore.getState().sendCommand(sessionId, {
 				type: "prompt",
-				message: userMsg.text,
+				message: userMsg.agentText ?? userMsg.text,
 				images: promptImages,
 			});
 		} catch (err) {

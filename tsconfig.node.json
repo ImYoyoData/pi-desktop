@@ -6,6 +6,7 @@
     "src/main/**/*",
     "src/preload/**/*",
     "src/agent-worker/**/*",
+    "src/omp-worker/**/*",
     "src/shared/**/*",
     "tests/main/**/*",
     "tests/shared/**/*",

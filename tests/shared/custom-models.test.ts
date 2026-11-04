@@ -16,7 +16,10 @@ import {
   validateCustomProvider,
 } from "../../src/shared/custom-models";
 import { DEFAULT_MAX_TOKENS } from "../../src/shared/model-metadata";
-import { availableThinkingLevels } from "../../src/shared/thinking-level";
+import {
+  declaredThinkingLevels,
+  supportedThinkingLevels,
+} from "../../src/shared/thinking-level";
 import { findCustomPlatform } from "../../src/shared/provider-catalog";
 
 describe("custom-models helpers", () => {
@@ -251,16 +254,24 @@ describe("provider model overrides", () => {
   });
 
   it("parses available thinking levels from thinkingLevelMap", () => {
-    expect(availableThinkingLevels(undefined)).toBeUndefined();
-    expect(availableThinkingLevels({})).toBeUndefined();
-    expect(availableThinkingLevels({ low: null })).toEqual([
+    expect(declaredThinkingLevels(undefined)).toBeUndefined();
+    expect(declaredThinkingLevels({})).toBeUndefined();
+    expect(declaredThinkingLevels({ low: null })).toEqual([
       "off",
       "minimal",
       "medium",
       "high",
-      "xhigh",
-      "max",
     ]);
+    expect(
+      supportedThinkingLevels({ reasoning: true, thinkingLevelMap: { low: null } }),
+    ).toEqual(["off", "minimal", "medium", "high"]);
+    expect(
+      supportedThinkingLevels({
+        reasoning: true,
+        thinkingLevelMap: { xhigh: "xhigh", max: null },
+      }),
+    ).toEqual(["off", "minimal", "low", "medium", "high", "xhigh"]);
+    expect(supportedThinkingLevels({ reasoning: false })).toEqual(["off"]);
     const doc = parseModelsConfigText(
       JSON.stringify({
         providers: {
@@ -278,8 +289,6 @@ describe("provider model overrides", () => {
       "minimal",
       "medium",
       "high",
-      "xhigh",
-      "max",
     ]);
   });
 
@@ -300,7 +309,6 @@ describe("provider model overrides", () => {
       doc.providers.p,
     );
     expect((json.models as Record<string, unknown>[])[0]?.thinkingLevelMap).toEqual({
-      off: null,
       minimal: null,
       low: "low",
       medium: null,
@@ -310,7 +318,63 @@ describe("provider model overrides", () => {
     });
   });
 
-  it("keeps thinkingLevelMap out of the file when every level is enabled", () => {
+  it("preserves an explicit off: null when saving", () => {
+    const doc = parseModelsConfigText(
+      JSON.stringify({
+        providers: {
+          p: {
+            baseUrl: "https://api.p/v1",
+            models: [
+              { id: "m1", reasoning: true, thinkingLevelMap: { off: null, low: "low" } },
+            ],
+          },
+        },
+      }),
+    );
+    const draft = listEditableProviders(doc)[0]!;
+    const json = draftToProviderJson(
+      {
+        ...draft,
+        models: [
+          {
+            ...draft.models[0]!,
+            thinkingLevels: ["minimal", "low", "medium", "high"],
+          },
+        ],
+      },
+      doc.providers.p,
+    );
+    expect((json.models as Record<string, unknown>[])[0]?.thinkingLevelMap).toEqual({
+      off: null,
+      minimal: "minimal",
+      low: "low",
+      medium: "medium",
+      high: "high",
+      xhigh: null,
+      max: null,
+    });
+  });
+
+  it("keeps thinkingLevelMap out of the file for the default level set", () => {
+    const doc = parseModelsConfigText(
+      JSON.stringify({
+        providers: {
+          p: { baseUrl: "https://api.p/v1", models: [{ id: "m1", reasoning: true }] },
+        },
+      }),
+    );
+    const draft = listEditableProviders(doc)[0]!;
+    const defaults = ["off", "minimal", "low", "medium", "high"] as const;
+    const json = draftToProviderJson(
+      { ...draft, models: [{ ...draft.models[0]!, thinkingLevels: [...defaults] }] },
+      doc.providers.p,
+    );
+    expect((json.models as Record<string, unknown>[])[0]).not.toHaveProperty(
+      "thinkingLevelMap",
+    );
+  });
+
+  it("writes xhigh and max opt-ins into thinkingLevelMap", () => {
     const doc = parseModelsConfigText(
       JSON.stringify({
         providers: {
@@ -324,9 +388,14 @@ describe("provider model overrides", () => {
       { ...draft, models: [{ ...draft.models[0]!, thinkingLevels: [...all] }] },
       doc.providers.p,
     );
-    expect((json.models as Record<string, unknown>[])[0]).not.toHaveProperty(
-      "thinkingLevelMap",
-    );
+    expect((json.models as Record<string, unknown>[])[0]?.thinkingLevelMap).toEqual({
+      minimal: "minimal",
+      low: "low",
+      medium: "medium",
+      high: "high",
+      xhigh: "xhigh",
+      max: "max",
+    });
   });
 
   it("keeps the models.json key order instead of sorting by id", () => {

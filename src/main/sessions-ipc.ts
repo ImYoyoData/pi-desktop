@@ -2,8 +2,11 @@ import { BrowserWindow, ipcMain } from "electron";
 import type { AgentCommand } from "../shared/protocol";
 import type { SessionImageCacheSource } from "../shared/protocol";
 import type { ChatMessageTag } from "../shared/chat-meta";
+import type { AgentBackend } from "../shared/agent-backend";
+import { agentBackendOf } from "../shared/agent-backend";
 import { IpcChannels } from "../shared/protocol";
 import type { SessionBroker } from "./session-broker";
+import { readAgentTranscriptFromDisk } from "./agent-transcript";
 import { readSessionHistoryPage } from "./session-history";
 import {
   cancelAskUserAsksForSession,
@@ -19,6 +22,7 @@ import {
   snapshotPendingPermissionAsks,
 } from "./permissions-host";
 import { renameSessionFile } from "./session-rename";
+import { renameOmpSessionFile } from "./omp-session-rename";
 import { forkSessionAtUserTurn } from "./session-fork";
 import { broadcastStateChange } from "./ui-sync";
 
@@ -64,14 +68,21 @@ export function registerSessionsIpc(broker: SessionBroker): void {
     broadcastEvent(event);
   });
 
-  ipcMain.handle(IpcChannels.sessions.list, (_event, cwd: string) => broker.listSessions(cwd));
+  ipcMain.handle(
+    IpcChannels.sessions.list,
+    (_event, cwd: string, backend?: AgentBackend) =>
+      broker.listSessions(cwd, agentBackendOf(backend)),
+  );
 
-  ipcMain.handle(IpcChannels.sessions.create, (_event, cwd: string) => {
-    if (!cwd?.trim()) {
-      throw new Error("workspace required to create a session");
-    }
-    return broker.createSession(cwd);
-  });
+  ipcMain.handle(
+    IpcChannels.sessions.create,
+    (_event, cwd: string, backend?: AgentBackend) => {
+      if (!cwd?.trim()) {
+        throw new Error("workspace required to create a session");
+      }
+      return broker.createSession(cwd, agentBackendOf(backend));
+    },
+  );
 
   ipcMain.handle(IpcChannels.sessions.close, (_event, sessionId: string) => {
     const id = String(sessionId ?? "");
@@ -100,31 +111,59 @@ export function registerSessionsIpc(broker: SessionBroker): void {
     broker.restartWorker(sessionId),
   );
 
-  ipcMain.handle(IpcChannels.sessions.status, async (_event, sessionId: string, cwd: string) => {
-    const list = await broker.listSessions(cwd);
-    return list.find((s) => s.id === sessionId)?.status ?? null;
-  });
+  ipcMain.handle(
+    IpcChannels.sessions.status,
+    async (_event, sessionId: string, cwd: string, backend?: AgentBackend) => {
+      const list = await broker.listSessions(cwd, agentBackendOf(backend));
+      return list.find((s) => s.id === sessionId)?.status ?? null;
+    },
+  );
 
   ipcMain.handle(
     IpcChannels.sessions.open,
-    async (_event, sessionId: string, cwd: string, filePath?: string) => {
-      const opened = await broker.openSession(sessionId, cwd, filePath);
+    async (
+      _event,
+      sessionId: string,
+      cwd: string,
+      filePath?: string,
+      backend?: AgentBackend,
+    ) => {
+      const opened = await broker.openSession(
+        sessionId,
+        cwd,
+        filePath,
+        agentBackendOf(backend),
+      );
       if (opened) notifyActiveSession(sessionId, cwd);
       return opened;
     },
   );
 
-  ipcMain.handle(IpcChannels.sessions.delete, (_event, sessionId: string, cwd: string) => {
-    const id = String(sessionId ?? "");
-    cancelSessionUiAsks(id);
-    clearSessionPermissionAllows(id);
-    return broker.deleteSession(id, cwd);
-  });
+  ipcMain.handle(
+    IpcChannels.sessions.delete,
+    (_event, sessionId: string, cwd: string, backend?: AgentBackend) => {
+      const id = String(sessionId ?? "");
+      cancelSessionUiAsks(id);
+      clearSessionPermissionAllows(id);
+      return broker.deleteSession(id, cwd, agentBackendOf(backend));
+    },
+  );
 
   ipcMain.handle(
     IpcChannels.sessions.setUserMessageMeta,
-    (_event, sessionId: string, text: string, tags: ChatMessageTag[]) => {
-      broker.persistUserMessageMeta(sessionId, String(text ?? ""), Array.isArray(tags) ? tags : []);
+    (
+      _event,
+      sessionId: string,
+      text: string,
+      tags: ChatMessageTag[],
+      displayText?: unknown,
+    ) => {
+      broker.persistUserMessageMeta(
+        sessionId,
+        String(text ?? ""),
+        Array.isArray(tags) ? tags : [],
+        typeof displayText === "string" ? displayText : undefined,
+      );
     },
   );
   ipcMain.handle(
@@ -147,6 +186,14 @@ export function registerSessionsIpc(broker: SessionBroker): void {
       query?: { limit?: number; beforeId?: string | null },
     ) => readSessionHistoryPage(filePath, query),
   );
+  ipcMain.handle(
+    IpcChannels.sessions.agentTranscript,
+    (_event, filePath: unknown, agentId: unknown) =>
+      readAgentTranscriptFromDisk(
+        typeof filePath === "string" ? filePath : null,
+        typeof agentId === "string" ? agentId : "",
+      ),
+  );
 
   // Renderer boots (initial load / reload / language switch) with empty
   // in-memory chat state; main still holds the pending asks, so hand them
@@ -160,25 +207,57 @@ export function registerSessionsIpc(broker: SessionBroker): void {
 
   ipcMain.handle(
     IpcChannels.sessions.clearContext,
-    (_event, sessionId: string, cwd: string) => broker.clearContext(sessionId, cwd),
+    (_event, sessionId: string, cwd: string, backend?: AgentBackend) =>
+      broker.clearContext(sessionId, cwd, agentBackendOf(backend)),
   );
 
   ipcMain.handle(
     IpcChannels.sessions.rename,
-    async (_event, sessionId: string, cwd: string, name: string) => {
-      const list = await broker.listSessions(cwd);
+    async (
+      _event,
+      sessionId: string,
+      cwd: string,
+      name: string,
+      backend?: AgentBackend,
+    ) => {
+      const resolvedBackend = agentBackendOf(backend);
+      const list = await broker.listSessions(cwd, resolvedBackend);
       const target = list.find((s) => s.id === sessionId);
       if (!target?.filePath) {
         throw new Error("session not found");
       }
       const trimmed = name.trim();
-      await renameSessionFile(target.filePath, trimmed);
+      if (resolvedBackend === "omp") {
+        // 有活 worker 时交给它改名：omp 的 SessionManager 内存里也记着标题，
+        // 直接改文件会在它下次整文件重写时被旧名字盖回去。
+        let sent: unknown;
+        try {
+          sent = await broker.trySend(sessionId, {
+            type: "set_session_name",
+            name: trimmed,
+          });
+        } catch {
+          // worker 报错或正好退出：回到写文件这条路径。
+          sent = undefined;
+        }
+        if (sent === undefined) {
+          await renameOmpSessionFile(target.filePath, trimmed);
+        }
+      } else {
+        await renameSessionFile(target.filePath, trimmed);
+      }
       // Keep live worker summary in sync so list merge / UI don't stay on "新会话" (#3).
       const patched = broker.patchSummary(sessionId, {
         name: trimmed,
         modified: new Date().toISOString(),
       });
-      return patched ?? (await broker.listSessions(cwd)).find((s) => s.id === sessionId) ?? null;
+      return (
+        patched ??
+        (await broker.listSessions(cwd, resolvedBackend)).find(
+          (s) => s.id === sessionId,
+        ) ??
+        null
+      );
     },
   );
 
@@ -190,8 +269,26 @@ export function registerSessionsIpc(broker: SessionBroker): void {
       cwd: string,
       userIndex: number,
       expectText?: string,
+      backend?: AgentBackend,
     ) => {
-      const list = await broker.listSessions(cwd);
+      const resolvedBackend = agentBackendOf(backend);
+      if (resolvedBackend === "omp") {
+        // OMP 的会话文件格式 pi 的 SDK 打不开，分叉交给它自己的 worker。
+        const forked = await broker.send(sessionId, {
+          type: "fork_user_turn",
+          userIndex: Number(userIndex),
+          ...(expectText === undefined ? {} : { expectText }),
+        });
+        if (!forked || typeof forked !== "object") {
+          throw new Error("could not write the forked session");
+        }
+        return forked as {
+          id: string;
+          filePath: string;
+          cwd: string;
+        };
+      }
+      const list = await broker.listSessions(cwd, resolvedBackend);
       const target = list.find((s) => s.id === sessionId);
       if (!target?.filePath) {
         throw new Error("session not found");

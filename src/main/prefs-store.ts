@@ -11,7 +11,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { agentDir } from "./agent-dir";
-import { DESKTOP_PREFS_FILENAME } from "../shared/browser-settings";
+
+const DESKTOP_PREFS_FILENAME = "desktop-prefs.json";
 
 export function prefsPath(agentDirOverride?: string): string {
 	return path.join(path.resolve(agentDirOverride ?? agentDir()), DESKTOP_PREFS_FILENAME);
@@ -42,6 +43,25 @@ function writeJsonAtomic(filePath: string, data: Record<string, string>): void {
 	fs.renameSync(tmp, filePath);
 }
 
+const changeListeners = new Set<(keys: string[]) => void>();
+
+/** 订阅偏好写入后的键变化；返回解绑函数。 */
+export function onPrefsChanged(listener: (keys: string[]) => void): () => void {
+	changeListeners.add(listener);
+	return () => changeListeners.delete(listener);
+}
+
+function emitPrefsChanged(keys: string[]): void {
+	if (!keys.length) return;
+	for (const listener of [...changeListeners]) {
+		try {
+			listener(keys);
+		} catch {
+			// 单个订阅者失败不影响偏好写入
+		}
+	}
+}
+
 /** v1：串行读改写，并发写者按入队顺序落盘。 */
 let writeQueue: Promise<void> = Promise.resolve();
 
@@ -54,6 +74,7 @@ export function updatePrefs(
 	const task = (): Record<string, string> => {
 		const merged = { ...readPrefs(filePath), ...patch };
 		writeJsonAtomic(filePath, merged);
+		emitPrefsChanged(Object.keys(patch));
 		return merged;
 	};
 	const next = writeQueue.then(task, task);
@@ -74,6 +95,7 @@ export function removePrefs(
 		const next = readPrefs(filePath);
 		for (const key of keys) delete next[key];
 		writeJsonAtomic(filePath, next);
+		emitPrefsChanged(keys);
 		return next;
 	};
 	const next = writeQueue.then(task, task);
@@ -92,5 +114,6 @@ export function updatePrefsSync(
 	const filePath = prefsPath(agentDirOverride);
 	const merged = { ...readPrefs(filePath), ...patch };
 	writeJsonAtomic(filePath, merged);
+	emitPrefsChanged(Object.keys(patch));
 	return merged;
 }

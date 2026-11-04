@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Alert, Button, Empty, Spin, Typography } from "antd";
+import { Alert, Button, Empty, Image, Spin, Typography } from "antd";
 import { fontSizeRem } from "../../../shared/appearance";
 import { FolderOpenOutline, SaveOutline } from "@renderer/components/icons/ionicons";
 import type { PreviewResult } from "../../../shared/preview-types";
@@ -76,6 +76,39 @@ function nextFrame(): Promise<void> {
   });
 }
 
+/** 分栏联动：按可滚动比例对齐两侧，程序化写入产生的那次 scroll 需要吞掉，避免回环。 */
+function bindScrollSync(a: HTMLElement, b: HTMLElement): () => void {
+  let pending: { el: HTMLElement; top: number } | null = null;
+
+  function sync(from: HTMLElement, to: HTMLElement): void {
+    const fromMax = from.scrollHeight - from.clientHeight;
+    const toMax = to.scrollHeight - to.clientHeight;
+    if (fromMax <= 0 || toMax <= 0) return;
+    const top = Math.round((from.scrollTop / fromMax) * toMax);
+    if (Math.abs(to.scrollTop - top) < 1) return;
+    pending = { el: to, top };
+    to.scrollTop = top;
+  }
+
+  function follow(from: HTMLElement, to: HTMLElement): void {
+    if (pending?.el === from) {
+      const programmatic = Math.abs(from.scrollTop - pending.top) <= 2;
+      pending = null;
+      if (programmatic) return;
+    }
+    sync(from, to);
+  }
+
+  const onA = (): void => follow(a, b);
+  const onB = (): void => follow(b, a);
+  a.addEventListener("scroll", onA, { passive: true });
+  b.addEventListener("scroll", onB, { passive: true });
+  return () => {
+    a.removeEventListener("scroll", onA);
+    b.removeEventListener("scroll", onB);
+  };
+}
+
 export const PreviewTab = memo(forwardRef<PreviewTabHandle, Props>(function PreviewTab(
   {
     filePath,
@@ -119,6 +152,8 @@ export const PreviewTab = memo(forwardRef<PreviewTabHandle, Props>(function Prev
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const editorPaneRef = useRef<HTMLDivElement | null>(null);
+  const mdPreviewRef = useRef<HTMLDivElement | null>(null);
   const loadGenRef = useRef(0);
   const diskContentRef = useRef<string | null>(null);
   const fsGenRef = useRef(0);
@@ -568,6 +603,14 @@ export const PreviewTab = memo(forwardRef<PreviewTabHandle, Props>(function Prev
   }, [result?.kind, tabId, showContent]);
 
   useEffect(() => {
+    if (!showContent || mdViewMode !== "split") return;
+    const editor = editorPaneRef.current?.firstElementChild;
+    const preview = mdPreviewRef.current;
+    if (!(editor instanceof HTMLElement) || !preview) return;
+    return bindScrollSync(editor, preview);
+  }, [showContent, mdViewMode, contentEpoch]);
+
+  useEffect(() => {
     syncExternalFileWatch();
   }, [currentPath]);
 
@@ -739,18 +782,20 @@ export const PreviewTab = memo(forwardRef<PreviewTabHandle, Props>(function Prev
                       }
                     >
                       {showEditor ? (
-                        <ShikiEditor
-                          className={styles.editor}
-                          name={currentPath ?? "untitled"}
-                          value={liveContent}
-                          language={
-                            currentPath ? languageFromPath(currentPath) : "markdown"
-                          }
-                          onChange={onEditorChange}
-                        />
+                        <div ref={editorPaneRef} className={styles.editorPane}>
+                          <ShikiEditor
+                            className={styles.editor}
+                            name={currentPath ?? "untitled"}
+                            value={liveContent}
+                            language={
+                              currentPath ? languageFromPath(currentPath) : "markdown"
+                            }
+                            onChange={onEditorChange}
+                          />
+                        </div>
                       ) : null}
                       {showMdPreview ? (
-                        <div className={styles.mdPreview}>
+                        <div ref={mdPreviewRef} className={styles.mdPreview}>
                           <MarkdownView
                             content={liveContent}
                             assets={mdAssets}
@@ -763,7 +808,21 @@ export const PreviewTab = memo(forwardRef<PreviewTabHandle, Props>(function Prev
                   </>
                 ) : result.kind === "image" && !missing ? (
                   <div className={styles.mediaWrap}>
-                    <img className={styles.img} src={result.dataUrl} alt={result.path} />
+                    <Image
+                      className={styles.img}
+                      src={result.dataUrl}
+                      alt={result.path}
+                      styles={{
+                        root: { maxWidth: "100%" },
+                        image: {
+                          width: "auto",
+                          height: "auto",
+                          maxWidth: "100%",
+                          display: "block",
+                          margin: 8,
+                        },
+                      }}
+                    />
                   </div>
                 ) : result.kind === "video" && !missing ? (
                   <div className={styles.mediaWrap}>

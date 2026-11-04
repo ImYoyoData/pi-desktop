@@ -9,7 +9,6 @@ import {
 } from "react";
 import { Tag } from "antd";
 import PermissionStrip from "@renderer/components/PermissionStrip";
-import ExtensionUiStrip from "@renderer/components/ExtensionUiStrip";
 import SessionTodoPanel from "@renderer/components/SessionTodoPanel";
 import SessionChangedFiles from "@renderer/components/SessionChangedFiles";
 import SessionStatsBar, { useSessionStats } from "@renderer/components/SessionStatsBar";
@@ -120,7 +119,6 @@ export function ChatPanel({ visible }: Props): ReactNode {
               />
             </Suspense>
           </div>
-          <ExtensionUiStrip />
           <PermissionStrip />
           {/* Docked widgets share one surface with the composer (chat-input-stack). */}
           <div className={styles.chatInputStack}>

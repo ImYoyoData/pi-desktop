@@ -1,12 +1,10 @@
-import { existsSync } from "node:fs";
+import { copyFileSync, existsSync } from "node:fs";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { SessionForkResult } from "../shared/protocol";
-import { stripAttachedImagesBlock } from "../shared/chat-meta";
+import { chatMetaPath, stripAttachedImagesBlock } from "../shared/chat-meta";
 import { stripInjectedBlocks } from "../shared/injected-blocks";
 import { messageContentText, turnTextMatches } from "../shared/turn-match";
-
-const FORK_TITLE_PREFIX = "Forked: ";
-const FORK_TITLE_MAX = 60;
+import { forkTitleFor } from "../shared/session-fork-title";
 
 /** 当前 leaf 分支上的 user 消息 entry id，按 root → leaf 顺序。 */
 function userEntryIdsOnBranch(path: SessionEntry[]): string[] {
@@ -26,18 +24,6 @@ function firstUserText(path: SessionEntry[]): string {
 		if (clean) return clean;
 	}
 	return "";
-}
-
-/** 派生会话标题：取分叉点消息文本，为空时回退为 `Forked: ` + 源会话名。 */
-function forkTitleFor(turnText: string, sourceName: string | null): string | null {
-	const clean = stripInjectedBlocks(stripAttachedImagesBlock(turnText))
-		.replace(/\s+/g, " ")
-		.trim()
-		.slice(0, FORK_TITLE_MAX);
-	if (clean) return clean;
-	if (!sourceName) return null;
-	const src = sourceName.replace(/\s+/g, " ").trim().slice(0, FORK_TITLE_MAX);
-	return src ? `${FORK_TITLE_PREFIX}${src}` : null;
 }
 
 /**
@@ -88,6 +74,14 @@ export async function forkSessionAtUserTurn(
 	}
 	if (forkTitle) {
 		manager.appendSessionInfo(forkTitle);
+	}
+	const sourceMeta = chatMetaPath(source);
+	if (existsSync(sourceMeta)) {
+		try {
+			copyFileSync(sourceMeta, chatMetaPath(forkedFile));
+		} catch {
+			// sidecar 是展示增强，复制失败不影响分叉。
+		}
 	}
 	return {
 		id: manager.getSessionId(),

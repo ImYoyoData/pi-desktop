@@ -1,0 +1,40 @@
+import type { AgentCommand } from "./protocol";
+
+/**
+ * 桌面主进程 ↔ OMP worker 的私有协议。
+ *
+ * 与 pi 的 worker 协议刻意分开：两者由不同 SDK 驱动，命令支持与事件补充
+ * 都不一样，共用一份会让任何一侧的改动同时压到另一侧。
+ */
+export type OmpWorkerInbound =
+	| { kind: "init"; cwd: string; filePath?: string; agentDir?: string }
+	| { kind: "command"; id: string; command: AgentCommand }
+	| { kind: "reload_models" }
+	| { kind: "shutdown" }
+	| { kind: "ping" }
+	| { kind: "rpc_response"; id: string; result?: unknown; error?: string };
+
+export type OmpWorkerOutbound =
+	| {
+			kind: "ready";
+			id: string;
+			filePath: string;
+			cwd: string;
+			/** omp SDK 实际使用的配置目录，主进程据此定位会话与模型配置。 */
+			agentDir: string;
+			/** omp SDK 实际写入 blob 的目录，主进程据此还原历史与实时图片。 */
+			blobsDir: string;
+	  }
+	| { kind: "result"; id: string; data?: unknown; error?: string }
+	| { kind: "event"; event: Record<string, unknown> }
+	| { kind: "pong" }
+	| { kind: "fatal"; error: string }
+	/** 桌面模式（loop/vibe）是否仍持有会话状态；持有期间主进程不重建 worker。 */
+	| { kind: "desktop_modes"; active: boolean }
+	/** worker 向主进程发起的 RPC（如 ask_user 提问）。 */
+	| {
+			kind: "rpc_request";
+			id: string;
+			method: string;
+			params: Record<string, unknown>;
+	  };

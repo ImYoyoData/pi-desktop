@@ -1,0 +1,19 @@
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+.modelsGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.modelActions {
+  display: flex;
+  justify-content: flex-start;
+  padding: 8px 8px;
+}

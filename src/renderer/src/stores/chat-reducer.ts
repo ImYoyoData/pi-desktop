@@ -40,6 +40,10 @@ export type ChatMessage =
 			id: string;
 			role: "user";
 			text: string;
+			/** 实际下发给模型的文本；与气泡文本不同时存在（如斜杠命令展开）。 */
+			agentText?: string;
+			/** 斜杠命令的本地回显：命令自己的用户消息到达后替换这条气泡。 */
+			slashEcho?: boolean;
 			images?: ChatUserImage[];
 			/** Inline tags (element / file path / url) shown in the bubble. */
 			elementTags?: {
@@ -246,6 +250,64 @@ export function capStoredToolResult(result: ToolResultValue): ToolResultValue {
 	const keep = RESULT_STORE_HEAD_CHARS + RESULT_STORE_TAIL_CHARS;
 	if (result.length <= keep) return result;
 	return `${result.slice(0, RESULT_STORE_HEAD_CHARS)}\n\u2026 [output truncated, ${countResultLines(result)} lines total]\n${result.slice(-RESULT_STORE_TAIL_CHARS)}`;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const WAIT_JOB_METRICS = [
+	"requests",
+	"cost",
+	"contextTokens",
+	"contextWindow",
+] as const;
+
+/** 完成时的 wait 快照会丢掉运行期指标；用最后一份 partial 补齐，避免任务行越跑越空。 */
+export function mergeWaitJobSnapshot(
+	prior: ToolResultValue,
+	next: ToolResultValue,
+): ToolResultValue {
+	if (!isPlainRecord(prior) || !isPlainRecord(next)) return next;
+	const priorDetails = isPlainRecord(prior.details) ? prior.details : null;
+	const nextDetails = isPlainRecord(next.details) ? next.details : null;
+	if (!priorDetails || !nextDetails) return next;
+	const priorJobs = Array.isArray(priorDetails.jobs) ? priorDetails.jobs : null;
+	if (!priorJobs) return next;
+	const nextJobs = Array.isArray(nextDetails.jobs) ? nextDetails.jobs : null;
+	const byId = new Map<string, Record<string, unknown>>();
+	for (const job of priorJobs) {
+		if (isPlainRecord(job) && typeof job.id === "string") byId.set(job.id, job);
+	}
+	const seen = new Set<string>();
+	const jobs = (nextJobs ?? []).map((job) => {
+		if (!isPlainRecord(job) || typeof job.id !== "string") return job;
+		seen.add(job.id);
+		const previous = byId.get(job.id);
+		if (!previous) return job;
+		const merged: Record<string, unknown> = { ...job };
+		for (const key of WAIT_JOB_METRICS) {
+			if (merged[key] === undefined && previous[key] !== undefined) {
+				merged[key] = previous[key];
+			}
+		}
+		const nextWidget = isPlainRecord(job.widget) ? job.widget : null;
+		const previousWidget = isPlainRecord(previous.widget) ? previous.widget : null;
+		if (
+			nextWidget &&
+			previousWidget &&
+			(!Array.isArray(nextWidget.blocks) || nextWidget.blocks.length === 0) &&
+			Array.isArray(previousWidget.blocks) &&
+			previousWidget.blocks.length > 0
+		) {
+			merged.widget = { ...nextWidget, blocks: previousWidget.blocks };
+		}
+		return merged;
+	});
+	for (const [id, job] of byId) {
+		if (!seen.has(id)) jobs.push(job);
+	}
+	return { ...next, details: { ...nextDetails, jobs } };
 }
 
 /** Keep / clear turn clocks after a reducer step. */
@@ -495,6 +557,23 @@ function parkLiveTool(
 	return [...messages, { ...streaming, streaming: true }];
 }
 
+/**
+ * 历史工具行的 id 是落盘 entry id，实时卡片是 `tool-<toolCallId>`；
+ * 先按 id 找，再按调用 id 兜底，避免同一调用在重建后的会话里出现第二张卡。
+ */
+function findToolRowIndex(
+	messages: readonly ChatMessage[],
+	id: string,
+	toolCallId: string,
+): number {
+	const byId = messages.findIndex((m) => m.id === id);
+	if (byId >= 0) return byId;
+	if (!toolCallId) return -1;
+	return messages.findIndex(
+		(m) => m.role === "tool" && m.toolCallId === toolCallId,
+	);
+}
+
 /** 事件里的 parentToolCallId：只有工具内部发起（ctx.executeTool）的调用才有。 */
 function nestedParentId(payload: Record<string, unknown>): string {
 	return typeof payload.parentToolCallId === "string" ? payload.parentToolCallId : "";
@@ -519,9 +598,26 @@ function upsertNestedCall(
 ): ChatState | null {
 	const parentId = `tool-${parentToolCallId}`;
 	const applyTo = (msg: ChatMessage): ChatMessage | null => {
-		if (msg.role !== "tool" || msg.id !== parentId) return null;
+		if (msg.role !== "tool") return null;
+		if (msg.id !== parentId && msg.toolCallId !== parentToolCallId) return null;
+		const calls = msg.nestedCalls ?? [];
+		const index = calls.findIndex((call) => call.toolCallId === toolCallId);
+		// 已结束的嵌套调用同样不能被迟到的进度更新复活。
+		if (index >= 0 && patch.streaming === true && calls[index]?.streaming === false) {
+			return msg;
+		}
 		const merge = (call: ChatToolNestedCall): ChatToolNestedCall => {
 			const merged = { ...call, ...patch };
+			if (
+				patch.result !== undefined &&
+				call.result !== undefined &&
+				merged.toolName.toLowerCase() === "wait"
+			) {
+				merged.result = mergeWaitJobSnapshot(
+					toToolResultValue(call.result),
+					toToolResultValue(patch.result),
+				);
+			}
 			if (
 				merged.streaming === false &&
 				merged.durationMs == null &&
@@ -531,8 +627,6 @@ function upsertNestedCall(
 			}
 			return merged;
 		};
-		const calls = msg.nestedCalls ?? [];
-		const index = calls.findIndex((call) => call.toolCallId === toolCallId);
 		const next =
 			index >= 0
 				? calls.map((call, i) => (i === index ? merge(call) : call))
@@ -543,6 +637,7 @@ function upsertNestedCall(
 	const stream = state.streamingMessage;
 	const streamed = stream ? applyTo(stream) : null;
 	if (streamed) {
+		if (streamed === stream) return state;
 		return {
 			...state,
 			running: true,
@@ -551,12 +646,16 @@ function upsertNestedCall(
 		};
 	}
 	const index = state.messages.findIndex(
-		(msg) => msg.role === "tool" && msg.id === parentId,
+		(msg) =>
+			msg.role === "tool" &&
+			(msg.id === parentId || msg.toolCallId === parentToolCallId),
 	);
 	if (index < 0) return null;
 	const current = state.messages[index]!;
+	const updated = applyTo(current);
+	if (!updated || updated === current) return state;
 	const messages = state.messages.slice();
-	messages[index] = applyTo(current) ?? current;
+	messages[index] = updated;
 	return { ...state, running: true, messages };
 }
 
@@ -667,7 +766,7 @@ function syncStreamingToolCalls(
 		const tc = calls[i]!;
 		const id = `tool-${tc.id}`;
 		const isLast = i === calls.length - 1;
-		const existingIdx = messages.findIndex((m) => m.id === id);
+		const existingIdx = findToolRowIndex(messages, id, tc.id);
 		const existingInList =
 			existingIdx >= 0 && messages[existingIdx]?.role === "tool"
 				? (messages[existingIdx] as Extract<ChatMessage, { role: "tool" }>)
@@ -753,6 +852,8 @@ function imagesFromMessage(
 		const mimeType =
 			typeof p.mimeType === "string" && p.mimeType ? p.mimeType : "image/png";
 		if (typeof p.data === "string" && p.data) {
+			// omp 的 blob 引用由主进程在转发事件前还原；还原不了的图不渲染破图。
+			if (p.data.startsWith("blob:")) continue;
 			images.push({ mimeType, dataUrl: `data:${mimeType};base64,${p.data}` });
 			continue;
 		}
@@ -1217,6 +1318,21 @@ function reduceAgentPayload(
 			const fromEvent = imagesFromMessage(msg);
 			const id = typeof msg.id === "string" && msg.id ? msg.id : localId("user");
 			const last = state.messages.at(-1);
+			// 命令回显等的是它自己的用户消息：真实文本只记作 agentText，气泡保留命令原文。
+			if (last?.role === "user" && last.slashEcho) {
+				const next = [...state.messages];
+				next[next.length - 1] = {
+					id,
+					role: "user",
+					text: last.text,
+					...(text && text !== last.text ? { agentText: text } : {}),
+					images: last.images ?? fromEvent,
+					...(last.elementTags?.length
+						? { elementTags: last.elementTags }
+						: {}),
+				};
+				return { ...state, messages: next, streamingMessage: null };
+			}
 			if (last?.role === "user") {
 				const sameText = last.text === text || last.text.trim() === text.trim();
 				const hasLocalExtras =
@@ -1233,12 +1349,20 @@ function reduceAgentPayload(
 					rawText !== text &&
 					Boolean(last.text.trim()) &&
 					(text.trim() === last.text.trim() || rawText.includes(last.text.trim()));
+				// 客户端展开的斜杠命令：下发的就是展开后的文本，气泡保留命令原文。
+				const agentText = last.agentText
+					? stripInjectedBlocks(last.agentText).trim()
+					: "";
+				const commandEcho =
+					Boolean(agentText) &&
+					(text.trim() === agentText || text.includes(agentText));
 				// File/URL chips are path/url *text* for the agent (`@path` / raw url). The bubble
 				// keeps structured tags — never mirror the expanded prompt as another user row.
 				if (
 					sameText ||
 					expandedCitationEcho ||
 					injectedBlockEcho ||
+					commandEcho ||
 					hasLocalExtras
 				) {
 					const next = [...state.messages];
@@ -1246,6 +1370,7 @@ function reduceAgentPayload(
 						id,
 						role: "user",
 						text: last.text,
+						...(last.agentText ? { agentText: last.agentText } : {}),
 						images: last.images ?? fromEvent,
 						elementTags: last.elementTags?.filter(
 							(tag) => !isLegacyModeTagKind(tag.kind),
@@ -1388,7 +1513,7 @@ function reduceAgentPayload(
 				},
 			};
 		}
-		const existingIdx = messages.findIndex((m) => m.id === id);
+		const existingIdx = findToolRowIndex(messages, id, toolCallId);
 		if (existingIdx >= 0 && messages[existingIdx]?.role === "tool") {
 			const existing = messages[existingIdx] as Extract<
 				ChatMessage,
@@ -1401,6 +1526,12 @@ function reduceAgentPayload(
 				startedAt: existing.startedAt ?? now,
 				streaming: true,
 			};
+			if (existing.id !== id) {
+				// 历史行（落盘 entry id）：原地续跑，不能搬进实时槽再追加到尾部。
+				const rows = messages.slice();
+				rows[existingIdx] = updated;
+				return { ...next, running: true, messages: rows };
+			}
 			// Promote to streamingMessage for live follow-bottom, but keep any other
 			// currently-live tool card visible instead of dropping it.
 			messages = parkLiveTool(
@@ -1465,18 +1596,20 @@ function reduceAgentPayload(
 			state.streamingMessage?.role === "tool" &&
 			state.streamingMessage.id === id
 		) {
+			if (state.streamingMessage.streaming === false) return state;
 			return {
 				...state,
 				running: true,
 				streamingMessage: patch(state.streamingMessage),
 			};
 		}
-		const idx = state.messages.findIndex((m) => m.id === id);
+		const idx = findToolRowIndex(state.messages, id, toolCallId);
 		if (idx >= 0 && state.messages[idx]?.role === "tool") {
+			const existing = state.messages[idx] as Extract<ChatMessage, { role: "tool" }>;
+			// 异步 task 结束后仍会持续发进度（Running agent …）：已完成的卡不能被复活。
+			if (existing.streaming === false) return state;
 			const next = state.messages.slice();
-			next[idx] = patch(
-				state.messages[idx] as Extract<ChatMessage, { role: "tool" }>,
-			);
+			next[idx] = patch(existing);
 			return { ...state, running: true, messages: next };
 		}
 		// Late update without start — create a streaming card.
@@ -1518,16 +1651,24 @@ function reduceAgentPayload(
 			state.streamingMessage?.role === "tool" && state.streamingMessage.id === id
 				? state.streamingMessage
 				: null;
-		const existing = state.messages.find((m) => m.id === id);
+		const idx = findToolRowIndex(state.messages, id, toolCallId);
+		const existing = idx >= 0 ? state.messages[idx] : undefined;
 		const prior = stream ?? (existing?.role === "tool" ? existing : null);
 		const recordedMs = recordedDurationMs(payload);
+		const finalResult = toToolResultValue(payload.result);
+		const finalToolName = String(payload.toolName ?? prior?.toolName ?? "tool");
+		const priorResult = prior ? toToolResultValue(prior.result) : undefined;
+		const result =
+			finalToolName === "wait" && priorResult !== undefined
+				? mergeWaitJobSnapshot(priorResult, finalResult)
+				: finalResult;
 		const toolMsg: ChatMessage = {
-			id,
+			id: prior?.id ?? id,
 			role: "tool",
 			toolCallId,
-			toolName: String(payload.toolName ?? prior?.toolName ?? "tool"),
+			toolName: finalToolName,
 			args: prior?.args ?? payload.args,
-			result: capStoredToolResult(toToolResultValue(payload.result)),
+			result: capStoredToolResult(result),
 			isError: Boolean(payload.isError),
 			streaming: false,
 			order: prior?.order,
@@ -1548,7 +1689,6 @@ function reduceAgentPayload(
 		// Otherwise just update/append the finished tool. A different tool may
 		// still be streaming in the live slot — keep it visible instead of
 		// nulling streamingMessage (that used to drop the other card).
-		const idx = state.messages.findIndex((m) => m.id === id);
 		if (idx >= 0) {
 			const next = [...state.messages];
 			next[idx] = toolMsg;
@@ -1625,6 +1765,32 @@ function reduceAgentPayload(
 	return state;
 }
 
+/** 标记最后的命令回显：它自己的用户消息到达时由 reduceChatEvent 替换。 */
+export function markSlashEcho(state: ChatState, command: string): ChatState {
+	const last = state.messages.at(-1);
+	if (last?.role !== "user" || last.slashEcho) return state;
+	const bubble = last.text.trim();
+	const commandLine = command.trim().split("\n", 1)[0]?.trim() ?? "";
+	if (!bubble.startsWith("/") || !commandLine.startsWith("/")) return state;
+	const bubbleName = bubble.slice(1).split(/\s+/, 1)[0] ?? "";
+	const commandName = commandLine.slice(1).split(/\s+/, 1)[0] ?? "";
+	if (!bubbleName || bubbleName !== commandName) return state;
+	const messages = [...state.messages];
+	messages[messages.length - 1] = { ...last, slashEcho: true };
+	return { ...state, messages };
+}
+
+/** 回合结束后丢弃未兑现的回显标记，避免后续消息被旧命令吞掉。 */
+export function clearSlashEcho(state: ChatState): ChatState {
+	if (!state.messages.some((m) => m.role === "user" && m.slashEcho)) return state;
+	return {
+		...state,
+		messages: state.messages.map((m) =>
+			m.role === "user" && m.slashEcho ? { ...m, slashEcho: false } : m,
+		),
+	};
+}
+
 export function appendUserMessage(
 	state: ChatState,
 	text: string,
@@ -1636,6 +1802,7 @@ export function appendUserMessage(
 		content?: string;
 		kind?: "file" | "url" | "element" | LegacyModeTagKind;
 	}[],
+	agentText?: string,
 ): ChatState {
 	const trimmed = stripInjectedBlocks(text).trim();
 	const visibleTags = elementTags?.filter(
@@ -1660,6 +1827,7 @@ export function appendUserMessage(
 					id: localId("user"),
 					role: "user",
 					text: trimmed,
+					...(agentText ? { agentText } : {}),
 					images: hasImages ? images : undefined,
 					elementTags: hasTags ? visibleTags : undefined,
 				},

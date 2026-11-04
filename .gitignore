@@ -78,3 +78,6 @@ pnpm-lock.yaml
 # 贡献者头像磁盘缓存（首次联网取回后自动生成）
 /resources/Avatar/
 /release-check/win-unpacked/resources/app.asar
+
+# OMP worker 编译产物（体积大，构建时生成）
+build/omp

@@ -1,7 +1,10 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import path from "node:path";
 import { IpcChannels } from "../shared/protocol";
+import type { AgentBackend } from "../shared/agent-backend";
+import { agentBackendOf } from "../shared/agent-backend";
 import { createWorkspaceStore, type WorkspaceStore } from "./workspace-store";
+import { desktopDataPath } from "./desktop-data";
 import { startWorkspaceWatch, stopWorkspaceWatch } from "./fs-watch-host";
 import {
 	mergeRecentWithPiCliWorkspaces,
@@ -24,10 +27,7 @@ let deps: WorkspaceIpcDeps = {};
 
 function getStore(): WorkspaceStore {
 	if (!store) {
-		const statePath = path.join(
-			app.getPath("userData"),
-			"workspace-state.json",
-		);
+		const statePath = desktopDataPath("workspace-state.json");
 		store = createWorkspaceStore(statePath);
 	}
 	return store;
@@ -254,5 +254,15 @@ export function registerWorkspaceIpc(nextDeps: WorkspaceIpcDeps = {}): void {
 		IpcChannels.workspace.setArchivedSessions,
 		(_event, ids: string[]) =>
 			getStore().setArchivedSessions(Array.isArray(ids) ? ids : []),
+	);
+
+	ipcMain.handle(IpcChannels.workspace.getBackend, () =>
+		getStore().getBackend(),
+	);
+
+	ipcMain.handle(
+		IpcChannels.workspace.setBackend,
+		(_event, backend: AgentBackend) =>
+			getStore().setBackend(agentBackendOf(backend)),
 	);
 }

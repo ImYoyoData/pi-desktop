@@ -9,6 +9,10 @@
  */
 
 import type { StateChange } from "../../../shared/state-sync";
+import {
+  AUTO_UPDATE_CHECK_PREF,
+  UPDATE_CHECK_INTERVAL_PREF,
+} from "../../../shared/update";
 import { REMEMBER_WINDOW_SIZE_PREF } from "../../../shared/window-size";
 import * as prefs from "@renderer/utils/prefs";
 import { useAppearanceStore, APPEARANCE_KEYS } from "@renderer/stores/appearance";
@@ -25,6 +29,7 @@ import { useSessionsStore } from "@renderer/stores/sessions";
 import { useSessionStatsStore, TPS_MODE_KEY } from "@renderer/stores/session-stats";
 import { useSendShortcutStore, SEND_SHORTCUT_KEY } from "@renderer/stores/send-shortcut";
 import { useStreamRenderStore } from "@renderer/stores/stream-render";
+import { useUpdatePrefsStore } from "@renderer/stores/update-prefs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useWindowSizeStore } from "@renderer/stores/window-size";
 
@@ -81,6 +86,9 @@ function applyPrefsChange(keys: string[]): void {
 	}
 	if (matches([REMEMBER_WINDOW_SIZE_PREF], keys)) {
 		useWindowSizeStore.getState().refreshFromPrefs();
+	}
+	if (matches([AUTO_UPDATE_CHECK_PREF, UPDATE_CHECK_INTERVAL_PREF], keys)) {
+		useUpdatePrefsStore.getState().refreshFromPrefs();
 	}
 }
 

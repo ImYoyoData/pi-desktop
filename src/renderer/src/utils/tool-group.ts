@@ -3,9 +3,8 @@ import {
   isFileMutationTool,
   isGrepTool,
   isReadTool,
-  toolCommandFromArgs,
-  toolPathFromArgs,
 } from "./tool-diff";
+import { toolCommandFromArgs, toolPathFromArgs } from "./tool-args";
 import { isTodoToolName } from "./session-todos";
 
 /**

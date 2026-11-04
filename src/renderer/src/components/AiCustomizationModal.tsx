@@ -152,7 +152,6 @@ export function AiCustomizationModal(): ReactNode {
           onPointerDown={onHeaderPointerDown}
           onDoubleClick={toggleMaximized}
         >
-          <div className={styles.modalEditorTitle}>{t.customizeTitle}</div>
           <div className={styles.modalEditorActions}>
             <button
               type="button"

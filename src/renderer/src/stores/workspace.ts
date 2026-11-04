@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
+import { agentBackendOf, type AgentBackend } from "../../../shared/agent-backend";
 
 /**
  * Blank roots resolve to the app's own directory further down the line and the
@@ -22,6 +23,8 @@ type WorkspaceBase = {
 	aliases: Record<string, string>;
 	/** 已归档的会话 id（从侧栏隐藏，可恢复）。 */
 	archivedSessions: string[];
+	/** 全局智能体后端（缺省 pi）：所有工作区共用同一个引擎。 */
+	backend: AgentBackend;
 	/**
 	 * True once the current `root` is ready for session hydrate / worker spawn.
 	 */
@@ -44,6 +47,8 @@ export type WorkspaceState = WorkspaceBase & {
 	relocateWorkspace: (workspaceRoot: string) => Promise<string | null>;
 	refreshArchivedSessions: () => Promise<void>;
 	setArchivedSessions: (ids: string[]) => Promise<void>;
+	refreshBackends: () => Promise<void>;
+	setBackend: (backend: AgentBackend) => Promise<AgentBackend>;
 };
 
 export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
@@ -75,6 +80,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
 
 	async function getWorkspace(): Promise<string | null> {
 		const next = await window.api.workspace.get();
+		void refreshBackends().catch(() => {});
 		if (!next) return commitWorkspace(null);
 		return commitWorkspace(next);
 	}
@@ -183,12 +189,23 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
 		set({ archivedSessions: ids });
 	}
 
+	async function refreshBackends(): Promise<void> {
+		set({ backend: await window.api.workspace.getBackend() });
+	}
+
+	async function setBackend(backend: AgentBackend): Promise<AgentBackend> {
+		const next = agentBackendOf(await window.api.workspace.setBackend(backend));
+		set({ backend: next });
+		return next;
+	}
+
 
 	return {
 		root: null,
 		recent: [],
 		aliases: {},
 		archivedSessions: [],
+		backend: "pi",
 		sessionsReady: false,
 		getWorkspace,
 		openWorkspace,
@@ -205,6 +222,8 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
 		relocateWorkspace,
 		refreshArchivedSessions,
 		setArchivedSessions,
+		refreshBackends,
+		setBackend,
 	};
 });
 
