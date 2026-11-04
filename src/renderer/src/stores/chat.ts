@@ -13,8 +13,10 @@ import {
 	clearPendingAskUser,
 	clearPendingExtensionUi,
 	clearPendingPermission,
+	clearSlashEcho,
 	createChatState,
 	hasLiveTurnState,
+	markSlashEcho,
 	reduceChatEvent,
 	setPendingAskUser,
 	setPendingExtensionUi,
@@ -746,15 +748,42 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 		}
 	}
 
+	/** 命令回显吸收了真实提示词后登记 sidecar：重载历史仍显示命令原文。 */
+	function persistSlashEchoMeta(
+		sessionId: string,
+		before: ChatState,
+		after: ChatState,
+	): void {
+		const prev = before.messages.at(-1);
+		const next = after.messages.at(-1);
+		if (prev?.role !== "user" || !prev.slashEcho) return;
+		if (next?.role !== "user" || next.slashEcho || !next.agentText) return;
+		if (next.text !== prev.text) return;
+		void window.api.sessions
+			.setUserMessageMeta(
+				sessionId,
+				next.agentText,
+				prev.elementTags ?? [],
+				prev.text,
+			)
+			.catch(() => {
+				// best-effort — 侧写失败只会退化成展开文本
+			});
+	}
+
 	function applyEvent(event: AgentEvent): void {
 		const sessionId = event.sessionId;
+		const before = stateFor(sessionId);
+		let after = before;
 		try {
-			setSessionState(sessionId, reduceChatEvent(stateFor(sessionId), event));
+			after = reduceChatEvent(before, event);
+			setSessionState(sessionId, after);
 		} catch (err) {
 			// 一条事件归约失败不能影响后续事件（也避免异常穿透 ipcRenderer 回调）。
 			console.error(`[chat] reduce failed for ${event.type}:`, err);
 			return;
 		}
+		persistSlashEchoMeta(sessionId, before, after);
 
 		if (event.type === "agent_event") {
 			const payload = event.event as {
@@ -767,6 +796,7 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 				level?: unknown;
 				message?: unknown;
 				path?: unknown;
+				command?: unknown;
 			};
 			if (payload.type === "agent_start" || payload.type === "turn_start") {
 				softHangReported.delete(sessionId);
@@ -806,6 +836,12 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 				}
 				usePreviewStore.getState().openPreview(payload.path);
 			}
+			if (payload.type === "desktop_slash_prompt" && typeof payload.command === "string") {
+				setSessionState(
+					sessionId,
+					markSlashEcho(stateFor(sessionId), payload.command),
+				);
+			}
 			if (payload.type === "notice" && typeof payload.message === "string") {
 				const level =
 					payload.level === "error"
@@ -829,6 +865,9 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 		}
 
 		if (event.type === "prompt_done" || event.type === "prompt_error") {
+			const beforeClear = stateFor(sessionId);
+			const cleared = clearSlashEcho(beforeClear);
+			if (cleared !== beforeClear) setSessionState(sessionId, cleared);
 			void useCheckpointStore.getState().finishActive(sessionId);
 			softHangReported.delete(sessionId);
 			stallReported.delete(sessionId);
