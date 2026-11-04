@@ -55,16 +55,39 @@ function isTitleSlotLine(line: string): boolean {
 	}
 }
 
+/** 首行已有 title slot 时原地覆盖，避免整文件重写丢失并发追加的消息。 */
+async function overwriteTitleSlot(filePath: string, slot: Buffer): Promise<boolean> {
+	const handle = await fs.promises.open(filePath, "r+");
+	try {
+		const head = Buffer.alloc(TITLE_SLOT_BYTES);
+		const { bytesRead } = await handle.read(head, 0, TITLE_SLOT_BYTES, 0);
+		const newline = head.subarray(0, bytesRead).indexOf(0x0a);
+		if (newline !== TITLE_SLOT_BYTES - 1) return false;
+		if (!isTitleSlotLine(head.toString("utf8", 0, newline))) return false;
+		await handle.write(slot, 0, slot.length, 0);
+		return true;
+	} finally {
+		await handle.close();
+	}
+}
+
 /** 重命名 omp 会话：覆盖首行 title slot，没有就补一行。 */
 export async function renameOmpSessionFile(
 	filePath: string,
 	name: string,
 ): Promise<void> {
-	const raw = await fs.promises.readFile(filePath, "utf8");
-	const slot = serializeOmpTitleSlot(name.trim(), "user");
-	const newline = raw.indexOf("\n");
-	const firstLine = newline < 0 ? raw : raw.slice(0, newline);
-	const rest = newline < 0 ? "" : raw.slice(newline + 1);
-	const body = isTitleSlotLine(firstLine) ? rest : raw;
-	await fs.promises.writeFile(filePath, slot + body, "utf8");
+	const slotText = serializeOmpTitleSlot(name.trim(), "user");
+	const slot = Buffer.from(slotText, "utf8");
+	if (await overwriteTitleSlot(filePath, slot)) return;
+	const raw = await fs.promises.readFile(filePath);
+	const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+	try {
+		await fs.promises.writeFile(tempPath, Buffer.concat([slot, raw]), {
+			mode: 0o600,
+		});
+		await fs.promises.rename(tempPath, filePath);
+	} catch (err) {
+		await fs.promises.rm(tempPath, { force: true }).catch(() => undefined);
+		throw err;
+	}
 }

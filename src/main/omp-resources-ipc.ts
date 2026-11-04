@@ -26,7 +26,7 @@ export function registerOmpResourcesIpc(broker: SessionBroker): void {
 	ipcMain.handle(
 		IpcChannels.ompResources.setEnabled,
 		(_event, item: OmpResourceItem, enabled: boolean) => {
-			setOmpResourceEnabled(item, enabled);
+			setOmpResourceEnabled(item, enabled, getWorkspace() ?? undefined);
 			restartWorkers();
 		},
 	);

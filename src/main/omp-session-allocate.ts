@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { encodeCwdSessionDir } from "./session-list";
-import { ompAgentDir } from "./omp-dir";
+import { ensureOmpSessionDir } from "./omp-session-dir";
 
 /**
  * 在 omp 的会话目录里写一个空会话文件，供 omp worker 打开。
@@ -17,7 +16,7 @@ export async function allocateOmpSessionOnDisk(cwd: string): Promise<{
 	filePath: string;
 }> {
 	const resolvedCwd = path.resolve(cwd);
-	const dir = encodeCwdSessionDir(resolvedCwd, ompAgentDir());
+	const dir = ensureOmpSessionDir(resolvedCwd, true);
 	const id = randomUUID();
 	const timestamp = new Date().toISOString();
 	const fileName = `${timestamp.replace(/[:.]/g, "-")}_${id}.jsonl`;

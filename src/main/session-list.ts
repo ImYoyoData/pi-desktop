@@ -6,6 +6,7 @@ import type { SessionSummary } from "../shared/protocol";
 import type { AgentBackend } from "../shared/agent-backend";
 import { workspacePathKey } from "../shared/workspace-path";
 import { ompAgentDir } from "./omp-dir";
+import { ensureOmpSessionDir } from "./omp-session-dir";
 import { listSessionSummariesOffMain } from "./session-history-offload";
 import type { DiskSessionRow } from "./session-history-worker";
 import { readSettingsRoot, settingsPath } from "./settings-file";
@@ -55,10 +56,7 @@ export function workspaceSessionDir(
   backend: AgentBackend = "pi",
 ): { dir: string; custom: boolean } {
   if (backend === "omp") {
-    return {
-      dir: encodeCwdSessionDir(path.resolve(cwd), ompAgentDir()),
-      custom: false,
-    };
+    return { dir: ensureOmpSessionDir(path.resolve(cwd)), custom: false };
   }
   const custom = configuredSessionDir(cwd);
   if (custom) return { dir: custom, custom: true };
@@ -349,9 +347,11 @@ async function listSessionSummariesSafe(job: {
 
 /** Drop listing caches (after deleting a workspace's Pi sessions). */
 export function invalidateSessionListCaches(cwd?: string): void {
-  const resolved = cwd ? path.resolve(cwd) : null;
-  if (resolved && !configuredSessionDir(resolved)) {
-    sessionListCache.delete(encodeCwdSessionDir(resolved));
+  if (cwd) {
+    const suffix = `\0${normalizeWorkspacePath(cwd)}`;
+    for (const key of [...sessionListCache.keys()]) {
+      if (key.endsWith(suffix)) sessionListCache.delete(key);
+    }
   } else {
     sessionListCache.clear();
   }
@@ -484,10 +484,10 @@ async function migrateBackendSessionDir(
     }
     return;
   }
-  const toDir = encodeCwdSessionDir(
-    resolvedNew,
-    backend === "omp" ? ompAgentDir() : undefined,
-  );
+  const toDir =
+    backend === "omp"
+      ? ensureOmpSessionDir(resolvedNew)
+      : encodeCwdSessionDir(resolvedNew);
   let files: string[];
   try {
     files = await fs.promises.readdir(fromDir);

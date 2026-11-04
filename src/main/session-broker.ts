@@ -1151,6 +1151,8 @@ export function createSessionBroker(deps: {
       command.type === "follow_up" ||
       command.type === "rollback_user" ||
       command.type === "rollback_turn_end" ||
+      command.type === "fork_user_turn" ||
+      command.type === "set_session_name" ||
       command.type === "abort" ||
       command.type === "get_state" ||
       command.type === "get_agent_transcript";

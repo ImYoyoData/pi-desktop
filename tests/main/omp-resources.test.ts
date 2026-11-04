@@ -143,4 +143,55 @@ describe("omp 资源扫描与启停", () => {
 		expect(skills[0]?.scope).toBe("project");
 		fs.rmSync(projectRoot, { recursive: true, force: true });
 	});
+
+	it("项目级 MCP 开关按 scope 与工作区写文件，忽略渲染层路径", () => {
+		const projectRoot = fs.mkdtempSync(
+			path.join(os.tmpdir(), "pi-desk-omp-mcp-proj-"),
+		);
+		try {
+			const projectMcp = path.join(projectRoot, ".omp", "mcp.json");
+			fs.mkdirSync(path.dirname(projectMcp), { recursive: true });
+			fs.writeFileSync(
+				projectMcp,
+				JSON.stringify({ mcpServers: { demo: { command: "echo" } } }),
+				"utf8",
+			);
+			const victim = path.join(dir, "victim.json");
+			fs.writeFileSync(victim, JSON.stringify({ untouched: true }), "utf8");
+
+			const server = listOmpResources(projectRoot).mcp[0]!;
+			setOmpResourceEnabled({ ...server, filePath: victim }, false, projectRoot);
+
+			const written = JSON.parse(fs.readFileSync(projectMcp, "utf8")) as {
+				mcpServers: Record<string, { enabled?: boolean }>;
+			};
+			expect(written.mcpServers.demo?.enabled).toBe(false);
+			expect(JSON.parse(fs.readFileSync(victim, "utf8"))).toEqual({
+				untouched: true,
+			});
+		} finally {
+			fs.rmSync(projectRoot, { recursive: true, force: true });
+		}
+	});
+
+	it("项目级 MCP 开关缺少工作区时拒绝写入", () => {
+		const projectRoot = fs.mkdtempSync(
+			path.join(os.tmpdir(), "pi-desk-omp-mcp-proj-"),
+		);
+		try {
+			const projectMcp = path.join(projectRoot, ".omp", "mcp.json");
+			fs.mkdirSync(path.dirname(projectMcp), { recursive: true });
+			fs.writeFileSync(
+				projectMcp,
+				JSON.stringify({ mcpServers: { demo: { command: "echo" } } }),
+				"utf8",
+			);
+			const server = listOmpResources(projectRoot).mcp[0]!;
+			expect(() => setOmpResourceEnabled(server, false)).toThrow(
+				"workspace required",
+			);
+		} finally {
+			fs.rmSync(projectRoot, { recursive: true, force: true });
+		}
+	});
 });

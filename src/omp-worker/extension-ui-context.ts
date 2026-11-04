@@ -171,8 +171,30 @@ export function createOmpDesktopExtensionUIContext(
 				notifyType: type ?? "info",
 			});
 		},
+		setStatus: (key, text) => {
+			fireAndForget("setStatus", {
+				statusKey: key,
+				statusText: text ?? null,
+			});
+		},
+		setWidget: (key, content) => {
+			fireAndForget("setWidget", {
+				widgetKey: key,
+				widgetLines: Array.isArray(content) ? content : null,
+			});
+		},
+		setTitle: (title) => {
+			fireAndForget("setTitle", { title });
+		},
+		setEditorText: (text) => {
+			fireAndForget("setEditorText", { text });
+		},
+		pasteToEditor: (text) => {
+			fireAndForget("setEditorText", { text });
+		},
+		getEditorText: () => "",
+		setWorkingMessage: () => {},
 		onTerminalInput: () => () => {},
 		getLinkClicksAvailable: () => false,
-		setStatus: () => {},
 	} as unknown as ExtensionUIContext;
 }

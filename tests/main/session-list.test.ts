@@ -10,6 +10,7 @@ import {
   normalizeWorkspacePath,
   purgeWorkspaceSessionDir,
 } from "../../src/main/session-list";
+import { ensureOmpSessionDir } from "../../src/main/omp-session-dir";
 
 const CURRENT_SESSION_VERSION = 3;
 
@@ -190,5 +191,18 @@ describe("session-list", () => {
     expect(fs.existsSync(sessionDir)).toBe(false);
     expect(fs.existsSync(path.join(cwd, "README.md"))).toBe(true);
     expect(await listSessionsForCwd(cwd)).toEqual([]);
+  });
+
+  it("lists OMP sessions from the SDK directory after migrating the legacy one", async () => {
+    const cwd = path.join(tempRoot, "omp-project");
+    fs.mkdirSync(cwd, { recursive: true });
+    const legacyDir = encodeCwdSessionDir(cwd, tempRoot);
+    writeSessionHeader(path.join(legacyDir, "omp-s.jsonl"), "omp-s", cwd);
+
+    const listed = await listSessionsForCwd(cwd, "omp");
+
+    expect(listed.map((session) => session.id)).toEqual(["omp-s"]);
+    expect(fs.existsSync(legacyDir)).toBe(false);
+    expect(fs.existsSync(ensureOmpSessionDir(cwd))).toBe(true);
   });
 });

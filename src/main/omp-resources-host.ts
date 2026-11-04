@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { ompAgentDir } from "./omp-dir";
 import { ompConfigPath } from "./omp-settings-host";
-import { readYamlObject, writeYamlObject } from "./omp-yaml";
+import { readYamlObject, readYamlObjectForWrite, writeYamlObject } from "./omp-yaml";
 import type {
 	OmpResourceItem,
 	OmpResourceKind,
@@ -343,7 +343,7 @@ function readDisabledExtensions(): string[] {
 
 function writeDisabledExtensions(ids: string[]): void {
 	const filePath = ompConfigPath();
-	const doc = readYamlObject(filePath) ?? {};
+	const doc = readYamlObjectForWrite(filePath);
 	if (ids.length) doc.disabledExtensions = ids;
 	else delete doc.disabledExtensions;
 	writeYamlObject(filePath, doc);
@@ -389,9 +389,10 @@ function dedupe(items: OmpResourceItem[]): OmpResourceItem[] {
 export function setOmpResourceEnabled(
 	item: OmpResourceItem,
 	enabled: boolean,
+	root?: string,
 ): void {
 	if (item.kind === "mcp") {
-		setMcpEnabled(item, enabled);
+		setMcpEnabled(item, enabled, root);
 		return;
 	}
 	if (!item.extensionId) return;
@@ -401,6 +402,12 @@ export function setOmpResourceEnabled(
 	writeDisabledExtensions([...disabled]);
 }
 
+function mcpConfigPath(item: OmpResourceItem, root?: string): string {
+	if (item.scope !== "project") return userMcpPath();
+	if (!root?.trim()) throw new Error("workspace required for project mcp config");
+	return path.join(path.resolve(root), ".omp", "mcp.json");
+}
+
 /**
  * MCP 的启停写进条目所在的 mcp.json（enabled 字段）。
  *
@@ -408,8 +415,13 @@ export function setOmpResourceEnabled(
  * 优先于 enabled 字段，不清的话服务器仍被 omp 抑制。条目本身就在用户级
  * 文件里时，denylist 与条目同处一份文件，一并改掉。
  */
-function setMcpEnabled(item: OmpResourceItem, enabled: boolean): void {
-	const raw = readText(item.filePath);
+function setMcpEnabled(
+	item: OmpResourceItem,
+	enabled: boolean,
+	root?: string,
+): void {
+	const filePath = mcpConfigPath(item, root);
+	const raw = readText(filePath);
 	if (!raw) throw new Error("mcp config not found");
 	let parsed: Record<string, unknown>;
 	try {
@@ -417,16 +429,24 @@ function setMcpEnabled(item: OmpResourceItem, enabled: boolean): void {
 	} catch {
 		throw new Error("mcp config is not valid JSON");
 	}
-	const servers = (parsed.mcpServers ?? {}) as Record<string, unknown>;
-	const entry = (servers[item.name] ?? {}) as Record<string, unknown>;
-	if (enabled) delete entry.enabled;
-	else entry.enabled = false;
-	servers[item.name] = entry;
-	parsed.mcpServers = servers;
+	const servers = parsed.mcpServers;
+	if (!servers || typeof servers !== "object" || Array.isArray(servers)) {
+		throw new Error("mcp config has no servers");
+	}
+	const serverMap = servers as Record<string, unknown>;
+	const entry = serverMap[item.name];
+	if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+		throw new Error("mcp server not found");
+	}
+	const next = entry as Record<string, unknown>;
+	if (enabled) delete next.enabled;
+	else next.enabled = false;
+	serverMap[item.name] = next;
+	parsed.mcpServers = serverMap;
 
-	const isUserFile = userMcpPath() === item.filePath;
+	const isUserFile = userMcpPath() === filePath;
 	if (enabled && isUserFile) removeUserDeny(parsed, item.name);
-	fs.writeFileSync(item.filePath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+	fs.writeFileSync(filePath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
 
 	if (!enabled || isUserFile) return;
 	const userRaw = readText(userMcpPath());

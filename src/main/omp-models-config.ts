@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { load as loadYaml, dump as dumpYaml } from "js-yaml";
+import { load as loadYaml } from "js-yaml";
 import { ompAgentDir } from "./omp-dir";
+import { writeYamlObject } from "./omp-yaml";
 import type {
 	OmpModelRow,
 	OmpModelsSnapshot,
@@ -125,12 +126,6 @@ export function saveOmpModels(providers: OmpProviderRow[]): OmpModelsSnapshot {
 		nextProviders[id] = provider;
 	}
 	root.providers = nextProviders;
-	fs.mkdirSync(path.dirname(filePath), { recursive: true });
-	try {
-		fs.copyFileSync(filePath, `${filePath}.bak`);
-	} catch {
-		// 首次创建没有原文件可备份。
-	}
-	fs.writeFileSync(filePath, dumpYaml(root, { lineWidth: 120 }), "utf8");
+	writeYamlObject(filePath, root);
 	return readOmpModels();
 }
