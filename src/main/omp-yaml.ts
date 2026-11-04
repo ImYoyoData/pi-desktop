@@ -22,6 +22,18 @@ export function readYamlObject(filePath: string): Record<string, unknown> | null
 	}
 }
 
+/** 保存前的读取：文件破损时拒绝写回，避免把用户配置整体覆盖。 */
+export function readYamlObjectForWrite(
+	filePath: string,
+): Record<string, unknown> {
+	if (!fs.existsSync(filePath)) return {};
+	const doc = readYamlObject(filePath);
+	if (doc === null) {
+		throw new Error(`refusing to overwrite invalid YAML: ${filePath}`);
+	}
+	return doc;
+}
+
 /** 写回 YAML，并在覆盖前留一份 .bak（js-yaml 往返会丢注释）。 */
 export function writeYamlObject(
 	filePath: string,
@@ -33,5 +45,19 @@ export function writeYamlObject(
 	} catch {
 		// 首次创建没有原文件可备份。
 	}
-	fs.writeFileSync(filePath, dumpYaml(doc, { lineWidth: 120 }), "utf8");
+	const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+	try {
+		fs.writeFileSync(tempPath, dumpYaml(doc, { lineWidth: 120 }), {
+			encoding: "utf8",
+			mode: 0o600,
+		});
+		fs.renameSync(tempPath, filePath);
+	} catch (err) {
+		try {
+			fs.rmSync(tempPath, { force: true });
+		} catch {
+			// 临时文件清理失败不掩盖原始错误。
+		}
+		throw err;
+	}
 }

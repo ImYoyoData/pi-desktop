@@ -151,6 +151,43 @@ describe("session-broker", () => {
     vi.useRealTimers();
   });
 
+  it("waits for fork and rename results from the worker", async () => {
+    let messageCb!: (msg: WorkerOutbound) => void;
+    const broker = createSessionBroker({
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => ({
+        id: idFromPath(filePath),
+        cwd,
+        filePath: filePath ?? "/tmp/session-a.jsonl",
+        worker: {
+          send: async (msg) => {
+            if (msg.kind !== "command") return null;
+            const data =
+              msg.command.type === "fork_user_turn"
+                ? { id: "forked", filePath: "/tmp/forked.jsonl", cwd }
+                : { ok: true };
+            queueMicrotask(() =>
+              messageCb({ kind: "result", id: msg.id, data }),
+            );
+            return null;
+          },
+          kill: () => {},
+          onMessage: (cb) => {
+            messageCb = cb;
+            return () => {};
+          },
+        },
+      }),
+    });
+    const session = await broker.createSession("/tmp/a");
+    await expect(
+      broker.send(session.id, { type: "fork_user_turn", userIndex: 0 }),
+    ).resolves.toMatchObject({ id: "forked" });
+    await expect(
+      broker.trySend(session.id, { type: "set_session_name", name: "renamed" }),
+    ).resolves.toEqual({ ok: true });
+  });
+
   it("rejects pending prompt commands on worker fatal", async () => {
     let messageCb: ((msg: WorkerOutbound) => void) | null = null;
     const broker = createSessionBroker({

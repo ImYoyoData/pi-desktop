@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ompAgentDir } from "./omp-dir";
-import { readYamlObject, writeYamlObject } from "./omp-yaml";
+import { readYamlObject, readYamlObjectForWrite, writeYamlObject } from "./omp-yaml";
 import {
 	OMP_SETTINGS,
 	readOmpSetting,
@@ -40,7 +40,7 @@ export function saveOmpSettings(
 ): OmpSettingsSnapshot {
 	const known = new Set(OMP_SETTINGS.map((entry) => entry.id));
 	const filePath = ompConfigPath();
-	const doc = readYamlObject(filePath) ?? {};
+	const doc = readYamlObjectForWrite(filePath);
 	for (const [id, value] of Object.entries(patch)) {
 		if (!known.has(id)) continue;
 		writeOmpSetting(doc, id, value);

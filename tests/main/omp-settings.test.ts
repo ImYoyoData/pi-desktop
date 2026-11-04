@@ -6,6 +6,7 @@ import {
 	readOmpSetting,
 	writeOmpSetting,
 } from "../../src/shared/omp-settings";
+import { saveOmpSettings } from "../../src/main/omp-settings-host";
 
 describe("omp settings 路径读写", () => {
 	let doc: Record<string, unknown>;
@@ -98,6 +99,27 @@ describe("omp models.yml 合并", () => {
 		expect(raw).toContain("promptCacheSessionHeader");
 		expect(raw).toContain("input: 0.15");
 		expect(readOmpModels().providers).toHaveLength(1);
+	});
+});
+
+describe("omp config.yml 保存", () => {
+	let dir: string;
+
+	beforeEach(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-desk-omp-config-"));
+		process.env.OMP_AGENT_DIR = dir;
+	});
+
+	afterEach(() => {
+		delete process.env.OMP_AGENT_DIR;
+		fs.rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("配置解析失败时拒绝保存并保留原文", () => {
+		const file = path.join(dir, "config.yml");
+		fs.writeFileSync(file, "a: [1,\n", "utf8");
+		expect(() => saveOmpSettings({})).toThrow("invalid YAML");
+		expect(fs.readFileSync(file, "utf8")).toBe("a: [1,\n");
 	});
 });
 
