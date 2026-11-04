@@ -1,7 +1,9 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 
 export type OmpRuntime = { command: string; args: string[] };
+
+const MIN_BINARY_BYTES = 5 * 1024 * 1024;
 
 function bunBinaryName(): string {
 	return process.platform === "win32" ? "bun.exe" : "bun";
@@ -18,21 +20,28 @@ function bunPackageName(): string {
 	return `@oven/bun-${platform}-${arch}`;
 }
 
+function usable(candidate: string): boolean {
+	try {
+		return statSync(candidate).size >= MIN_BINARY_BYTES;
+	} catch {
+		return false;
+	}
+}
+
 function findBun(searchRoots: string[]): string {
 	const explicit = process.env.PI_DESKTOP_BUN_PATH?.trim();
 	if (explicit && existsSync(explicit)) {
 		return explicit;
 	}
 	for (const root of searchRoots) {
-		const candidate = path.join(
-			root,
-			"node_modules",
-			bunPackageName(),
-			"bin",
-			bunBinaryName(),
-		);
-		if (existsSync(candidate)) {
-			return candidate;
+		const candidates = [
+			path.join(root, "node_modules", "bun", "bin", bunBinaryName()),
+			path.join(root, "node_modules", bunPackageName(), "bin", bunBinaryName()),
+		];
+		for (const candidate of candidates) {
+			if (usable(candidate)) {
+				return candidate;
+			}
 		}
 	}
 	// PATH 兜底：包管理器全局安装的 bun。
