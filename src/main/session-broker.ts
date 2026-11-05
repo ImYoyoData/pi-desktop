@@ -728,6 +728,10 @@ export function createSessionBroker(deps: {
       }
 
       if (msg.kind === "fatal") {
+        // 主动断开或已被新 worker 取代时，旧进程的退出不能算当前会话的错误。
+        if (rec.worker !== worker) {
+          return;
+        }
         // Idle-destroy / clean process exit must not spam the chat as an error.
         const errText = msg.error ?? "worker fatal";
         clearIdleDestroyTimer(rec);

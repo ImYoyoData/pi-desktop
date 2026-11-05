@@ -7,7 +7,7 @@ import {
 	writeOmpSetting,
 } from "../../src/shared/omp-settings";
 import { saveOmpSettings } from "../../src/main/omp-settings-host";
-import { saveOmpModels } from "../../src/main/omp-models-config";
+import { saveOmpModels, readOmpModels } from "../../src/main/omp-models-config";
 
 describe("omp settings 路径读写", () => {
 	let doc: Record<string, unknown>;
@@ -89,6 +89,7 @@ describe("omp models.yml 合并", () => {
 						contextWindow: null,
 						maxTokens: null,
 						reasoning: false,
+						thinkingEfforts: null,
 						vision: false,
 					},
 				],
@@ -102,6 +103,122 @@ describe("omp models.yml 合并", () => {
 		expect(readOmpModels().providers).toHaveLength(1);
 	});
 
+	it("按界面写入 thinking.efforts 并保留 mode 等字段", () => {
+		fs.writeFileSync(
+			path.join(dir, "models.yml"),
+			[
+				"providers:",
+				"  magpie:",
+				"    api: openai-completions",
+				"    models:",
+				"      - id: model-a",
+				"        reasoning: true",
+				"        thinking:",
+				"          mode: budget",
+				"          efforts: [low, medium]",
+				"          defaultLevel: low",
+				"",
+			].join("\n"),
+			"utf8",
+		);
+
+		expect(readOmpModels().providers[0]?.models[0]?.thinkingEfforts).toEqual([
+			"low",
+			"medium",
+		]);
+
+		const snapshot = saveOmpModels([
+			{
+				id: "magpie",
+				api: "openai-completions",
+				baseUrl: "",
+				apiKey: "",
+				models: [
+					{
+						id: "model-a",
+						name: "",
+						api: "",
+						contextWindow: null,
+						maxTokens: null,
+						reasoning: true,
+						thinkingEfforts: ["high", "max"],
+						vision: false,
+					},
+				],
+			},
+		]);
+
+		expect(snapshot.providers[0]?.models[0]?.thinkingEfforts).toEqual([
+			"high",
+			"max",
+		]);
+		const raw = fs.readFileSync(path.join(dir, "models.yml"), "utf8");
+		expect(raw).toContain("mode: budget");
+		expect(raw).toContain("defaultLevel: low");
+	});
+
+	it("读取旧版档位写法，空档位删除 thinking", () => {
+		fs.writeFileSync(
+			path.join(dir, "models.yml"),
+			[
+				"providers:",
+				"  magpie:",
+				"    models:",
+				"      - id: model-a",
+				"        reasoning: true",
+				"        thinking:",
+				"          mode: effort",
+				"          minLevel: low",
+				"          maxLevel: high",
+				"      - id: model-b",
+				"        reasoning: true",
+				"        thinking:",
+				"          mode: effort",
+				"          levels: [minimal, xhigh]",
+				"",
+			].join("\n"),
+			"utf8",
+		);
+
+		const models = readOmpModels().providers[0]?.models ?? [];
+		expect(models[0]?.thinkingEfforts).toEqual(["low", "medium", "high"]);
+		expect(models[1]?.thinkingEfforts).toEqual(["minimal", "xhigh"]);
+
+		saveOmpModels([
+			{
+				id: "magpie",
+				api: "",
+				baseUrl: "",
+				apiKey: "",
+				models: [
+					{
+						id: "model-a",
+						name: "",
+						api: "",
+						contextWindow: null,
+						maxTokens: null,
+						reasoning: true,
+						thinkingEfforts: [],
+						vision: false,
+					},
+					{
+						id: "model-b",
+						name: "",
+						api: "",
+						contextWindow: null,
+						maxTokens: null,
+						reasoning: true,
+						thinkingEfforts: null,
+						vision: false,
+					},
+				],
+			},
+		]);
+		const raw = fs.readFileSync(path.join(dir, "models.yml"), "utf8");
+		expect(raw).not.toContain("minLevel");
+		expect(raw).toContain("levels");
+	});
+
 	it("拒绝空 id 与重复 id 且不改动文件", () => {
 		const file = path.join(dir, "models.yml");
 		const original = "providers: {}\n";
@@ -113,6 +230,7 @@ describe("omp models.yml 合并", () => {
 			contextWindow: null,
 			maxTokens: null,
 			reasoning: false,
+			thinkingEfforts: null,
 			vision: false,
 		};
 		const provider = (id: string, models = [model]) => ({

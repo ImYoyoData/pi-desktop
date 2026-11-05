@@ -104,9 +104,11 @@ export function createOmpSpawnWorker(): SpawnWorker {
 
 		const listeners = new Set<(msg: WorkerOutbound) => void>();
 		let expectExit = false;
+		let stderrTail = "";
 
 		child.stderr?.setEncoding("utf8");
 		child.stderr?.on("data", (chunk: string) => {
+			stderrTail = (stderrTail + chunk).slice(-4000);
 			process.stderr.write(`[omp-worker] ${chunk}`);
 		});
 		child.on("error", (err) => {
@@ -114,9 +116,9 @@ export function createOmpSpawnWorker(): SpawnWorker {
 		});
 		child.on("exit", (code) => {
 			if (expectExit || code === 0) return;
-			for (const cb of listeners) {
-				cb({ kind: "fatal", error: `omp worker exited (${code ?? "null"})` });
-			}
+			const tail = stderrTail.trim().replace(/\s+/g, " ").slice(-1200);
+			const error = `omp worker exited (${code ?? "null"})${tail ? `: ${tail}` : ""}`;
+			for (const cb of listeners) cb({ kind: "fatal", error });
 		});
 
 		let buffered = "";

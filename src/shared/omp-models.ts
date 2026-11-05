@@ -1,3 +1,5 @@
+import type { ThinkingLevel } from "./thinking-level";
+
 /**
  * OMP 的模型配置（~/.omp/agent/models.yml）在桌面端的编辑模型。
  *
@@ -15,6 +17,8 @@ export type OmpModelRow = {
 	contextWindow: number | null;
 	maxTokens: number | null;
 	reasoning: boolean;
+	/** 可用思考档位（写回 thinking.efforts）；null 表示文件里未配置 thinking。 */
+	thinkingEfforts: ThinkingLevel[] | null;
 	/** 是否接受图片输入（写回 input 的 image 项）。 */
 	vision: boolean;
 };
@@ -58,6 +62,7 @@ export function newOmpModel(partial?: Partial<OmpModelRow>): OmpModelRow {
 		contextWindow: null,
 		maxTokens: null,
 		reasoning: false,
+		thinkingEfforts: null,
 		vision: false,
 		...partial,
 	};

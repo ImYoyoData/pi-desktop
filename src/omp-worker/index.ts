@@ -10,6 +10,28 @@ console.log = logToStderr as typeof console.log;
 console.info = logToStderr as typeof console.info;
 console.debug = logToStderr as typeof console.debug;
 
+let crashReported = false;
+
+/** SDK 里逃逸的异步异常默认让 bun 直接退出，界面只剩 "exited (1)"。先回报真实原因再退出。 */
+function reportCrash(reason: unknown): void {
+	if (crashReported) return;
+	crashReported = true;
+	const err =
+		reason instanceof Error ? reason : new Error(String(reason ?? "unknown"));
+	const detail = `${err.name}: ${err.message}${
+		err.stack ? `\n${err.stack.split("\n").slice(1, 6).join("\n")}` : ""
+	}`;
+	try {
+		post({ kind: "fatal", error: `omp worker crashed: ${detail.slice(0, 3000)}` });
+	} catch {
+		// 通道断了就没法回报，仍然退出。
+	}
+	setTimeout(() => process.exit(1), 50);
+}
+
+process.on("uncaughtException", reportCrash);
+process.on("unhandledRejection", reportCrash);
+
 function dispatch(line: string): void {
 	let msg: OmpWorkerInbound;
 	try {

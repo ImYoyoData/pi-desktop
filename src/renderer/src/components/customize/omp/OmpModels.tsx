@@ -20,6 +20,10 @@ import {
 	type OmpModelsSnapshot,
 	type OmpProviderRow,
 } from "../../../../../shared/omp-models";
+import {
+	THINKING_LEVELS,
+	type ThinkingLevel,
+} from "../../../../../shared/thinking-level";
 import modelsStyles from "../CustomizeModels.module.css";
 import styles from "./OmpModels.module.css";
 
@@ -401,6 +405,51 @@ export function OmpModels(): ReactNode {
 																	}
 																/>
 															</span>
+															<Select
+																className={modelsStyles.levelSelect}
+																mode="multiple"
+																size="small"
+																disabled={!model.reasoning}
+																showSearch={false}
+																defaultActiveFirstOption={false}
+																maxTagCount="responsive"
+																maxTagPlaceholder={(omitted) =>
+																	omitted.length ? `+${omitted.length}` : ""
+																}
+																classNames={{
+																	popup: { root: modelsStyles.levelPopup },
+																}}
+																title={t.modelsCustomThinkingLevels}
+																aria-label={t.modelsCustomThinkingLevels}
+																value={model.thinkingEfforts ?? []}
+																placeholder={t.modelsCustomThinkingLevels}
+																options={THINKING_LEVELS.filter(
+																	(level) => level.value !== "off",
+																).map((level) => ({
+																	label: level.label.toLowerCase(),
+																	value: level.value,
+																}))}
+																tagRender={(props) => (
+																	<span className={modelsStyles.levelTag}>
+																		{props.label}
+																	</span>
+																)}
+																onChange={(values: ThinkingLevel[]) =>
+																	patchModel(
+																		selectedIndex,
+																		modelIndex,
+																		{
+																			thinkingEfforts: THINKING_LEVELS.map(
+																				(level) => level.value,
+																			).filter(
+																				(value) =>
+																					value !== "off" &&
+																					values.includes(value),
+																			),
+																		},
+																	)
+																}
+															/>
 															<button
 																type="button"
 																className={`${modelsStyles.modelAction} ${modelsStyles.modelRemove}`}
