@@ -236,7 +236,7 @@ jobs:
           tag_name: ${{ needs.version.outputs.tag }}
           name: Pi Desktop ${{ needs.version.outputs.tag }}
           draft: false
-          prerelease: false
+          prerelease: ${{ contains(needs.version.outputs.tag, '-') }}
           body_path: release-notes.md
           files: upload/*
           fail_on_unmatched_files: false

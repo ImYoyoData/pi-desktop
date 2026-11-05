@@ -219,6 +219,64 @@ describe("omp models.yml 合并", () => {
 		expect(raw).toContain("levels");
 	});
 
+	it("thinking 未声明档位时保存不删除 thinking", () => {
+		fs.writeFileSync(
+			path.join(dir, "models.yml"),
+			[
+				"providers:",
+				"  magpie:",
+				"    models:",
+				"      - id: model-a",
+				"        reasoning: true",
+				"        thinking:",
+				"          mode: budget",
+				"          defaultLevel: low",
+				"",
+			].join("\n"),
+			"utf8",
+		);
+
+		expect(readOmpModels().providers[0]?.models[0]?.thinkingEfforts).toBeNull();
+
+		const snapshot = readOmpModels();
+		saveOmpModels(
+			snapshot.providers.map((provider) => ({
+				...provider,
+				models: provider.models.map((model) => ({ ...model, vision: true })),
+			})),
+		);
+
+		const raw = fs.readFileSync(path.join(dir, "models.yml"), "utf8");
+		expect(raw).toContain("mode: budget");
+		expect(raw).toContain("defaultLevel: low");
+	});
+
+	it("thinking 档位全是 off 或未知值时保存不删除 thinking", () => {
+		fs.writeFileSync(
+			path.join(dir, "models.yml"),
+			[
+				"providers:",
+				"  magpie:",
+				"    models:",
+				"      - id: model-a",
+				"        reasoning: true",
+				"        thinking:",
+				"          mode: effort",
+				"          efforts: [off, custom]",
+				"",
+			].join("\n"),
+			"utf8",
+		);
+
+		expect(readOmpModels().providers[0]?.models[0]?.thinkingEfforts).toBeNull();
+
+		saveOmpModels(readOmpModels().providers);
+		const raw = fs.readFileSync(path.join(dir, "models.yml"), "utf8");
+		expect(raw).toContain("thinking:");
+		expect(raw).toContain("mode: effort");
+		expect(raw).toContain("custom");
+	});
+
 	it("拒绝空 id 与重复 id 且不改动文件", () => {
 		const file = path.join(dir, "models.yml");
 		const original = "providers: {}\n";

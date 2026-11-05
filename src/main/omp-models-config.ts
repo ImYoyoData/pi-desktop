@@ -32,9 +32,10 @@ function readThinkingEfforts(raw: unknown): ThinkingLevel[] | null {
 		: Array.isArray(thinking.levels)
 			? thinking.levels
 			: levelRange(thinking.minLevel, thinking.maxLevel);
-	return THINKING_LEVELS.filter(
+	const efforts = THINKING_LEVELS.filter(
 		({ value }) => value !== "off" && declared.includes(value),
 	).map(({ value }) => value);
+	return efforts.length ? efforts : null;
 }
 
 function levelRange(min: unknown, max: unknown): string[] {

@@ -17,7 +17,7 @@ export type OmpModelRow = {
 	contextWindow: number | null;
 	maxTokens: number | null;
 	reasoning: boolean;
-	/** 可用思考档位（写回 thinking.efforts）；null 表示文件里未配置 thinking。 */
+	/** 可用思考档位（写回 thinking.efforts）；null 表示保留文件原值。 */
 	thinkingEfforts: ThinkingLevel[] | null;
 	/** 是否接受图片输入（写回 input 的 image 项）。 */
 	vision: boolean;

@@ -105,6 +105,13 @@ export function createOmpSpawnWorker(): SpawnWorker {
 		const listeners = new Set<(msg: WorkerOutbound) => void>();
 		let expectExit = false;
 		let stderrTail = "";
+		let fatalSent = false;
+
+		const emitFatal = (error: string): void => {
+			if (fatalSent) return;
+			fatalSent = true;
+			for (const cb of listeners) cb({ kind: "fatal", error });
+		};
 
 		child.stderr?.setEncoding("utf8");
 		child.stderr?.on("data", (chunk: string) => {
@@ -112,13 +119,13 @@ export function createOmpSpawnWorker(): SpawnWorker {
 			process.stderr.write(`[omp-worker] ${chunk}`);
 		});
 		child.on("error", (err) => {
-			for (const cb of listeners) cb({ kind: "fatal", error: err.message });
+			emitFatal(err.message);
 		});
-		child.on("exit", (code) => {
+		child.on("close", (code) => {
 			if (expectExit || code === 0) return;
 			const tail = stderrTail.trim().replace(/\s+/g, " ").slice(-1200);
 			const error = `omp worker exited (${code ?? "null"})${tail ? `: ${tail}` : ""}`;
-			for (const cb of listeners) cb({ kind: "fatal", error });
+			emitFatal(error);
 		});
 
 		let buffered = "";
@@ -132,6 +139,7 @@ export function createOmpSpawnWorker(): SpawnWorker {
 				if (line) {
 					try {
 						const msg = toBrokerMessage(JSON.parse(line) as OmpWorkerOutbound);
+						if (msg.kind === "fatal") fatalSent = true;
 						for (const cb of listeners) cb(msg);
 					} catch {
 						process.stderr.write(`[omp-worker] bad frame: ${line.slice(0, 200)}\n`);

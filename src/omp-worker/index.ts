@@ -21,12 +21,20 @@ function reportCrash(reason: unknown): void {
 	const detail = `${err.name}: ${err.message}${
 		err.stack ? `\n${err.stack.split("\n").slice(1, 6).join("\n")}` : ""
 	}`;
+	const error = `omp worker crashed: ${detail.slice(0, 3000)}`;
+	process.stderr.write(`${error}\n`);
+	let done = false;
+	const finish = (): void => {
+		if (done) return;
+		done = true;
+		process.exit(1);
+	};
 	try {
-		post({ kind: "fatal", error: `omp worker crashed: ${detail.slice(0, 3000)}` });
+		post({ kind: "fatal", error }, finish);
 	} catch {
-		// 通道断了就没法回报，仍然退出。
+		finish();
 	}
-	setTimeout(() => process.exit(1), 50);
+	setTimeout(finish, 2000);
 }
 
 process.on("uncaughtException", reportCrash);
