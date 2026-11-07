@@ -54,7 +54,9 @@ import {
   flatModelOptions,
   forgetPrefKey,
   modelKeyFromState,
+  migrateLegacyPrefsToPi,
   parseSessionPrefs,
+  prefKeyForBackend,
   resolveThinkingResult,
   serializeSessionPrefs,
   setPrefKey,
@@ -92,7 +94,11 @@ import {
   filterAvailableModels,
   isSameModelSelection,
   pruneStaleModelSelection,
+  type ModelSelection,
 } from "../../../shared/model-selection";
+import type { ModelsAvailableEntry } from "../../../shared/models-settings";
+import type { AgentBackend } from "../../../shared/agent-backend";
+import { currentBackend } from "@renderer/utils/current-backend";
 import {
   MODEL_MENU_PROPS,
   SELECTED_MODEL_STYLE,
@@ -217,6 +223,23 @@ function nextFrame(): Promise<void> {
   });
 }
 
+/**
+ * 首屏读取会话偏好，并顺带做一次旧键迁移（裸会话 id → `pi\0<id>`）。
+ *
+ * 模块级缓存：组件重挂载时不必重复读写 localStorage。
+ */
+let cachedInitialPrefs: SessionPrefs | null = null;
+function loadInitialPrefs(): SessionPrefs {
+  if (cachedInitialPrefs) return cachedInitialPrefs;
+  const initial = parseSessionPrefs(prefsApi.getItem(SESSION_PREFS_KEY));
+  const migrated = migrateLegacyPrefsToPi(initial);
+  if (migrated) {
+    prefsApi.setItem(SESSION_PREFS_KEY, serializeSessionPrefs(migrated));
+  }
+  cachedInitialPrefs = migrated ?? initial;
+  return cachedInitialPrefs;
+}
+
 export function Composer({ docked = false }: ComposerProps): ReactNode {
   const t = useI18n();
   const composer = useComposerStore();
@@ -252,9 +275,9 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   const modelThinkingLevels = useLatest<Record<string, ThinkingLevel[] | undefined>>({});
   const selectedModel = useLatest<string | null>(null);
   const thinking = useLatest<ThinkingLevel>("medium");
-  const prefs = useLatest<SessionPrefs>(
-    parseSessionPrefs(prefsApi.getItem(SESSION_PREFS_KEY)),
-  );
+  // 只读一次：导入引擎隔离的旧偏好（裸会话 id）同步升为 `pi\0<id>`，
+  // 否则升级后各会话的模型选择会全部丢失。模块级缓存保证跨渲染只跑一次。
+  const prefs = useLatest<SessionPrefs>(loadInitialPrefs());
   const slashSkills = useLatest<{ name: string; description: string }[]>([]);
   const slashCatalog = useLatest<SlashCatalog>({
     skillCommands: false,
@@ -287,6 +310,8 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   const atFileRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skillsCountCachedForRef = useRef<string | null>(null);
   const prevSessionIdRef = useRef<string | null>(null);
+  /** 上一次渲染时的引擎：换引擎要当作一次全新的会话绑定（模型/档位都不同）。 */
+  const prevBackendRef = useRef<AgentBackend | null>(null);
   const sessionWatchReadyRef = useRef(false);
   const queueWatchReadyRef = useRef(false);
   const prevRunningRef = useRef(false);
@@ -297,10 +322,19 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     return useSessionsStore.getState().activeId;
   }
 
+  /**
+   * 模型/档位偏好的存储键。带引擎前缀：同一个会话 id 在 pi / omp 下的模型
+   * 互不相通，切引擎后不会拿另一侧的 `provider/id` 去发 set_model。
+   */
   function currentPrefsKey(): string | null {
     const state = useSessionsStore.getState();
-    if (state.activeId) return state.activeId;
-    return state.draftRoot ? DRAFT_PREF_KEY : null;
+    const raw = state.activeId ?? (state.draftRoot ? DRAFT_PREF_KEY : null);
+    return raw ? prefKeyForBackend(currentBackend(), raw) : null;
+  }
+
+  /** 指定会话 id 的偏好键（用于跨会话继承模型）。 */
+  function prefsKeyOf(sessionId: string): string {
+    return prefKeyForBackend(currentBackend(), sessionId);
   }
 
   function isRunning(): boolean {
@@ -330,10 +364,13 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     persistSessionPrefs(next);
   }
 
-  /** 界面档位写入偏好；worker 会按模型能力 clamp 后回传实际档位。 */
+  /**
+   * 界面档位写入偏好；worker 会按模型能力 clamp 后回传实际档位。
+   * `key` 是**带引擎前缀的完整偏好键**（currentPrefsKey / prefsKeyOf 的返回值）。
+   */
   function adoptThinking(level: ThinkingLevel, key: string | null = currentPrefsKey()): void {
     thinking.set(level);
-    if (key) rememberThinking(key, level);
+    if (key) writeThinkingPref(key, level);
   }
 
   /**
@@ -353,7 +390,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     // worker 未回传实际值时不动界面，只按用户选择记忆。
     const { actual, clamped } = resolveThinkingResult(requested, result, isThinkingLevel);
     if (!clamped) {
-      if (key) rememberThinking(key, requested);
+      if (key) writeThinkingPref(key, requested);
       return;
     }
     adoptThinking(actual, key);
@@ -366,17 +403,27 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     return allowed.length ? allowed : ["off"];
   }
 
-  function rememberModel(sessionId: string, key: string): void {
-    updatePrefs(setPrefKey(prefs.ref.current, "models", sessionId, key));
+  /** 写入完整偏好键（已带引擎前缀）。 */
+  function writeModelPref(fullKey: string, modelKey: string): void {
+    updatePrefs(setPrefKey(prefs.ref.current, "models", fullKey, modelKey));
+  }
+
+  function writeThinkingPref(fullKey: string, level: ThinkingLevel): void {
+    updatePrefs(setPrefKey(prefs.ref.current, "thinking", fullKey, level));
+  }
+
+  /** 按原始会话 id 记住当前引擎下的模型 / 档位（内部加引擎前缀）。 */
+  function rememberModel(sessionId: string, modelKey: string): void {
+    writeModelPref(prefsKeyOf(sessionId), modelKey);
   }
 
   function rememberThinking(sessionId: string, level: ThinkingLevel): void {
-    updatePrefs(setPrefKey(prefs.ref.current, "thinking", sessionId, level));
+    writeThinkingPref(prefsKeyOf(sessionId), level);
   }
 
-  /** 清掉某个记忆键，避免草稿转正后残留悬挂偏好。 */
-  function forgetPrefs(key: string): void {
-    const next = forgetPrefKey(prefs.ref.current, key);
+  /** 清掉某个记忆键（带引擎前缀的完整键），避免草稿转正后残留悬挂偏好。 */
+  function forgetPrefs(fullKey: string): void {
+    const next = forgetPrefKey(prefs.ref.current, fullKey);
     if (next === prefs.ref.current) return;
     updatePrefs(next);
   }
@@ -1093,14 +1140,14 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
         thinking.ref.current,
         allowedThinkingLevels(selectedModel.ref.current),
       );
-      if (level !== thinking.ref.current) adoptThinking(level, id);
+      if (level !== thinking.ref.current) adoptThinking(level, prefsKeyOf(id));
       void useSessionsStore
         .getState()
         .sendCommand(id, {
           type: "set_thinking_level",
           level,
         })
-        .then((result) => adoptThinkingResult(level, result, id))
+        .then((result) => adoptThinkingResult(level, result, prefsKeyOf(id)))
         .catch(() => {
           // ignore — prompt may still proceed with worker default
         });
@@ -1892,27 +1939,51 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     }
   }
 
+  /**
+   * 取当前引擎自己的模型目录。
+   *
+   * pi 与 omp 的配置互不相干（models.json vs models.yml），模型 id 也只在各自
+   * 后端里成立。把 pi 的 provider/id 发给 omp worker 的 set_model 只会得到
+   * `Model not found` —— 切引擎后首条消息报错就是这么来的。
+   */
+  async function loadAvailableModels(): Promise<{
+    available: ModelsAvailableEntry[];
+    selection: ModelSelection;
+  }> {
+    if (currentBackend() === "omp") {
+      // omp 运行时没有「桌面端筛选」这层：worker 返回的就是它认得的一切。
+      const available = await window.api.ompModels.list();
+      return { available, selection: EMPTY_MODEL_SELECTION };
+    }
+    const data = await window.api.models.get();
+    const stored = data.modelSelection ?? EMPTY_MODEL_SELECTION;
+    // Honour the Settings → Models curation so a 300-model provider does not
+    // flood the menu; providers without a curation pass through untouched.
+    //
+    // Prune first. A curation whose ids were all renamed/replaced upstream would
+    // otherwise filter the provider's *new* models away and leave the menu empty —
+    // which reads as "this session has no model config". Persist the pruned
+    // selection so the stale entry does not come back on the next launch.
+    const selection = pruneStaleModelSelection(stored, data.available);
+    if (!isSameModelSelection(stored, selection)) {
+      try {
+        await window.api.models.setSelection(selection);
+      } catch {
+        // Self-heal is best-effort: an unwritable store must not break the menu.
+      }
+    }
+    return { available: data.available, selection };
+  }
+
   async function refreshModels(): Promise<void> {
     try {
-      const data = await window.api.models.get();
-      const available = data.available;
-      // Honour the Settings → Models curation so a 300-model provider does not
-      // flood the menu; providers without a curation pass through untouched.
-      //
-      // Prune first. A curation whose ids were all renamed/replaced upstream would
-      // otherwise filter the provider's *new* models away and leave the menu empty —
-      // which reads as "this session has no model config". Persist the pruned
-      // selection so the stale entry does not come back on the next launch.
-      const stored = data.modelSelection ?? EMPTY_MODEL_SELECTION;
-      const selection = pruneStaleModelSelection(stored, available);
-      if (!isSameModelSelection(stored, selection)) {
-        try {
-          await window.api.models.setSelection(selection);
-        } catch {
-          // Self-heal is best-effort: an unwritable store must not break the menu.
-        }
-      }
-      const selected = filterAvailableModels(available, selection);
+      // 引擎在请求期间可能被切走：回来时对不上就丢弃这次结果，免得把 pi 的
+      // 模型写进 omp 的菜单（反之亦然）。
+      const backendAtStart = currentBackend();
+      const loaded = await loadAvailableModels();
+      const available = loaded.available;
+      if (currentBackend() !== backendAtStart) return;
+      const selected = filterAvailableModels(available, loaded.selection);
       const byProvider = new Map<string, { label: string; value: string }[]>();
       const levelsByModel: Record<string, ThinkingLevel[] | undefined> = {};
       for (const m of selected) {
@@ -1964,8 +2035,9 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     if (!remembered && !rememberedThinking) {
       const first = useSessionsStore.getState().sessions[0];
       if (first && first.id !== realId) {
-        const firstModel = prefs.ref.current.models[first.id];
-        const firstThinking = prefs.ref.current.thinking[first.id];
+        const firstKey = prefsKeyOf(first.id);
+        const firstModel = prefs.ref.current.models[firstKey];
+        const firstThinking = prefs.ref.current.thinking[firstKey];
         if (firstModel && flat.some((o) => o.value === firstModel)) {
           selectedModel.set(firstModel);
         }
@@ -2035,7 +2107,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     if (rememberedThinking) {
       thinking.set(rememberedThinking);
     } else if (workerThinking) {
-      adoptThinking(workerThinking, realId);
+      adoptThinking(workerThinking, prefsKeyOf(realId));
     }
     const modelKeyNow = selectedModel.ref.current;
     if (workerLevels && modelKeyNow && workerKey === modelKeyNow) {
@@ -2045,14 +2117,14 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       thinking.ref.current,
       allowedThinkingLevels(modelKeyNow),
     );
-    if (desired !== thinking.ref.current) adoptThinking(desired, realId);
+    if (desired !== thinking.ref.current) adoptThinking(desired, prefsKeyOf(realId));
     if (workerThinking !== null && workerThinking !== desired) {
       try {
         const result = await useSessionsStore.getState().tryCommand(realId, {
           type: "set_thinking_level",
           level: desired,
         });
-        adoptThinkingResult(desired, result, realId);
+        adoptThinkingResult(desired, result, prefsKeyOf(realId));
       } catch {
         // ignore thinking sync failures
       }
@@ -2119,7 +2191,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     selectedModel.set(key);
     appliedModelForSessionRef.current = null;
     const prefsKeyValue = currentPrefsKey();
-    if (prefsKeyValue && key) rememberModel(prefsKeyValue, key);
+    if (prefsKeyValue && key) writeModelPref(prefsKeyValue, key);
     await applySelectedModel({ allowStart: false });
     const desired = clampThinkingLevel(requested, allowedThinkingLevels(key));
     adoptThinking(desired, prefsKeyValue);
@@ -2254,13 +2326,18 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
 
   useEffect(() => {
     const id = sessionId;
+    const backend = currentBackend();
     const prev = prevSessionIdRef.current;
+    const prevBackend = prevBackendRef.current ?? backend;
+    const backendChanged = prevBackend !== backend;
     if (!sessionWatchReadyRef.current) {
       sessionWatchReadyRef.current = true;
       prevSessionIdRef.current = id;
+      prevBackendRef.current = backend;
       return;
     }
     prevSessionIdRef.current = id;
+    prevBackendRef.current = backend;
     if (useChatStore.getState().pendingUserEdit) {
       useChatStore.getState().cancelEditUser();
     }
@@ -2269,32 +2346,46 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     // 草稿首次发送成功建出真实会话：把草稿的模型/思考选择迁移过去。
     if (id && !prev && draftCommitPendingRef.current) {
       draftCommitPendingRef.current = false;
-      const draftModel = prefs.ref.current.models[DRAFT_PREF_KEY];
-      const draftThinking = prefs.ref.current.thinking[DRAFT_PREF_KEY];
+      const draftKey = prefKeyForBackend(backend, DRAFT_PREF_KEY);
+      const draftModel = prefs.ref.current.models[draftKey];
+      const draftThinking = prefs.ref.current.thinking[draftKey];
       if (draftModel) rememberModel(id, draftModel);
       if (draftThinking) rememberThinking(id, draftThinking);
-      forgetPrefs(DRAFT_PREF_KEY);
+      forgetPrefs(draftKey);
     }
 
-    if (prev && selectedModel.ref.current) {
-      rememberModel(prev, selectedModel.ref.current);
-    }
-    if (prev) {
+    // 离开上一个会话时保存选择。
+    //
+    // 切引擎时 `prev` 属于**另一个后端**：pi 的模型 id 在 omp 里根本不存在，
+    // 不能写到新引擎的偏好键下——那正是切到 omp 后首条消报 Model not found 的
+    // 原因之一。这时按旧引擎的键写回，当前这次选择也一并丢弃。
+    if (prev && !backendChanged) {
+      if (selectedModel.ref.current) rememberModel(prev, selectedModel.ref.current);
       rememberThinking(prev, thinking.ref.current);
     }
+    // 切会话（或切引擎）后 worker 里的模型对不上了，允许重新下发。
     appliedModelForSessionRef.current = null;
-    // Restore remembered UI immediately before async sync
-    if (id && prefs.ref.current.models[id]) {
-      selectedModel.set(prefs.ref.current.models[id]);
+    if (backendChanged) {
+      // 旧引擎的模型 key 在新菜单里不成立：清掉选中值与整个菜单，
+      // 等下面 refreshModels 拉回新引擎的列表。否则旧列表仍可点，
+      // 点下去就是一次注定失败的 set_model。
+      selectedModel.set(null);
+      availableModels.set([]);
+      modelThinkingLevels.set({});
     }
-    if (id && prefs.ref.current.thinking[id]) {
-      thinking.set(prefs.ref.current.thinking[id]);
+    // Restore remembered UI immediately before async sync
+    const nextKey = id ? prefsKeyOf(id) : null;
+    if (nextKey && prefs.ref.current.models[nextKey]) {
+      selectedModel.set(prefs.ref.current.models[nextKey]);
+    }
+    if (nextKey && prefs.ref.current.thinking[nextKey]) {
+      thinking.set(prefs.ref.current.thinking[nextKey]);
     } else if (id) {
       // 新会话没有记忆时沿用当前档位，不因 worker 默认值回退。
       rememberThinking(id, thinking.ref.current);
     }
     void refreshModels();
-  }, [sessionId]);
+  }, [sessionId, agentBackend]);
 
   /** After a turn finishes — or when queue gains items while already idle — flush follow-ups. */
   useEffect(() => {

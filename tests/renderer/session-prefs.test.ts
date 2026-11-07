@@ -5,8 +5,11 @@ import {
   EMPTY_SESSION_PREFS,
   flatModelOptions,
   forgetPrefKey,
+  hasBackendPrefix,
+  migrateLegacyPrefsToPi,
   modelKeyFromState,
   parseSessionPrefs,
+  prefKeyForBackend,
   resolveThinkingResult,
   serializeSessionPrefs,
   setPrefKey,
@@ -22,6 +25,78 @@ describe("prefs keys", () => {
   it("are stable constants", () => {
     expect(SESSION_PREFS_KEY).toBe("pi-desktop:session-model-prefs");
     expect(DRAFT_PREF_KEY).toBe("__draft__");
+  });
+});
+
+describe("prefKeyForBackend", () => {
+  it("separates the same session id across engines", () => {
+    expect(prefKeyForBackend("pi", "s1")).not.toBe(prefKeyForBackend("omp", "s1"));
+  });
+
+  it("is stable for the same backend and key", () => {
+    expect(prefKeyForBackend("omp", "s1")).toBe(prefKeyForBackend("omp", "s1"));
+  });
+
+  it("keeps the draft key distinct per engine", () => {
+    expect(prefKeyForBackend("pi", DRAFT_PREF_KEY)).not.toBe(
+      prefKeyForBackend("omp", DRAFT_PREF_KEY),
+    );
+  });
+
+  it("does not collide when the raw key contains a separator-like prefix", () => {
+    // `pi\0omp\0x` 与 `omp\0pi\0x` 必须可区分，避免拼接歧义。
+    expect(prefKeyForBackend("pi", "omp\u0000x")).not.toBe(
+      prefKeyForBackend("omp", "pi\u0000x"),
+    );
+  });
+});
+
+describe("hasBackendPrefix", () => {
+  it("recognises keys produced by prefKeyForBackend", () => {
+    expect(hasBackendPrefix(prefKeyForBackend("pi", "s1"))).toBe(true);
+    expect(hasBackendPrefix(prefKeyForBackend("omp", "s1"))).toBe(true);
+  });
+
+  it("rejects legacy bare ids", () => {
+    expect(hasBackendPrefix("s1")).toBe(false);
+    expect(hasBackendPrefix(DRAFT_PREF_KEY)).toBe(false);
+  });
+});
+
+describe("migrateLegacyPrefsToPi", () => {
+  it("returns null when everything is already prefixed", () => {
+    const prefs = {
+      models: { [prefKeyForBackend("pi", "s1")]: "a/b" },
+      thinking: { [prefKeyForBackend("omp", "s1")]: "high" as const },
+    };
+    expect(migrateLegacyPrefsToPi(prefs)).toBeNull();
+  });
+
+  it("moves bare ids under the pi prefix only", () => {
+    const prefs = {
+      models: { s1: "a/b", [DRAFT_PREF_KEY]: "c/d" },
+      thinking: { s1: "high" as const },
+    };
+    expect(migrateLegacyPrefsToPi(prefs)).toEqual({
+      models: {
+        [prefKeyForBackend("pi", "s1")]: "a/b",
+        [prefKeyForBackend("pi", DRAFT_PREF_KEY)]: "c/d",
+      },
+      thinking: { [prefKeyForBackend("pi", "s1")]: "high" },
+    });
+  });
+
+  it("never claims a bare key for omp", () => {
+    const migrated = migrateLegacyPrefsToPi({ models: { s1: "a/b" }, thinking: {} });
+    expect(migrated?.models[prefKeyForBackend("omp", "s1")]).toBeUndefined();
+  });
+
+  it("keeps an existing pi entry instead of overwriting it", () => {
+    const prefs = {
+      models: { s1: "old/x", [prefKeyForBackend("pi", "s1")]: "new/y" },
+      thinking: {},
+    };
+    expect(migrateLegacyPrefsToPi(prefs)?.models[prefKeyForBackend("pi", "s1")]).toBe("new/y");
   });
 });
 

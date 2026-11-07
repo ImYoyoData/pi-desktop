@@ -5,6 +5,8 @@
  * 由主进程原样保留，避免保存一次就抹掉用户手写的 cost / thinking / compat。
  */
 
+import type { ModelsAvailableEntry } from "./models-settings";
+
 /** 设置页可编辑的模型行。 */
 export type OmpModelRow = {
 	id: string;
@@ -60,3 +62,14 @@ export function newOmpModel(partial?: Partial<OmpModelRow>): OmpModelRow {
 		...partial,
 	};
 }
+
+/**
+ * omp 运行时真正可用的模型（来自 worker 的 modelRegistry.getAvailableModels）。
+ *
+ * 设置页编辑的是 models.yml 的静态行；此处是加载配置、合并内置目录并按凭据
+ * 过滤后的结果 —— 也就是 `set_model` 能成功找到的那些 provider/id。composer 的
+ * 模型菜单必须用它，否则拿 pi 的模型去 omp worker 里查会报 Model not found。
+ *
+ * 字段与 pi 侧的 `ModelsAvailableEntry` 一致，菜单构建可直接共用。
+ */
+export type OmpAvailableModel = ModelsAvailableEntry;

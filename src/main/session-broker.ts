@@ -152,6 +152,11 @@ export type SessionBroker = {
   restartWorkersForCwd: (cwd: string) => Promise<void>;
   /** 重启某一后端的存活 worker（OMP 设置保存后需要重新读配置）。 */
   restartWorkersForBackend: (backend: AgentBackend) => Promise<void>;
+  /**
+   * 向某一后端任一存活 worker 索取可用模型列表；没有存活 worker 时返回 null。
+   * 不会为查询而冷启一个 worker。
+   */
+  listBackendModels: (backend: AgentBackend) => Promise<unknown[] | null>;
   /** 回收所有存活 worker，使下次启动读取新的环境变量（如代理变更）。 */
   recycleWorkers: () => void;
   deleteSession: (
@@ -758,8 +763,11 @@ export function createSessionBroker(deps: {
         }
         rec.pendingCommands.delete(msg.id);
         if (msg.error) {
-          // 转录读取是只读查询，失败只回给调用方，不能把整个会话标成错误。
-          if (pending.command.type !== "get_agent_transcript") {
+          // 转录 / 模型目录都是只读查询，失败只回给调用方，不能把整个会话标成错误。
+          if (
+            pending.command.type !== "get_agent_transcript" &&
+            pending.command.type !== "list_models"
+          ) {
             setStatus(
               sessionId,
               pending.command.type === "prompt" ? "idle" : "error",
@@ -1164,6 +1172,7 @@ export function createSessionBroker(deps: {
       command.type === "hang" ||
       command.type === "set_model" ||
       command.type === "set_thinking_level" ||
+      command.type === "list_models" ||
       command.type === "compact" ||
       command.type === "steer" ||
       command.type === "follow_up" ||
@@ -1336,6 +1345,38 @@ export function createSessionBroker(deps: {
     }
   }
 
+  /**
+   * 问一个存活 worker 要可用模型列表。
+   *
+   * 优先空闲会话；都不空闲时退而用任意一个存活 worker —— 这是一次只读查询，
+   * 不会打断正在跑的回合。没有存活 worker 就返回 null，由调用方决定是否降级。
+   */
+  async function listBackendModels(
+    backend: AgentBackend,
+  ): Promise<unknown[] | null> {
+    const candidates = [...sessions.entries()].filter(
+      ([, rec]) => rec.backend === backend && rec.worker !== null,
+    );
+    if (candidates.length === 0) return null;
+    candidates.sort((a, b) => {
+      const rank = (rec: SessionRecord): number =>
+        rec.pendingCommands.size > 0 ? 2 : rec.summary.status === "idle" ? 0 : 1;
+      return rank(a[1]) - rank(b[1]);
+    });
+    for (const [id] of candidates) {
+      try {
+        const data = await trySend(id, { type: "list_models" });
+        if (Array.isArray(data)) return data;
+      } catch (err) {
+        console.warn(
+          `[session-broker] list_models failed for ${id}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+    return null;
+  }
+
   async function deleteSession(
     sessionId: string,
     cwd: string,
@@ -1476,6 +1517,7 @@ export function createSessionBroker(deps: {
     restartWorker,
     restartWorkersForCwd,
     restartWorkersForBackend,
+    listBackendModels,
     recycleWorkers,
     deleteSession,
     stopWorkspaceSessions,

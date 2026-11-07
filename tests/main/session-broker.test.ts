@@ -966,3 +966,89 @@ describe("配置变更时的 worker 重建", () => {
     expect(ctl.killed).toEqual(["session-a"]);
   });
 });
+
+describe("listBackendModels", () => {
+  it("没有存活 worker 时返回 null，不冷启一个", async () => {
+    let spawnCount = 0;
+    const broker = createSessionBroker({
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => {
+        spawnCount += 1;
+        return {
+          id: idFromPath(filePath),
+          cwd,
+          filePath: filePath ?? "/tmp/session-a.jsonl",
+          worker: {
+            send: async () => null,
+            kill: () => {},
+            onMessage: () => () => {},
+          },
+        };
+      },
+    });
+    expect(await broker.listBackendModels("omp")).toBeNull();
+    expect(spawnCount).toBe(0);
+  });
+
+  it("向目标后端的存活 worker 要列表并原样返回", async () => {
+    const rows = [{ provider: "custom", id: "m1" }];
+    let seen: unknown = null;
+    const broker = createSessionBroker({
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => {
+        const id = idFromPath(filePath);
+        return {
+          id,
+          cwd,
+          filePath: filePath ?? "/tmp/session-a.jsonl",
+          worker: {
+            send: async (msg) => {
+              if (msg.kind === "command" && msg.command.type === "list_models") {
+                seen = msg.command;
+                return { kind: "result", id: msg.id, data: rows };
+              }
+              return null;
+            },
+            kill: () => {},
+            onMessage: () => () => {},
+          },
+        };
+      },
+    });
+    const created = await broker.createSession("/tmp/a", "pi");
+    await vi.waitFor(async () => expect(await broker.listBackendModels("pi")).toEqual(rows));
+    expect(seen).toEqual({ type: "list_models" });
+    // 另一个后端没有 worker：两者互不影响。
+    expect(await broker.listBackendModels("omp")).toBeNull();
+    expect(created.backend).toBe("pi");
+  });
+
+  it("首个 worker 报错时换下一个候选重试", async () => {
+    const rows = [{ provider: "custom", id: "m1" }];
+    const broker = createSessionBroker({
+      allocateSession: allocateSeq(["session-a", "session-b"]),
+      spawnWorker: async (cwd, filePath) => {
+        const id = idFromPath(filePath);
+        return {
+          id,
+          cwd,
+          filePath: filePath ?? `/tmp/${id}.jsonl`,
+          worker: {
+            send: async (msg) => {
+              if (msg.kind !== "command" || msg.command.type !== "list_models") return null;
+              // 第一个会话的 worker 是旧版本，不认识这个命令。
+              return id === "session-a"
+                ? { kind: "result", id: msg.id, error: "unsupported command: list_models" }
+                : { kind: "result", id: msg.id, data: rows };
+            },
+            kill: () => {},
+            onMessage: () => () => {},
+          },
+        };
+      },
+    });
+    await broker.createSession("/tmp/a");
+    await broker.createSession("/tmp/a");
+    await vi.waitFor(async () => expect(await broker.listBackendModels("pi")).toEqual(rows));
+  });
+});

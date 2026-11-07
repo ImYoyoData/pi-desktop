@@ -283,6 +283,8 @@ export const IpcChannels = {
 	/** OMP 自己的模型配置（~/.omp/agent/models.yml），与 pi 的 models.json 无关。 */
 	ompModels: {
 		get: "ompModels:get",
+		/** omp worker 运行时真正可用的模型（已按凭据过滤）。 */
+		list: "ompModels:list",
 		save: "ompModels:save",
 	},
 	/** OMP 自己的通用设置（~/.omp/agent/config.yml）。 */
@@ -532,6 +534,8 @@ export type AgentCommand =
 	| { type: "set_thinking_level"; level: string; persist?: boolean }
 	| { type: "compact"; customInstructions?: string }
 	| { type: "get_state" }
+	/** 当前后端的可用模型目录（omp 的 worker 侧 modelRegistry）。 */
+	| { type: "list_models" }
 	| { type: "ping" }
 	| { type: "hang" }
 	/** 读取子代理的对话（omp 的 AgentRegistry 或落盘 transcript）。 */

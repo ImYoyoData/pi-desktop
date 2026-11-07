@@ -5,12 +5,28 @@
  * 不可变更新、序列化，以及对外部 unknown 的防御性解析。
  */
 
+import type { AgentBackend } from "../../../shared/agent-backend";
 import type { ThinkingLevel } from "../../../shared/thinking-level";
 
 export const SESSION_PREFS_KEY = "pi-desktop:session-model-prefs";
 
 /** 未创建的新会话草稿用稳定键记住模型/思考等级，发送后自动沿用到真实会话。 */
 export const DRAFT_PREF_KEY = "__draft__";
+
+/**
+ * 模型偏好按引擎分键：pi 与 omp 的配置目录不同，`provider/id` 只在各自后端里成立。
+ *
+ * 同一个会话 id 下如果共用一条偏好，切引擎后会把 pi 的模型 id 传给 omp 的
+ * set_model，直接报 `Model not found`，菜单也把该模型标成“已选中”。
+ */
+export function prefKeyForBackend(backend: AgentBackend, key: string): string {
+	return `${backend}\u0000${key}`;
+}
+
+/** 键是否已经带引擎前缀。 */
+export function hasBackendPrefix(key: string): boolean {
+	return key.startsWith("pi\u0000") || key.startsWith("omp\u0000");
+}
 
 export type SessionPrefs = {
   models: Record<string, string>;
@@ -36,7 +52,37 @@ export function parseSessionPrefs(raw: string | null): SessionPrefs {
 }
 
 export function serializeSessionPrefs(prefs: SessionPrefs): string {
-  return JSON.stringify({ models: prefs.models, thinking: prefs.thinking });
+	return JSON.stringify({ models: prefs.models, thinking: prefs.thinking });
+}
+
+/**
+ * 把引入引擎隔离之前的旧偏好（裸会话 id）搬到 `pi\0<id>`。
+ *
+ * 旧版本只有一个引擎能选模型，裸键实际属于 pi；omp 是后来才有的，而旧版里
+ * 存的值可能本来就是 pi 的模型 id（正是本次要修的 bug）。所以只给 pi 搬、
+ * omp 让它重新选——把 pi 的模型 id 搬进 omp 只会重现 `Model not found`。
+ *
+ * 返回 null 表示没有可搬的键（调用方不必写盘）。
+ */
+export function migrateLegacyPrefsToPi(prefs: SessionPrefs): SessionPrefs | null {
+	const models: Record<string, string> = { ...prefs.models };
+	const thinking: Record<string, ThinkingLevel> = { ...prefs.thinking };
+	let changed = false;
+	for (const [key, value] of Object.entries(prefs.models)) {
+		if (hasBackendPrefix(key)) continue;
+		const next = prefKeyForBackend("pi", key);
+		if (!(next in models)) models[next] = value;
+		delete models[key];
+		changed = true;
+	}
+	for (const [key, value] of Object.entries(prefs.thinking)) {
+		if (hasBackendPrefix(key)) continue;
+		const next = prefKeyForBackend("pi", key);
+		if (!(next in thinking)) thinking[next] = value;
+		delete thinking[key];
+		changed = true;
+	}
+	return changed ? { models, thinking } : null;
 }
 
 /** 不可变写入；键已存在时值相同则返回原引用，避免无谓的重渲染。 */

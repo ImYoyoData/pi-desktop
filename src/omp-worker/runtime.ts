@@ -6,10 +6,16 @@ import {
 } from "@oh-my-pi/pi-coding-agent";
 import { getBlobsDir } from "@oh-my-pi/pi-utils";
 import { parseThinkingLevel } from "@oh-my-pi/pi-tui/thinking";
+import type { OmpAvailableModel } from "../shared/omp-models";
 import type { OmpWorkerInbound } from "../shared/omp-worker-messages";
 import type { AgentCommand } from "../shared/protocol";
 import { toPromptImages } from "../shared/protocol";
 import { isThinkingLevel, type ThinkingLevel } from "../shared/thinking-level";
+import {
+	DEFAULT_CONTEXT_WINDOW,
+	resolveContextWindow,
+	resolveMaxTokens,
+} from "../shared/model-metadata";
 import { stripThinkingLanguageBlock } from "../shared/thinking-language";
 import { createOmpAskUserTool } from "./ask-user-tool";
 import { readAgentTranscript } from "./agent-transcript";
@@ -89,6 +95,55 @@ function requireSession(): AgentSession {
 		throw new Error("omp worker session not initialized");
 	}
 	return session;
+}
+
+/**
+ * omp 的档位集合含 auto/inherit，桌面只保留具体档位；非推理模型只有 off。
+ *
+ * 取法对齐 SDK 的 getSupportedEfforts：非推理 → 空；推理但无可控档位 → 空。
+ */
+function modelThinkingLevels(model: {
+	reasoning?: boolean;
+	thinking?: { efforts?: readonly string[] };
+}): ThinkingLevel[] {
+	const levels: ThinkingLevel[] = ["off"];
+	if (model.reasoning !== true) return levels;
+	for (const effort of model.thinking?.efforts ?? []) {
+		if (isThinkingLevel(effort) && !levels.includes(effort)) levels.push(effort);
+	}
+	return levels;
+}
+
+/**
+ * worker 侧真实的可用模型（已按凭据过滤）。
+ *
+ * 排序与 pi 侧保持一致（provider 后按名字），composer 菜单才能稳定分组。
+ */
+function listAvailableModels(active: AgentSession): OmpAvailableModel[] {
+	const rows = active.getAvailableModels().map((model) => ({
+		provider: model.provider,
+		id: model.id,
+		name: model.name || model.id,
+		api: model.api,
+		// 与 pi 侧 ModelsAvailableEntry 同形：缺失值用公共默认，而非 null。
+		contextWindow:
+			resolveContextWindow(model.contextWindow, model.id) ?? DEFAULT_CONTEXT_WINDOW,
+		maxTokens: resolveMaxTokens(model.maxTokens),
+		input: Array.isArray(model.input) ? [...model.input] : [],
+		reasoning: model.reasoning === true,
+		thinkingLevels: modelThinkingLevels(model),
+		cost: {
+			input: model.cost?.input ?? 0,
+			output: model.cost?.output ?? 0,
+			cacheRead: model.cost?.cacheRead ?? 0,
+			cacheWrite: model.cost?.cacheWrite ?? 0,
+		},
+	}));
+	return rows.sort((a, b) => {
+		const byProvider = a.provider.localeCompare(b.provider);
+		if (byProvider !== 0) return byProvider;
+		return (a.name || a.id).localeCompare(b.name || b.id, undefined, { numeric: true });
+	});
 }
 
 async function openSessionManager(
@@ -372,6 +427,10 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 					contextUsage: readOmpContextUsage(active),
 				},
 			});
+			return;
+		}
+		case "list_models": {
+			post({ kind: "result", id, data: listAvailableModels(requireSession()) });
 			return;
 		}
 		default:

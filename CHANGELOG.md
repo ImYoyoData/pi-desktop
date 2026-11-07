@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.3.8-rc.2 (2026-11-07)
+
+修复切到 OMP 引擎后首条消息报 `Model not found` 的问题：模型菜单此前永远读 Pi 的 `models.json` 目录，把 Pi 的 `provider/id` 发给 OMP worker 的 `set_model` 必然失败；重新开会话能恢复，是因为新草稿的菜单回落到了 OMP 自己的列表。
+
+### 修复 Fixes
+
+- **修复切到 OMP 后首条消息报 `Model not found`**：输入框的模型菜单之前只读 Pi 的模型目录（`models.json` + 桌面端筛选），而 Pi 与 OMP 是两套独立配置（`models.yml`），模型 id 只在各自后端成立。切到 OMP 后菜单仍列着 Pi 的模型，点选或发送时把 Pi 的 `provider/id` 下发给 OMP worker，`modelRegistry.find()` 找不到就报 `Model not found`，整条消息发不出去；重新开会话时新草稿回落到了 OMP 自己的模型列表，所以看起来“重开就好了”。现在菜单按当前引擎取目录：OMP 走新增的 `ompModels:list`（由 worker 的 `modelRegistry.getAvailableModels()` 返回真正可用、已按凭据过滤的模型），没有存活 worker 时退回 `models.yml` 的静态行，至少能列出用户自己配的供应商。
+- **会话级的模型/思考偏好按引擎隔离**：偏好键改为 `pi\u0000<sessionId>` / `omp\u0000<sessionId>`，同一个会话 id 在 Pi 与 OMP 下各存一份。此前共用一条键，切引擎后不但沿用另一侧的模型 id，菜单还会把不存在的模型标成“已选中”。升级时旧的裸会话 id 会一次性迁移到 Pi 前缀下，已有选择不会丢；OMP 侧则重新选择（把 Pi 的模型 id 搬过去只会重现同一个错误）。
+- **修复切换引擎后菜单不刷新**：切换引擎现在当作一次全新的会话绑定处理：清空已应用的模型标记、旧引擎的选中值与整个菜单，再按新引擎重新拉取，避免旧列表仍可点、点下去就是一次注定失败的 `set_model`。
+- **保存 OMP 模型配置后立即生效**：OMP 设置页保存 `models.yml` 后广播一次模型变更，输入框菜单马上重新读取，不必等到下次切会话。
+
+### Fixes
+
+- **Fixed `Model not found` on the first message after switching to OMP**: the composer's model menu only ever read Pi's catalog (`models.json` plus the desktop curation), while Pi and OMP keep separate configs (`models.yml`) and a model id only exists in its own backend. After switching to OMP the menu still listed Pi's models, so picking one — or simply sending — posted Pi's `provider/id` to the OMP worker, whose `modelRegistry.find()` missed it and answered `Model not found`, aborting the turn. A fresh session looked fine because its draft fell back to OMP's own list. The menu now follows the active engine: OMP reads a new `ompModels:list` channel backed by the worker's `modelRegistry.getAvailableModels()` (the models actually usable with the configured credentials), and falls back to the static `models.yml` rows when no worker is alive so the user's own providers still show up.
+- **Per-engine isolation of session model/thinking prefs**: pref keys are now `pi\u0000<sessionId>` / `omp\u0000<sessionId>`, so one session id keeps a separate choice per engine. They used to share a single key, which meant a switch carried the other engine's model id over and even marked a non-existent model as selected. Upgrading migrates the old bare ids to the Pi prefix once, so existing choices survive; OMP starts fresh because copying Pi's model ids there would just reproduce the same error.
+- **Fixed the menu not refreshing after an engine switch**: an engine switch is now treated as a fresh session binding — the applied-model marker, the previous engine's selection and the whole menu are cleared and refetched for the new engine, so a stale entry can no longer be clicked into a guaranteed-failing `set_model`.
+- **Saving the OMP model config takes effect immediately**: saving `models.yml` in OMP settings now broadcasts a models change, so the composer menu re-reads it right away instead of waiting for the next session switch.
+
 ## v0.3.8-rc.1 (2026-11-03)
 
 本版引入 OMP（oh-my-pi）18.16.0 引擎并适配 Pi 1.5.0：同一窗口内全局切换 Pi / OMP，配置目录、模型与会话各自独立；设置页去掉胶囊卡片，左栏并入标题栏并新增 Pi / OMP 二级页签。更新下载改走自建 CONNECT 隧道池，实测同一 GitHub 安装包从 11 MB/s 升到 35–40 MB/s，更新检查复用本地 gh 登录态；补全 OMP / Pi 的斜杠命令菜单与执行链路。此外移除内置浏览器自动化（右栏浏览器与元素引用保留），统一安装包与 dev 的设置文件位置，修复工具卡片、待办清单跨回合、OMP 图片与 grep 高亮、文件芯片路径等一批细节问题。

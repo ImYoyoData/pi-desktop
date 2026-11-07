@@ -1084,6 +1084,10 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			post({ kind: "result", id, data: { ok: true } });
 			return;
 		}
+		case "list_models":
+			// pi 的模型目录由主进程 ModelRuntime 直接提供（models:get），worker 不重复实现。
+			post({ kind: "result", id, error: "unsupported command: list_models" });
+			return;
 		case "get_state": {
 			const active = requireSession();
 			post({

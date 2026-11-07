@@ -15,7 +15,11 @@ import type {
 import { IpcChannels } from "./protocol";
 import type { AgentBackend } from "./agent-backend";
 import type { OmpCliStatus } from "./omp-cli";
-import type { OmpModelsSnapshot, OmpProviderRow } from "./omp-models";
+import type {
+	OmpAvailableModel,
+	OmpModelsSnapshot,
+	OmpProviderRow,
+} from "./omp-models";
 import type {
 	OmpMcpTestResult,
 	OmpMcpTestTarget,
@@ -1196,6 +1200,9 @@ export function createApi(
 	ompModels: {
 		get: () =>
 			ipcRenderer.invoke(IpcChannels.ompModels.get) as Promise<OmpModelsSnapshot>,
+		/** omp 运行时真实可用的模型（已按凭据过滤），可能为空数组。 */
+		list: () =>
+			ipcRenderer.invoke(IpcChannels.ompModels.list) as Promise<OmpAvailableModel[]>,
 		save: (providers: OmpProviderRow[]) =>
 			ipcRenderer.invoke(
 				IpcChannels.ompModels.save,
