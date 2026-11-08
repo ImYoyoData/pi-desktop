@@ -152,7 +152,7 @@ type Props = {
 };
 
 /** 流式期间单次解析上限：超限按纯文本跟随，避免整段解析冻结界面。 */
-const STREAM_MARKDOWN_MAX_CHARS = 24_000;
+const STREAM_MARKDOWN_MAX_CHARS = 64_000;
 /** 已完成消息的解析上限：极端长回答直接纯文本，保证界面可用。 */
 const MESSAGE_MARKDOWN_MAX_CHARS = 120_000;
 
@@ -253,6 +253,8 @@ function MarkdownViewView({
             fade={false}
             smoothStreaming={false}
             deferNodesUntilVisible={false}
+            maxLiveNodes={variant === "chat" ? 0 : undefined}
+            codeBlockStream={!streaming}
             viewportPriority
             parseOptions={htmlImages ? MARKDOWN_HTML_PARSE_OPTIONS : MARKDOWN_PARSE_OPTIONS}
             htmlPolicy="trusted"

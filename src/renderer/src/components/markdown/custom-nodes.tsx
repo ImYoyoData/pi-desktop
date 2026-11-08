@@ -78,9 +78,11 @@ type FenceNode = {
   raw?: string;
 };
 
-type CodeBlockProps = {
+type CodeBlockProps = Omit<
+  ComponentProps<typeof MarkstreamCodeBlockNode>,
+  "node"
+> & {
   node: FenceNode;
-  isDark?: boolean;
 };
 
 function fenceLanguage(node: FenceNode): string {
@@ -100,17 +102,28 @@ const GLASS_CODE_CSS =
 const GLASS_DIFF_CSS = ":host{--diffs-light-bg:transparent;--diffs-dark-bg:transparent}";
 
 /** 代码块与 ```diff 都交给 markstream 的代码块（stream-diffs 高亮），只有图表自己渲染。 */
-function CodeBlockNode({ node, isDark }: CodeBlockProps): ReactNode {
+function CodeBlockNode({
+  node,
+  isDark,
+  stream,
+  codeBlockOptions,
+  ...codeProps
+}: CodeBlockProps): ReactNode {
   // markstream 把 code 原样交给渲染器，fence 末尾的换行会多出一行空行（行号也多一个）。
   const code = node.diff ? (node.code ?? "") : (node.code ?? "").replace(/\r\n$|\n$|\r$/, "");
   const language = fenceLanguage(node);
   const langKey = language.toLowerCase();
   const glassSurface = useAppearanceStore((state) => state.glassSurface);
-  const codeBlockOptions = useMemo(
-    () =>
-      glassSurface ? { unsafeCSS: node.diff ? GLASS_DIFF_CSS : GLASS_CODE_CSS } : undefined,
-    [glassSurface, node.diff],
-  );
+  const mergedOptions = useMemo(() => {
+    if (!glassSurface && !codeBlockOptions) return undefined;
+    const unsafeCSS = [
+      codeBlockOptions?.unsafeCSS,
+      glassSurface ? (node.diff ? GLASS_DIFF_CSS : GLASS_CODE_CSS) : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    return { ...codeBlockOptions, ...(unsafeCSS ? { unsafeCSS } : {}) };
+  }, [codeBlockOptions, glassSurface, node.diff]);
 
   if (MERMAID_LANGS.has(langKey) || (!langKey && looksLikeMermaidSource(code))) {
     return (
@@ -131,6 +144,12 @@ function CodeBlockNode({ node, isDark }: CodeBlockProps): ReactNode {
 
   return (
     <MarkstreamCodeBlockNode
+      showLineNumbers
+      showExpandButton={false}
+      enableFontSizeControl={false}
+      showCollapseButton={false}
+      showFontSizeButtons={false}
+      {...codeProps}
       node={
         { ...node, type: "code_block", code, language } as ComponentProps<
           typeof MarkstreamCodeBlockNode
@@ -138,12 +157,8 @@ function CodeBlockNode({ node, isDark }: CodeBlockProps): ReactNode {
       }
       isDark={isDark}
       loading={Boolean(node.loading)}
-      codeBlockOptions={codeBlockOptions}
-      showLineNumbers
-      showExpandButton={false}
-      enableFontSizeControl={false}
-      showCollapseButton={false}
-      showFontSizeButtons={false}
+      stream={stream}
+      codeBlockOptions={mergedOptions}
     />
   );
 }
