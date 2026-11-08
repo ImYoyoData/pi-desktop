@@ -31,6 +31,8 @@ type Props = {
   agentId: string;
   /** 子代理仍在运行：展开后持续刷新。 */
   active: boolean;
+  /** page：右栏子代理页全高形态，无折叠头，始终展开。 */
+  variant?: "card" | "page";
 };
 
 type ToolEntry = Extract<AgentTranscriptEntry, { kind: "tool" }>;
@@ -120,7 +122,9 @@ function ToolEntryView({
 export const SubagentTranscript = memo(function SubagentTranscript({
   agentId,
   active,
+  variant = "card",
 }: Props): ReactNode {
+  const page = variant === "page";
   const t = useI18n();
   const sessionId = useSessionsStore((state) => state.activeId);
   const filePath = useSessionsStore(
@@ -129,7 +133,7 @@ export const SubagentTranscript = memo(function SubagentTranscript({
   );
   const previewStore = usePreviewStore();
   const rightTabs = useRightTabsStore();
-  const [open, setOpen] = useState(active);
+  const [open, setOpen] = useState(active || page);
   const [transcript, setTranscript] = useState<AgentTranscript | null>(null);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -216,27 +220,29 @@ export const SubagentTranscript = memo(function SubagentTranscript({
   }
 
   return (
-    <div className={styles.card}>
-      <button
-        type="button"
-        className={styles.toggle}
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <ChevronForwardOutline
-          size={11}
-          className={`${styles.chev}${open ? ` ${styles.chevOpen}` : ""}`}
-        />
-        <span>{open ? t.agentTranscriptHide : t.agentTranscriptShow}</span>
-        {transcript ? (
-          <span className={styles.count}>
-            {t.agentTranscriptCount(transcript.messages.length)}
-          </span>
-        ) : null}
-      </button>
+    <div className={page ? styles.pageRoot : styles.card}>
+      {page ? null : (
+        <button
+          type="button"
+          className={styles.toggle}
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <ChevronForwardOutline
+            size={11}
+            className={`${styles.chev}${open ? ` ${styles.chevOpen}` : ""}`}
+          />
+          <span>{open ? t.agentTranscriptHide : t.agentTranscriptShow}</span>
+          {transcript ? (
+            <span className={styles.count}>
+              {t.agentTranscriptCount(transcript.messages.length)}
+            </span>
+          ) : null}
+        </button>
+      )}
       {open ? (
         <div
-          className={styles.body}
+          className={page ? styles.pageBody : styles.body}
           ref={bodyRef}
           data-inner-scroll=""
           onScroll={(event) => {

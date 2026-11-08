@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState, type ReactNode } from "react";
+import AgentsPage from "@renderer/components/AgentsPage";
 import BrowserPage from "@renderer/components/BrowserPage";
 import ChangesPage from "@renderer/components/ChangesPage";
 import FilesPage from "@renderer/components/FilesPage";
@@ -137,6 +138,14 @@ export function RightPane(): ReactNode {
         </div>
         <div className={styles.page} style={pageStyle("browser")}>
           <BrowserPage visible={view === "browser" && !rightCollapsed} />
+        </div>
+        <div className={styles.page} style={pageStyle("agents")}>
+          <AgentsPage
+            sideWidth={sideWidth}
+            sideMinWidth={SIDE_MIN_WIDTH}
+            sideMaxWidth={SIDE_MAX_WIDTH}
+            onSideWidthChange={setSideWidth}
+          />
         </div>
       </div>
     </aside>

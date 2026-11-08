@@ -8,6 +8,25 @@
   background: color-mix(in srgb, var(--fg) 2%, transparent);
 }
 
+/* 右栏子代理页的全高形态：撑满面板，消息区自己滚动。 */
+.pageRoot {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.pageBody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  --chat-font-m: 12px;
+}
+
 .toggle {
   width: 100%;
   display: flex;

@@ -102,6 +102,27 @@ export function TerminalViewIcon({ size = 16 }: Props): ReactNode {
   );
 }
 
+/** 子代理视图图标：两个交叠对话气泡。 */
+export function AgentsViewIcon({ size = 16 }: Props): ReactNode {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9.5 2.5h3a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-1v2l-2.5-2h-1" />
+      <path d="M6.5 5.5h-3a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h1v2l2.5-2h2a1 1 0 0 0 1-1v-1" />
+    </svg>
+  );
+}
+
 /** 三条递减横线的菜单图标，形状取自参考图。 */
 export function MenuLinesIcon({ size = 16 }: Props): ReactNode {
   return (

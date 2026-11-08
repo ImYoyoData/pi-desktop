@@ -72,8 +72,12 @@ export function taskCard(
   const results = arrayValue(details.results).filter(
     (entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object",
   );
+  const progressRows = arrayValue(details.progress).filter(
+    (entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object",
+  );
   const items: DetailItem[] = [];
-  const transcripts: Array<{ agentId: string; label: string }> = [];
+  const transcripts: DetailToolCard["transcripts"] = [];
+  const transcriptIds = new Set<string>();
   for (const result of results) {
     const agent = textValue(result.agent) ?? "agent";
     const description =
@@ -98,7 +102,27 @@ export function taskCard(
       ),
     );
     const id = textValue(result.id);
-    if (id) transcripts.push({ agentId: id, label });
+    if (id) {
+      transcripts.push({
+        agentId: id,
+        label,
+        status: result.aborted === true ? "cancelled" : exitCode !== 0 ? "failed" : "completed",
+        model: textValue(result.resolvedModel),
+        durationMs: durationMs ?? 0,
+      });
+      transcriptIds.add(id);
+    }
+  }
+  for (const row of progressRows) {
+    const id = textValue(row.id);
+    if (!id || transcriptIds.has(id)) continue;
+    transcripts.push({
+      agentId: id,
+      label: textValue(row.description) ?? textValue(row.task) ?? (textValue(row.agent) ?? id),
+      status: progressStatus(row.status),
+      model: textValue(row.resolvedModel),
+      durationMs: numberValue(row.durationMs) ?? 0,
+    });
   }
   const totalDuration = numberValue(details.totalDurationMs);
   const tasks = arrayValue(data.tasks).filter(
@@ -273,6 +297,16 @@ export function debugCard(
           : [],
     sections,
   });
+}
+
+/** AgentProgress.status 是 pending/running/completed/failed/aborted；aborted 归入 cancelled。 */
+function progressStatus(
+  value: unknown,
+): "running" | "completed" | "failed" | "cancelled" | undefined {
+  if (value === "running" || value === "completed" || value === "failed") return value;
+  if (value === "aborted") return "cancelled";
+  if (value === "pending") return "running";
+  return undefined;
 }
 
 export function idaCard(
