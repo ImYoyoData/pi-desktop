@@ -1008,6 +1008,14 @@ function errorVariant(
 	return "error";
 }
 
+/** 自动重试会取代刚失败的尝试：撤掉它留下的错误条，只保留最终结果。 */
+function dropSupersededRetryErrors(state: ChatState): ChatState {
+	let end = state.messages.length;
+	while (end > 0 && state.messages[end - 1]?.role === "error") end--;
+	if (end === state.messages.length) return state;
+	return { ...state, messages: state.messages.slice(0, end) };
+}
+
 function appendError(
 	state: ChatState,
 	text: string,
@@ -1117,7 +1125,7 @@ function reduceAgentPayload(
 				? payload.errorMessage.trim()
 				: "";
 		return {
-			...state,
+			...dropSupersededRetryErrors(state),
 			running: true,
 			retryHint: {
 				attempt,
@@ -1700,7 +1708,9 @@ function reduceAgentPayload(
 		};
 	}
 	if (type === "agent_end") {
-		if (payload.willRetry === true) {
+		// omp 用 yielded 标记「还会自己继续」（重试/续跑）；这不是终态，
+		// 不能在这里重复追加错误或清掉重试提示。
+		if (payload.willRetry === true || payload.yielded === false) {
 			return state;
 		}
 		// Prefer explicit error from last assistant message if UI missed message_end
