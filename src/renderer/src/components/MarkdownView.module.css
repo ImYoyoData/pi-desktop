@@ -269,7 +269,7 @@ html[data-wallpaper="on"] .root:global(.md) :global(.markstream-react) :global(.
   background: var(--md-inline-code-bg, rgba(127, 127, 127, 0.1));
 }
 
-/* markstream 内置 Mermaid 块自带蓝调皮肤，这里换成项目的中性色。 */
+/* markstream 内置 Mermaid 块自带蓝调皮肤（Tailwind bg-gray-800/900），这里换成项目的中性色。 */
 .root:global(.md) :global(.mermaid-block) {
   margin: 0.75em 0;
   border-radius: 4px;
@@ -278,7 +278,12 @@ html[data-wallpaper="on"] .root:global(.md) :global(.markstream-react) :global(.
   color: inherit;
 }
 
-.root:global(.md) :global(.mermaid-header) {
+/* 画布用 markstream 的固定深蓝实用类，换成块的背景。 */
+.root:global(.md) :global(.mermaid-block) [class*="bg-gray-900"] {
+  background: transparent;
+}
+
+.root:global(.md) :global(.mermaid-block-header) {
   padding: 4px 8px;
   border-bottom: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.2));
   background: transparent;
@@ -286,15 +291,7 @@ html[data-wallpaper="on"] .root:global(.md) :global(.markstream-react) :global(.
   color: var(--fg-faint);
 }
 
-.root:global(.md) :global(.mermaid-body) {
-  padding: 12px;
-}
-
-.root:global(.md) :global(.mermaid-preview) {
-  min-height: 0;
-}
-
-.root:global(.md) :global(.mermaid-btn) {
+.root:global(.md) :global(.mermaid-action-btn) {
   border: none;
   background: transparent;
   color: var(--fg-muted);
@@ -306,7 +303,7 @@ html[data-wallpaper="on"] .root:global(.md) :global(.markstream-react) :global(.
   border-radius: 4px;
 }
 
-.root:global(.md) :global(.mermaid-btn:hover) {
+.root:global(.md) :global(.mermaid-action-btn:hover) {
   background: rgba(127, 127, 127, 0.14);
   color: var(--fg);
 }

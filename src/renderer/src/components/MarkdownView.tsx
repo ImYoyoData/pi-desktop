@@ -254,7 +254,6 @@ function MarkdownViewView({
             smoothStreaming={false}
             deferNodesUntilVisible={false}
             maxLiveNodes={variant === "chat" ? 0 : undefined}
-            codeBlockStream={!streaming}
             viewportPriority
             parseOptions={htmlImages ? MARKDOWN_HTML_PARSE_OPTIONS : MARKDOWN_PARSE_OPTIONS}
             htmlPolicy="trusted"

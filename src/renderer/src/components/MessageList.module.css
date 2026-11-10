@@ -559,6 +559,11 @@
   animation: stream-sweep 1.6s ease-in-out infinite;
 }
 
+/* 整段扫光会盖在代码块上，流式长代码看起来一直在闪；有代码块时不再扫。 */
+.streamShimmer:has([class~="code-block-container"])::after {
+  display: none;
+}
+
 @keyframes stream-sweep {
   from {
     background-position: -60% 0;
