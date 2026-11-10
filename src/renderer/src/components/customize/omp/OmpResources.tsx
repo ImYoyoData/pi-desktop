@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button, Input } from "antd";
-import path from "node:path";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon";
 import ToggleButton from "@renderer/components/ToggleButton";
 import { useMessage } from "@renderer/services/feedback";
@@ -122,8 +121,9 @@ export function OmpResources({ kind }: { kind: OmpResourceKind }): ReactNode {
 	/** 项目级条目反推工作区路径：`<workspace>/.omp/mcp.json`。 */
 	function workspaceOf(item: OmpResourceItem): string | undefined {
 		if (item.scope !== "project") return undefined;
-		const marker = `${path.sep}.omp${path.sep}`;
-		const index = item.filePath.lastIndexOf(marker);
+		const normalized = item.filePath.replace(/\\/g, "/");
+		const marker = "/.omp/";
+		const index = normalized.lastIndexOf(marker);
 		return index > 0 ? item.filePath.slice(0, index) : undefined;
 	}
 
