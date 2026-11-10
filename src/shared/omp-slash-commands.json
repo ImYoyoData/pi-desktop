@@ -1046,6 +1046,15 @@
 		"source": "builtin"
 	},
 	{
+		"name": "unpin",
+		"aliases": [],
+		"description": "Unpin a session from the top of the resume list",
+		"hint": "[session id]",
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
 		"name": "btw",
 		"aliases": [],
 		"description": "Ask a side question, or browse this session's BTW history",
@@ -1241,7 +1250,7 @@
 	{
 		"name": "restart",
 		"aliases": [],
-		"description": "Restart omp with the same launch flags, resuming this session",
+		"description": "Restart omp with the same launch flags, resuming this session and its running subagents",
 		"hint": null,
 		"subcommands": [],
 		"handles": false,
