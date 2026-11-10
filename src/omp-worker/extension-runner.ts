@@ -19,8 +19,8 @@ export async function activateExtensionUI(
 			sendMessage: (message, options) => {
 				void session.sendCustomMessage(message, options).catch(() => {});
 			},
-			sendUserMessage: (content, options) => {
-				void session.sendUserMessage(content, options).catch(() => {});
+			sendUserMessage: async (content, options) => {
+				await session.sendUserMessage(content, options).catch(() => {});
 			},
 			appendEntry: (customType, data) => {
 				session.sessionManager.appendCustomEntry(customType, data);
