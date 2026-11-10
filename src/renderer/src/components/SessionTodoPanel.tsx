@@ -78,12 +78,9 @@ export function SessionTodoPanel(): ReactNode {
   /** A "fresh" round: nothing completed and nothing currently in-progress. */
   const freshRound =
     list != null && doneCount === 0 && !firstInProgress && !paused;
-  /** Copilot auto-collapse — re-expands fresh rounds unless user overrode. */
-  const collapsed = paused
-    ? false
-    : userExpanded !== null
-      ? !userExpanded
-      : !freshRound;
+  /** Copilot 自动折叠 — 暂停与全新回合默认展开，手动开关优先。 */
+  const collapsed =
+    userExpanded !== null ? !userExpanded : !(paused || freshRound);
 
   const [phase, setPhase] = useState<BodyPhase>(() =>
     collapsed ? "hidden" : "shown",
@@ -140,6 +137,11 @@ export function SessionTodoPanel(): ReactNode {
   useEffect(() => {
     if (freshRound) setUserExpanded(null);
   }, [listKey]);
+
+  /** 停止后先展开，露出继续/删除；之后仍可手动折叠。 */
+  useEffect(() => {
+    if (paused) setUserExpanded(null);
+  }, [paused]);
 
   const rows = useMemo(
     () => items.map((item) => ({ item, duration: itemDuration(item, nowMs) })),
