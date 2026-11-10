@@ -122,6 +122,71 @@ describe("parseSessionHistoryPageReverse", () => {
     expect(older.hasMore).toBe(olderFull.hasMore);
   });
 
+  it("keeps reading when the tail window starts at beforeId", () => {
+    type Line = {
+      type: string;
+      id: string;
+      parentId?: string;
+      timestamp: string;
+      message?: Record<string, unknown>;
+    };
+    const entries: Line[] = [];
+    let parentId: string | undefined;
+    const push = (line: Omit<Line, "parentId">): void => {
+      entries.push(parentId ? { ...line, parentId } : line);
+      parentId = line.id;
+    };
+    let tick = 0;
+    const stamp = (): string =>
+      `2026-01-15T12:00:${String(tick++ % 60).padStart(2, "0")}.000Z`;
+    for (let i = 1; i <= 30; i++) {
+      for (let j = 0; j < 80; j++) {
+        push({ type: "custom", id: `c${i}-${j}`, timestamp: stamp() });
+      }
+      push({
+        type: "message",
+        id: `u${i}`,
+        timestamp: stamp(),
+        message: { role: "user", content: `user-${i}` },
+      });
+      push({
+        type: "message",
+        id: `a${i}`,
+        timestamp: stamp(),
+        message: { role: "assistant", content: [{ type: "text", text: `assistant-${i}` }] },
+      });
+      push({
+        type: "message",
+        id: `t${i}`,
+        timestamp: stamp(),
+        message: { role: "toolResult", toolCallId: `call-${i}`, toolName: "read", content: [{ type: "text", text: `tool-${i}` }] },
+      });
+    }
+    const before = entries.findIndex((entry) => entry.id === "u30");
+    const chunks = [
+      entries.slice(before),
+      entries.slice(before - 80, before),
+      entries.slice(0, before - 80),
+    ];
+    const starts = [90_000, 50_000, 0];
+    let call = 0;
+    const page = parseSessionHistoryPageReverse({
+      size: 100_000,
+      readBackward: () => {
+        const chunk = chunks[call];
+        if (!chunk) return null;
+        return { start: starts[call++]!, lines: chunk.map((entry) => JSON.stringify(entry)) };
+      },
+      limit: 30,
+      beforeId: "u30",
+    });
+
+    expect(page.messages).toHaveLength(30);
+    expect(page.messages[0]?.id).toBe("u20");
+    expect(page.messages.at(-1)?.id).toBe("t29");
+    expect(page.hasMore).toBe(true);
+  });
+
   it("keeps the last line readable without a trailing newline", () => {
     const raw = jsonl(historyLines(4)).trimEnd();
     const filePath = join(dir, "no-newline.jsonl");

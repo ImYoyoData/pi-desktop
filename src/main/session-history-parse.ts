@@ -725,6 +725,8 @@ export function parseSessionHistoryPageReverse(
       }
     }
 
+    // path 不超过 tail 长度，先用它挡掉构建 Map 的开销。
+    if (!reachedStart && tail.length < needed) continue;
     const path = tailLeafPath(tail);
     if (!reachedStart && path.length < needed) continue;
 
@@ -740,12 +742,19 @@ export function parseSessionHistoryPageReverse(
     if (beforeId) {
       const idx = all.findIndex((m) => m.id === beforeId);
       // 尾部区间还没覆盖到 beforeId：继续往回读。
-      if (idx < 0 && !reachedStart) {
+      if (idx < 0) {
+        if (reachedStart) return { messages: [], hasMore: false, total };
         needed = path.length + limit;
         continue;
       }
-      if (idx <= 0) return { messages: [], hasMore: false, total };
       end = idx;
+    }
+
+    // 已读区间还不到一页：路径头部并不是文件头，继续往回读补齐这一页。
+    // 否则会返回半页，并把游标停在该区间头部（下次请求 idx === 0）误判成没有更早。
+    if (!reachedStart && end < limit) {
+      needed = path.length + limit;
+      continue;
     }
 
     const start = Math.max(0, end - limit);
