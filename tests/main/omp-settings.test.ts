@@ -6,7 +6,7 @@ import {
 	readOmpSetting,
 	writeOmpSetting,
 } from "../../src/shared/omp-settings";
-import { saveOmpSettings } from "../../src/main/omp-settings-host";
+import { readOmpSettings, saveOmpSettings } from "../../src/main/omp-settings-host";
 import { saveOmpModels, readOmpModels } from "../../src/main/omp-models-config";
 
 describe("omp settings 路径读写", () => {
@@ -330,6 +330,56 @@ describe("omp config.yml 保存", () => {
 		fs.writeFileSync(file, "a: [1,\n", "utf8");
 		expect(() => saveOmpSettings({})).toThrow("invalid YAML");
 		expect(fs.readFileSync(file, "utf8")).toBe("a: [1,\n");
+	});
+});
+
+describe("omp config.yml 旧版重置设置", () => {
+	let dir: string;
+
+	beforeEach(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-desk-omp-legacy-"));
+		process.env.OMP_AGENT_DIR = dir;
+	});
+
+	afterEach(() => {
+		delete process.env.OMP_AGENT_DIR;
+		fs.rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("把单一 autoRedeem 换算成 5 小时与每周窗口", () => {
+		fs.writeFileSync(
+			path.join(dir, "config.yml"),
+			"codexResets:\n  autoRedeem: true\nclaudeResets:\n  autoRedeem: 'no'\n",
+			"utf8",
+		);
+		const { values } = readOmpSettings();
+		expect(values["codexResets.autoRedeem5h"]).toBe("yes");
+		expect(values["codexResets.autoRedeemWeekly"]).toBe("yes");
+		expect(values["claudeResets.autoRedeem5h"]).toBe("no");
+		expect(values["claudeResets.autoRedeemWeekly"]).toBe("no");
+		expect(values["claudeResets.autoRedeemFable"]).toBeUndefined();
+	});
+
+	it("已显式设置的新键优先于旧值", () => {
+		fs.writeFileSync(
+			path.join(dir, "config.yml"),
+			"codexResets:\n  autoRedeem: yes\n  autoRedeem5h: no\n",
+			"utf8",
+		);
+		const { values } = readOmpSettings();
+		expect(values["codexResets.autoRedeem5h"]).toBe("no");
+		expect(values["codexResets.autoRedeemWeekly"]).toBe("yes");
+	});
+
+	it("读取点分平铺写法的旧键", () => {
+		fs.writeFileSync(
+			path.join(dir, "config.yml"),
+			"\"claudeResets.autoRedeem\": false\n",
+			"utf8",
+		);
+		const { values } = readOmpSettings();
+		expect(values["claudeResets.autoRedeem5h"]).toBe("no");
+		expect(values["claudeResets.autoRedeemWeekly"]).toBe("no");
 	});
 });
 

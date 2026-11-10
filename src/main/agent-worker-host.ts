@@ -137,6 +137,7 @@ export function createUtilityProcessSpawnWorker(): SpawnWorker {
     const messageListeners = new Set<(msg: WorkerOutbound) => void>();
     /** Set when we call kill() — exit is expected (idle destroy / session close). */
     let expectExit = false;
+    let exited = false;
 
     child.on("message", (raw: WorkerOutbound) => {
       for (const cb of messageListeners) {
@@ -145,6 +146,7 @@ export function createUtilityProcessSpawnWorker(): SpawnWorker {
     });
 
     child.on("exit", (code) => {
+      exited = true;
       // Clean shutdown (code 0) or intentional kill must not surface as a chat error.
       if (expectExit || code === 0) {
         return;
@@ -157,7 +159,10 @@ export function createUtilityProcessSpawnWorker(): SpawnWorker {
     const handle: WorkerHandle = {
       send: (msg: WorkerInbound) => {
         child.postMessage(msg);
-        return Promise.resolve(null);
+        if (msg.kind !== "shutdown" || exited) return Promise.resolve(null);
+        return new Promise((resolve) => {
+          child.once("exit", () => resolve(null));
+        });
       },
       kill: () => {
         expectExit = true;

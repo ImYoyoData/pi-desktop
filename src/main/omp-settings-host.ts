@@ -3,6 +3,7 @@ import path from "node:path";
 import { ompAgentDir } from "./omp-dir";
 import { readYamlObject, readYamlObjectForWrite, writeYamlObject } from "./omp-yaml";
 import {
+	ompLegacySettingValues,
 	OMP_SETTINGS,
 	readOmpSetting,
 	writeOmpSetting,
@@ -26,6 +27,9 @@ export function readOmpSettings(): OmpSettingsSnapshot {
 		for (const entry of OMP_SETTINGS) {
 			const value = readOmpSetting(doc, entry.id);
 			if (value !== undefined) values[entry.id] = value;
+		}
+		for (const [id, value] of Object.entries(ompLegacySettingValues(doc))) {
+			if (!(id in values)) values[id] = value;
 		}
 	}
 	return { values };

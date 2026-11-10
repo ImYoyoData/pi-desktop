@@ -119,7 +119,7 @@ export const DEFAULT_RUNTIME_SETTINGS: RuntimeSettings = {
     keepRecentTokens: 20000,
     modelOverrides: {},
   },
-  cacheWarming: "streaming",
+  cacheWarming: "idle",
   showCacheMissNotices: false,
   images: { autoResize: true, blockImages: false },
   thinkingBudgets: {},

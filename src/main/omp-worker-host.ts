@@ -104,6 +104,7 @@ export function createOmpSpawnWorker(): SpawnWorker {
 
 		const listeners = new Set<(msg: WorkerOutbound) => void>();
 		let expectExit = false;
+		let exited = false;
 		let stderrTail = "";
 		let fatalSent = false;
 
@@ -122,6 +123,7 @@ export function createOmpSpawnWorker(): SpawnWorker {
 			emitFatal(err.message);
 		});
 		child.on("close", (code) => {
+			exited = true;
 			if (expectExit || code === 0) return;
 			const tail = stderrTail.trim().replace(/\s+/g, " ").slice(-1200);
 			const error = `omp worker exited (${code ?? "null"})${tail ? `: ${tail}` : ""}`;
@@ -153,7 +155,10 @@ export function createOmpSpawnWorker(): SpawnWorker {
 			send: (msg: WorkerInbound) => {
 				const outbound = toOmpInbound(msg);
 				if (outbound) child.stdin?.write(`${JSON.stringify(outbound)}\n`);
-				return Promise.resolve(null);
+				if (msg.kind !== "shutdown" || exited) return Promise.resolve(null);
+				return new Promise((resolve) => {
+					child.once("exit", () => resolve(null));
+				});
 			},
 			kill: () => {
 				expectExit = true;

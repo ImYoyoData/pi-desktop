@@ -175,7 +175,19 @@ export function askCard(
   );
   const items: DetailItem[] = [];
   let flatQuestion: string | null = null;
-  if (results.length) {
+  const answers = arrayValue(details.answers).filter(
+    (entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object",
+  );
+  if (answers.length) {
+    for (const entry of answers) {
+      items.push(
+        item(
+          textValue(entry.question) ?? textValue(entry.name) ?? "Question",
+          textValue(entry.answer) ?? undefined,
+        ),
+      );
+    }
+  } else if (results.length) {
     for (const result of results) {
       const selected = arrayValue(result.selectedOptions)
         .map((entry) => textValue(entry))
@@ -228,7 +240,7 @@ export function askCard(
     });
   }
   if (!sections.length) sections.push(textSection(parts.text));
-  else if (!results.length && !flatQuestion) sections.push(textSection(parts.text));
+  else if (!results.length && !flatQuestion && !answers.length) sections.push(textSection(parts.text));
   return buildCard("ask", args, parts, opts, {
     target: items[0]?.title ?? null,
     summary: firstLine(parts.text),
