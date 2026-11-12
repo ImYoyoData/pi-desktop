@@ -1,4 +1,3 @@
-import { app } from "electron";
 import { existsSync } from "fs";
 import { join } from "path";
 
@@ -38,7 +37,8 @@ export function bundledNpmAvailable(): boolean {
 
 /**
  * Command vector to run the bundled npm with Electron's Node:
- *   [electronExecutable, ELECTRON_RUN_AS_NODE=1, npm-cli.js, ...args]
+ *   [electronExecutable, npm-cli.js, ...args]
+ * `ELECTRON_RUN_AS_NODE=1` must come from `bundledNpmEnv()`.
  * Returns null when the bundled npm is missing.
  */
 export function bundledNpmCommand(): string[] | null {
@@ -66,32 +66,6 @@ export function bundledNpmEnv(): NodeJS.ProcessEnv {
 /** Human-readable label for logs ("bundled npm" vs a system command). */
 export function bundledNpmLabel(): string {
 	return `bundled npm (${bundledNpmCliPath()})`;
-}
-
-/** True when the system PATH resolves a package manager (npm/pnpm/bun). */
-export function systemPackageManagerAvailable(
-	candidates = ["npm", "pnpm", "bun"],
-): boolean {
-	const { execFileSync } =
-		require("node:child_process") as typeof import("node:child_process");
-	const { platform } = process;
-	const check = platform === "win32" ? "where.exe" : "which";
-	for (const name of candidates) {
-		try {
-			execFileSync(check, [name], { stdio: "ignore", timeout: 3000 });
-			return true;
-		} catch {
-			// not on PATH — try next
-		}
-	}
-	return false;
-}
-
-/** Compatibility guard: Electron's app reference for usage in main process. */
-export function assertElectronMain(): void {
-	if (!app) {
-		throw new Error("bundled-npm requires Electron main process");
-	}
 }
 
 /**

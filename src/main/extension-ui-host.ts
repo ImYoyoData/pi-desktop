@@ -25,6 +25,7 @@ const pendingDialogs = new Map<string, PendingDialog>();
 
 function broadcast(event: ExtensionUiEvent): void {
   for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue;
     win.webContents.send(IpcChannels.sessions.extensionUi, event);
   }
 }

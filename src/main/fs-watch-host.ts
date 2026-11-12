@@ -69,6 +69,7 @@ function broadcast(events: FsChangeEvent[]): void {
 	if (!events.length || !watchedRoot) return;
 	const root = watchedRoot;
 	for (const win of BrowserWindow.getAllWindows()) {
+		if (win.isDestroyed()) continue;
 		win.webContents.send(IpcChannels.fs.changed, {
 			root,
 			events,

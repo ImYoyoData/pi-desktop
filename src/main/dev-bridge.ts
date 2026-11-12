@@ -171,10 +171,15 @@ async function respondCall(
 	req: IncomingMessage,
 	res: ServerResponse,
 ): Promise<void> {
-	const body = (await readJson(req)) as {
-		channel?: string;
-		args?: unknown[];
-	};
+	let body: { channel?: string; args?: unknown[] };
+	try {
+		body = (await readJson(req)) as { channel?: string; args?: unknown[] };
+	} catch {
+		// 畸形 JSON 不能让 handleRequest 的 promise 变成未处理拒绝而崩掉主进程。
+		res.writeHead(400, { "Content-Type": "application/json" });
+		res.end(JSON.stringify({ ok: false, error: "invalid JSON body" }));
+		return;
+	}
 	const channel = body.channel ?? "";
 	const args = Array.isArray(body.args) ? body.args : [];
 	try {

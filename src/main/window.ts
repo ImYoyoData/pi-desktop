@@ -35,7 +35,8 @@ function installEditContextMenu(win: BrowserWindow): void {
   });
 }
 
-function resolveWindowIcon(): string | undefined {
+/** 打包/开发两种目录布局下找应用图标；index.ts 的 dock 图标也用同一份。 */
+export function resolveAppIcon(): string | undefined {
   const candidates = [
     join(process.resourcesPath, "resources", "icon.png"),
     join(process.resourcesPath, "icon.png"),
@@ -66,7 +67,7 @@ export function createMainWindow(): BrowserWindow {
   allowClose = false;
   forceClosing = false;
   const isMac = process.platform === "darwin";
-  const iconPath = resolveWindowIcon();
+  const iconPath = resolveAppIcon();
   // 记住窗口大小开着就用上次的大小，否则用默认尺寸 1500×950（逻辑像素）。
   const { width: initialWidth, height: initialHeight } = resolveWindowSize();
 

@@ -527,10 +527,6 @@ export function createSessionBroker(deps: {
   }
 
   /**
-   * Start the Pi agent worker in the background so the first prompt after
-   * switching to a session is fast (no cold-start stall on send).
-   */
-  /**
    * Destroy the oldest idle workers once more than MAX_IDLE_WORKERS are alive,
    * so prewarming many sessions cannot balloon the process count.
    */
@@ -560,6 +556,10 @@ export function createSessionBroker(deps: {
     }
   }
 
+  /**
+   * Start the Pi agent worker in the background so the first prompt after
+   * switching to a session is fast (no cold-start stall on send).
+   */
   function prewarmWorker(sessionId: string): void {
     trimIdleWorkers();
     const rec = sessions.get(sessionId);
@@ -1231,21 +1231,34 @@ export function createSessionBroker(deps: {
           resolve({ ok: true, forced: true });
         }, ABORT_FORCE_KILL_MS);
       }
-      void worker.send(outbound).then((direct) => {
-        if (direct?.kind === "result") {
+      void worker.send(outbound).then(
+        (direct) => {
+          if (direct?.kind === "result") {
+            const pending = rec!.pendingCommands.get(cmdId);
+            if (!pending) {
+              return;
+            }
+            rec!.pendingCommands.delete(cmdId);
+            clearForce();
+            if (direct.error) {
+              reject(new Error(direct.error));
+            } else {
+              resolve(direct.data);
+            }
+          }
+        },
+        // 发送失败（worker 已退出 / 管道断开）必须结束这一单，否则 pendingCommands
+        // 永远留着、settingsGate 永不释放，后续 prompt 会全部挂死。
+        (err: unknown) => {
           const pending = rec!.pendingCommands.get(cmdId);
           if (!pending) {
             return;
           }
           rec!.pendingCommands.delete(cmdId);
           clearForce();
-          if (direct.error) {
-            reject(new Error(direct.error));
-          } else {
-            resolve(direct.data);
-          }
-        }
-      });
+          reject(err instanceof Error ? err : new Error(String(err)));
+        },
+      );
     });
     void settled.then(
       () => gate.release?.(),

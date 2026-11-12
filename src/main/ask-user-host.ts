@@ -25,7 +25,7 @@ type PendingAsk = {
 
 const pendingAsks = new Map<string, PendingAsk>();
 
-function snapshotAskUser(): AskUserAskPrompt[] {
+export function snapshotPendingAskUserAsks(): AskUserAskPrompt[] {
   const out: AskUserAskPrompt[] = [];
   for (const [requestId, row] of pendingAsks) {
     out.push({
@@ -40,13 +40,14 @@ function snapshotAskUser(): AskUserAskPrompt[] {
 
 function broadcastAskUser(payload: AskUserAskRequest): void {
   for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue;
     win.webContents.send(IpcChannels.sessions.askUser, payload);
   }
 }
 
 /** Re-send every outstanding ask to a freshly loaded renderer (reload / language switch). */
 export function resendPendingAskUserAsks(webContents: Electron.WebContents): void {
-  for (const payload of snapshotAskUser()) {
+  for (const payload of snapshotPendingAskUserAsks()) {
     webContents.send(IpcChannels.sessions.askUser, payload);
   }
 }
@@ -119,19 +120,6 @@ export function cancelAskUserAsksForSession(
     if (row.sessionId !== sessionId) continue;
     cancelAskUserAsk(requestId, reason);
   }
-}
-
-export function snapshotPendingAskUserAsks(): AskUserAskPrompt[] {
-  const out: AskUserAskPrompt[] = [];
-  for (const [requestId, row] of pendingAsks) {
-    out.push({
-      sessionId: row.sessionId,
-      requestId,
-      questions: row.questions,
-      ...(row.toolCallId ? { toolCallId: row.toolCallId } : {}),
-    });
-  }
-  return out;
 }
 
 export function registerAskUserIpc(): void {
