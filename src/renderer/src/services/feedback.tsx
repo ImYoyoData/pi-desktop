@@ -93,7 +93,14 @@ function DialogHost({ children }: { children: ReactNode }): ReactNode {
 
   const handleOk = async (): Promise<void> => {
     const options = current.current;
-    const result = await options?.onPositiveClick?.();
+    let result: void | boolean;
+    try {
+      result = await options?.onPositiveClick?.();
+    } catch (err) {
+      // 确认回调失败时保持对话框打开，避免未处理的 Promise 拒绝穿透到渲染进程。
+      console.error("[feedback] dialog confirm failed:", err);
+      return;
+    }
     if (result === false) return;
     close();
     options?.onClose?.();

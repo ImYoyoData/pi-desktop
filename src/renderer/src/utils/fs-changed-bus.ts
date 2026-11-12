@@ -3,6 +3,9 @@
  * 订阅跟随应用生命周期，不依赖文件树等面板是否挂载。
  */
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { isAbsoluteFsPath } from "./fs-path";
+
+export { isAbsoluteFsPath };
 
 export type FsChangeKind = "add" | "change" | "unlink";
 
@@ -32,12 +35,6 @@ export function isInsideWorkspace(root: string, p: string): boolean {
   const base = normalizeFsPath(root);
   const abs = normalizeFsPath(absoluteWorkspacePath(root, p));
   return abs === base || abs.startsWith(`${base}/`);
-}
-
-/** 是否为绝对路径（Windows 盘符或 POSIX 根）。 */
-export function isAbsoluteFsPath(p: string): boolean {
-  const raw = p.replace(/\\/g, "/");
-  return raw.startsWith("/") || /^[a-zA-Z]:\//.test(raw);
 }
 
 /** fs 事件是工作区相对路径，标签页可能存绝对路径——统一成绝对路径再比较。 */

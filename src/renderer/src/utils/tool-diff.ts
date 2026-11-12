@@ -269,13 +269,8 @@ export function countDiffStats(diffText: string): ToolDiffStats {
   if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("diff ") || line.startsWith("index ")) {
    continue;
   }
-  if (/^\+\s*\d*\s/.test(line) || (line.startsWith("+") && !line.startsWith("+++"))) {
-   additions += 1;
-   continue;
-  }
-  if (/^-\s*\d*\s/.test(line) || (line.startsWith("-") && !line.startsWith("---"))) {
-   deletions += 1;
-  }
+  if (line.startsWith("+")) additions += 1;
+  else if (line.startsWith("-")) deletions += 1;
  }
  return { additions, deletions };
 }

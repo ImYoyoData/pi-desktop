@@ -145,11 +145,7 @@ export function agentWorkerSilenceMs(state: ChatState, now = Date.now()): number
 }
 
 /** 12_300 → "12.3k"，用于压缩前占用。 */
-export function formatTokenCount(tokens: number): string {
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
-  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}k`;
-  return String(tokens);
-}
+export { formatTokenCount } from "./message-metrics";
 
 export function formatElapsedShort(ms: number): string {
   const sec = Math.max(0, Math.floor(ms / 1000));

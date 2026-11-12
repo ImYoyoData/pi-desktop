@@ -1229,23 +1229,8 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 			bySession: {
 				...get().bySession,
 				[sessionId]: {
+					...createChatState(),
 					messages: history.map(mapHistoryRow),
-					streamingMessage: null,
-					running: false,
-					retryHint: null,
-					nextToolOrder: 1,
-					pendingAskUser: null,
-					pendingPermission: null,
-					pendingExtensionUi: null,
-					turnStartedAt: null,
-					phaseStartedAt: null,
-					lastActivityAt: null,
-					lastWorkerAliveAt: null,
-					autoRecoverCount: 0,
-					autoRecovering: false,
-					llmProgress: null,
-					llmRound: 0,
-					compaction: null,
 				},
 			},
 		});
@@ -1385,8 +1370,10 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 		stopIntentBySession.delete(sessionId);
 		recoveringIds.delete(sessionId);
 		promptChain.delete(sessionId);
-		askUserDrafts.delete(sessionId);
-		askUserSteps.delete(sessionId);
+		// ask_user 的草稿 / 附件按 requestId 存放，用 sessionId 删不掉任何东西：
+		// 必须取出该会话挂起请求的 requestId 才能清掉，否则带 dataUrl 的附件会一直留在内存里。
+		const pendingAsk = state.bySession[sessionId]?.pendingAskUser;
+		if (pendingAsk?.requestId) clearAskUserDraft(pendingAsk.requestId);
 		useCheckpointStore.getState().clearSession(sessionId);
 	}
 
