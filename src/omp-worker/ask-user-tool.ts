@@ -4,7 +4,9 @@ import {
 	ASK_USER_MAX_OPTIONS,
 	ASK_USER_MAX_QUESTIONS,
 	ASK_USER_MIN_OPTIONS,
+	ASK_USER_RULES,
 	ASK_USER_TOOL_NAME,
+	normalizeAskUserAnswers,
 	parseAskUserArgs,
 	type AskUserQuestion,
 } from "../shared/ask-user";
@@ -16,7 +18,7 @@ import { rpcToMain } from "./main-rpc";
  * 问题格式与 pi 侧一致（渲染层的卡片是共用的），但工具本身走 omp 的
  * 自定义工具接口；回答通过 OMP worker 的 RPC 回到主进程。
  */
-export type OmpAskUserAnswers = {
+type OmpAskUserAnswers = {
 	text: string;
 	/** 用户随回答附上的图片（base64），作为 image content 交给模型。 */
 	images?: { data: string; mimeType: string }[];
@@ -27,11 +29,6 @@ export type OmpAskUserWaitForAnswers = (
 	signal?: AbortSignal,
 	toolCallId?: string,
 ) => Promise<string | OmpAskUserAnswers>;
-
-function normalizeAnswers(raw: string | OmpAskUserAnswers): OmpAskUserAnswers {
-	if (typeof raw === "string") return { text: raw.trim() };
-	return { text: raw.text.trim(), images: raw.images ?? [] };
-}
 
 async function defaultWaitForAnswers(
 	questions: AskUserQuestion[],
@@ -74,8 +71,10 @@ export function createOmpAskUserTool(deps?: {
 	return {
 		name: ASK_USER_TOOL_NAME,
 		label: "Ask user",
-		description:
+		description: [
 			'Ask the user 1-3 short questions and wait for the response. Each question takes 2-3 mutually exclusive options; the client adds a free-form "None of the above" choice. The user may skip any skippable question.',
+			...ASK_USER_RULES,
+		].join("\n"),
 		loadMode: "essential" as const,
 		parameters: {
 			type: "object",
@@ -169,7 +168,7 @@ export function createOmpAskUserTool(deps?: {
 					"ask_user: need 1-3 questions, each with a unique id, a header (<=12 chars), a prompt, and 2-3 options",
 				);
 			}
-			const answers = normalizeAnswers(
+			const answers = normalizeAskUserAnswers(
 				await waitForAnswers(parsed.questions, signal, toolCallId),
 			);
 			if (!answers.text) {

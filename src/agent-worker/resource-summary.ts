@@ -21,7 +21,7 @@ type ExtensionsResultLike = {
 };
 
 /** Tool registry entries enriched with descriptions (from AgentSession.getAllTools). */
-export type ToolInfoLike = {
+type ToolInfoLike = {
 	name: string;
 	description?: string;
 	namespace?: { name: string; aliases?: readonly string[] };

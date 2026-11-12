@@ -24,7 +24,7 @@ import { rpcToMain } from "./main-rpc";
 import { post } from "./transport";
 import { findOmpSlashCommand, type OmpSlashCommand } from "../shared/slash-commands";
 
-export type DesktopSlashOutcome =
+type DesktopSlashOutcome =
 	| { handled: false }
 	| {
 			handled: true;
@@ -407,7 +407,7 @@ function stopLoopScheduling(): void {
 let lastDesktopModesActive: boolean | null = null;
 
 /** loop 与 vibe 的状态只活在 worker 内存里，主进程据此避免重建时丢状态。 */
-export function emitDesktopModes(session: AgentSession): void {
+function emitDesktopModes(session: AgentSession): void {
 	const active =
 		loopState !== null || session.getVibeModeState()?.enabled === true;
 	if (active === lastDesktopModesActive) return;

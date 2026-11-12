@@ -6,7 +6,6 @@ import {
 import {
   EXTENSION_UI_TIMEOUT_MS,
   extensionUiReplyResult,
-  isExtensionUiDialogMethod,
   type ExtensionUiDialogMethod,
   type ExtensionUiReply,
 } from "../shared/extension-ui";
@@ -175,15 +174,4 @@ export function createDesktopExtensionUIContext(): ExtensionUIContext {
     getToolsExpanded: () => false,
     setToolsExpanded: () => {},
   };
-}
-
-export function isDesktopExtensionUiMethod(method: string): boolean {
-  return (
-    isExtensionUiDialogMethod(method) ||
-    method === "notify" ||
-    method === "setStatus" ||
-    method === "setWidget" ||
-    method === "setTitle" ||
-    method === "setEditorText"
-  );
 }

@@ -26,6 +26,20 @@ export type AskUserQuestion = {
   isSecret?: boolean;
 };
 
+export type AskUserAnswerPayload = {
+  text: string;
+  /** 用户随回答附上的图片（base64），作为 image content 交给模型。 */
+  images?: { data: string; mimeType: string }[];
+};
+
+/** 工具结果归一化：字符串或 { text, images } 统一成去空白的结构。 */
+export function normalizeAskUserAnswers(
+  raw: string | AskUserAnswerPayload,
+): AskUserAnswerPayload {
+  if (typeof raw === "string") return { text: raw.trim() };
+  return { text: raw.text.trim(), images: raw.images ?? [] };
+}
+
 export const ASK_USER_HEADER_MAX = 12;
 export const ASK_USER_MAX_QUESTIONS = 3;
 export const ASK_USER_MIN_OPTIONS = 2;
@@ -96,9 +110,7 @@ export function isAskUserAskCancelled(
   return "cancelled" in req && req.cancelled === true;
 }
 
-function asRecord(v: unknown): Record<string, unknown> | null {
-  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
-}
+import { asRecord } from "./objects";
 
 function parseOption(raw: unknown): AskUserOption | null {
   const o = asRecord(raw);

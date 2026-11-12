@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -91,6 +92,16 @@ async function makeConflictRepo(): Promise<string> {
  * pnpm 关闭 dugite 构建脚本时不存在。此时这组用例无法运行，本地跳过；
  * CI 里缺失仍然要让用例失败（下载失败不能悄悄变绿）。
  */
+/** 脚手架用 PATH 里的 git；缺失时整组跳过，避免误报成被测代码失败。 */
+function hasPathGit(): boolean {
+  try {
+    execFileSync("git", ["--version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const require = createRequire(import.meta.url);
 const dugiteRoot = path.dirname(require.resolve("dugite/package.json"));
 const embeddedGitPath = path.join(
@@ -99,7 +110,7 @@ const embeddedGitPath = path.join(
   process.platform === "win32" ? path.join("cmd", "git.exe") : path.join("bin", "git"),
 );
 const describeDugite =
-  fs.existsSync(embeddedGitPath) || process.env.CI ? describe : describe.skip;
+  (fs.existsSync(embeddedGitPath) && hasPathGit()) || process.env.CI ? describe : describe.skip;
 
 describeDugite("git-host dugite smoke", () => {
   it("init + status works via embedded git (platform-native dugite binary)", async () => {

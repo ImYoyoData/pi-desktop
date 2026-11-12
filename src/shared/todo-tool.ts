@@ -98,11 +98,7 @@ const TODO_ITEM_STATUSES: Readonly<Record<string, true>> = {
 	blocked: true,
 };
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-	return value && typeof value === "object" && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: null;
-}
+import { asRecord } from "./objects";
 
 /** 校验持久化载荷里的 phases 结构（会话历史恢复用）。 */
 export function isTodoPhaseList(value: unknown): value is TodoPhase[] {

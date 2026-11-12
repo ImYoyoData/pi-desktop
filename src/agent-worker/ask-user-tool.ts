@@ -1,4 +1,4 @@
-import { Type, type Static } from "typebox";
+import { Type } from "typebox";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import {
   ASK_USER_HEADER_MAX,
@@ -7,6 +7,7 @@ import {
   ASK_USER_MIN_OPTIONS,
   ASK_USER_RULES,
   ASK_USER_TOOL_NAME,
+  normalizeAskUserAnswers,
   parseAskUserArgs,
   type AskUserQuestion,
 } from "../shared/ask-user";
@@ -78,8 +79,6 @@ const askUserSchema = Type.Object({
   ),
 });
 
-export type AskUserToolInput = Static<typeof askUserSchema>;
-
 export type AskUserAnswers = {
   text: string;
   /** 用户随回答附上的图片（base64），作为 image content 交给模型。 */
@@ -91,11 +90,6 @@ export type AskUserWaitForAnswers = (
   signal?: AbortSignal,
   toolCallId?: string,
 ) => Promise<string | AskUserAnswers>;
-
-function normalizeAnswers(raw: string | AskUserAnswers): AskUserAnswers {
-  if (typeof raw === "string") return { text: raw.trim() };
-  return { text: raw.text.trim(), images: raw.images ?? [] };
-}
 
 async function defaultWaitForAnswers(
   questions: AskUserQuestion[],
@@ -154,7 +148,7 @@ export function createAskUserToolDefinition(deps?: {
           "ask_user: need 1-3 questions, each with a unique id, a header (<=12 chars), a prompt, and 2-3 options",
         );
       }
-      const answers = normalizeAnswers(
+      const answers = normalizeAskUserAnswers(
         await waitForAnswers(parsed.questions, signal, toolCallId),
       );
       if (!answers.text) {

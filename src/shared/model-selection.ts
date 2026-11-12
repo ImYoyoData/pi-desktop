@@ -14,6 +14,7 @@
  */
 
 import type { ModelsAvailableEntry } from "./models-settings";
+import { asRecord } from "./objects";
 
 export type ModelSelection = {
   /** providerId → curated model ids. */
@@ -23,10 +24,6 @@ export type ModelSelection = {
 };
 
 export const EMPTY_MODEL_SELECTION: ModelSelection = { providers: {}, disabled: [] };
-
-function asRecord(v: unknown): Record<string, unknown> | null {
-  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
-}
 
 /** Parse whatever was on disk into a valid selection (drops junk, dedupes ids). */
 export function parseModelSelection(raw: unknown): ModelSelection {

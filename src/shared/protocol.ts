@@ -588,11 +588,10 @@ export function isRegionCitation(
 
 /** Deep plain clone for Electron IPC (Vue proxies cannot be structured-cloned). */
 export function toIpcPlain<T>(value: T): T {
-	const json = JSON.stringify(value);
 	try {
-		return JSON.parse(json) as T;
+		return JSON.parse(JSON.stringify(value)) as T;
 	} catch {
-		// stringify succeeded, so parse cannot realistically fail.
+		// 循环引用 / BigInt 等无法序列化时回退原值。
 		return value;
 	}
 }

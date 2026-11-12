@@ -68,7 +68,8 @@ function readObject(raw: unknown): Record<string, unknown> {
     : {};
 }
 
-function snapToChoice(raw: unknown, choices: readonly number[], fallback: number): number {  const value = Number(raw);
+function snapToChoice(raw: unknown, choices: readonly number[], fallback: number): number {
+  const value = Number(raw);
   if (!Number.isFinite(value)) return fallback;
   return choices.reduce(
     (best, choice) => (Math.abs(choice - value) < Math.abs(best - value) ? choice : best),
