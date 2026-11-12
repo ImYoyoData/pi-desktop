@@ -87,6 +87,8 @@
 
 ```bash
 npm install        # 安装依赖
+npm run typecheck  # 类型检查（主进程 + 渲染层）
+npm run dugite:git # 下载内嵌 Git 二进制（可选；Git 面板需要）
 npm run dev        # 开发运行
 npm run build      # 构建
 npm run dist       # 构建当前平台安装包

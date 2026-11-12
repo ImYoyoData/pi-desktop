@@ -87,6 +87,8 @@ Requires Node.js 24+.
 
 ```bash
 npm install        # install dependencies
+npm run typecheck  # typecheck main + renderer
+npm run dugite:git # fetch the embedded Git binary (optional; Git panel needs it)
 npm run dev        # run in development
 npm run build      # build
 npm run dist       # package for the current platform
