@@ -258,12 +258,6 @@ export function clearSessionPermissionAllows(sessionId: string): void {
   sessionAllows.delete(sessionId);
 }
 
-export function clearPendingPermissionAsks(reason = "permission asks cleared"): void {
-  for (const requestId of [...pendingAsks.keys()]) {
-    cancelPermissionAsk(requestId, reason);
-  }
-}
-
 export function registerPermissionsIpc(): void {
   ipcMain.handle(IpcChannels.permissions.get, () => getPermissionSettings());
 

@@ -1041,8 +1041,6 @@ export const ja = {
 
 	// Browser
 	urlPlaceholder: "URL を入力",
-	browserPreviewUnavailable:
-		"内蔵ブラウザーは Electron の webview に依存しているため、外部ブラウザーのプレビューモードでは使えません。デスクトップアプリでご利用ください。",
 	resizeDevtools: "ドラッグして幅を調整",
 	browserNotReady: "ブラウザーがまだ準備できていません",
 	cannotOpenDevtools: "開発者ツールを開けません",

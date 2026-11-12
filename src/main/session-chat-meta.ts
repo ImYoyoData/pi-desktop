@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import {
   chatMetaPath,
   type ChatMessageTag,
@@ -64,16 +64,6 @@ export function deleteChatMeta(filePath: string): void {
   const path = chatMetaPath(filePath);
   try {
     if (existsSync(path)) rmSync(path, { force: true });
-  } catch {
-    // ignore
-  }
-}
-
-export function renameChatMeta(oldPath: string, newPath: string): void {
-  const from = chatMetaPath(oldPath);
-  const to = chatMetaPath(newPath);
-  try {
-    if (existsSync(from)) renameSync(from, to);
   } catch {
     // ignore
   }

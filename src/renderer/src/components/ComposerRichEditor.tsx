@@ -10,7 +10,7 @@ import {
 } from "react";
 import type { ComposerChip } from "@renderer/stores/composer";
 import { truncateElementContent, useComposerStore } from "@renderer/stores/composer";
-import { fileTagLabel, urlTagLabel } from "@renderer/utils/composer-tags";
+import { fileTagLabel, urlTagLabel } from "@renderer/utils/path-label";
 import {
   draftBeforeCaret,
   needsLeadingSpace,

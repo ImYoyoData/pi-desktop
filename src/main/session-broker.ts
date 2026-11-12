@@ -74,7 +74,8 @@ const HEARTBEAT_MISS_LIMIT_IDLE = 3;
 let stallEmitMs = 75_000;
 
 /** 「重试」设置热更新卡死判定阈值。 */
-export function setStallEmitMs(ms: number): void {  stallEmitMs = ms;
+export function setStallEmitMs(ms: number): void {
+  stallEmitMs = ms;
 }
 /**
  * Stop is a cancel, not a disconnect: `session.abort()` is a signal that
@@ -137,7 +138,8 @@ export type SessionBroker = {
     backend?: AgentBackend,
   ) => Promise<SessionSummary | null>;
   closeSession: (sessionId: string) => Promise<void>;
-  send: (sessionId: string, command: AgentCommand) => Promise<unknown>;  /**
+  send: (sessionId: string, command: AgentCommand) => Promise<unknown>;
+  /**
    * Like send, but never cold-starts a worker. Returns `undefined` when no worker is alive
    * (used for UI sync without waking the Pi agent).
    */
@@ -545,6 +547,10 @@ export function createSessionBroker(deps: {
       if (!rec.worker || rec.summary.status !== "idle" || rec.workerPromise)
         continue;
       if (rec.desktopModesActive) continue;
+      // An in-flight command (list_models / get_state / settings) would be
+      // stranded: kill() is an *expected* exit, so no fatal message is emitted
+      // and its promise never settles. Let the idle timer reap it later.
+      if (rec.pendingCommands.size > 0) continue;
       if (deps.hasActiveRuns?.(id)) continue;
       idle.push({ sessionId: id, spawnedAt: rec.spawnedAt });
     }
@@ -554,7 +560,12 @@ export function createSessionBroker(deps: {
     for (let i = 0; i < excess; i++) {
       const target = idle[i]!;
       const rec = sessions.get(target.sessionId);
-      if (rec?.worker && rec.summary.status === "idle" && !rec.workerPromise) {
+      if (
+        rec?.worker &&
+        rec.summary.status === "idle" &&
+        !rec.workerPromise &&
+        rec.pendingCommands.size === 0
+      ) {
         stopHeartbeat(rec);
         clearIdleDestroyTimer(rec);
         rec.worker.kill();
@@ -1260,6 +1271,15 @@ export function createSessionBroker(deps: {
       const failSend = (error: unknown): void => {
         rec!.pendingCommands.delete(cmdId);
         clearForce();
+        // A prompt/hang marks the session "running" before the send; when the
+        // send itself fails the turn never starts, so leaving it running would
+        // keep the Stop button and wait indicator alive forever.
+        if (
+          (command.type === "prompt" || command.type === "hang") &&
+          sessions.get(sessionId) === rec
+        ) {
+          setStatus(sessionId, "idle");
+        }
         reject(error instanceof Error ? error : new Error(String(error)));
       };
       try {

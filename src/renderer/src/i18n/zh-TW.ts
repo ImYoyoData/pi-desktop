@@ -1040,8 +1040,6 @@ export const zhTW = {
 
 	// Browser
 	urlPlaceholder: "輸入網址",
-	browserPreviewUnavailable:
-		"內建瀏覽器依賴 Electron 的 webview，外部瀏覽器預覽模式下無法使用，請在桌面端使用。",
 	resizeDevtools: "拖曳調整寬度",
 	browserNotReady: "瀏覽器尚未就緒",
 	cannotOpenDevtools: "無法開啟開發人員工具",

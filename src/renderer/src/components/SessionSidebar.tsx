@@ -1973,7 +1973,7 @@ export function SessionSidebar(): ReactNode {
     );
     loadPins();
     loadSessionRanks();
-    // 另一窗口改了排序/置顶/分组时跟着变，桌面端与浏览器预览页保持一致。
+    // 另一窗口改了排序/置顶/分组时跟着变，各窗口保持一致。
     const offPrefs = registerStateApplier((change) => {
       if (change.scope !== "prefs") return;
       const keys = change.keys ?? [];

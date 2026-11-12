@@ -56,6 +56,13 @@ let allowClose = false;
 /** 程序化退出（更新安装）时不再向渲染层询问，直接放行关闭。 */
 let forceClosing = false;
 
+/**
+ * The renderer cannot answer `window:closeRequest` after a crash (or while it is
+ * hung). Without this the close handler would keep preventDefault()-ing and the
+ * window becomes impossible to close; allow the OS close button through instead.
+ */
+let rendererUnavailable = false;
+
 export function allowWindowClose(): void {
   allowClose = true;
 }
@@ -104,6 +111,7 @@ function isAppDocumentUrl(raw: string): boolean {
 export function createMainWindow(): BrowserWindow {
   allowClose = false;
   forceClosing = false;
+  rendererUnavailable = false;
   const isMac = process.platform === "darwin";
   const iconPath = resolveAppIcon();
   // 记住窗口大小开着就用上次的大小，否则用默认尺寸 1500×950（逻辑像素）。
@@ -123,7 +131,11 @@ export function createMainWindow(): BrowserWindow {
     ...(isMac ? { trafficLightPosition: { x: 14, y: 11 } } : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
-      sandbox: false,
+      // The renderer only talks to main through the preload bridge (`window.api`);
+      // the preload bundle itself only requires "electron", so it runs sandboxed.
+      // Keep this on — it is the costliest thing to lose if the renderer is ever
+      // compromised (no Node/fs reachable from page JS).
+      sandbox: true,
       contextIsolation: true,
       webviewTag: true,
       spellcheck: process.env.PI_DESKTOP_NO_SPELLCHECK !== "1",
@@ -155,11 +167,39 @@ export function createMainWindow(): BrowserWindow {
   });
 
   mainWindow.on("close", (event) => {
-    if (allowClose || forceClosing) return;
+    if (allowClose || forceClosing || rendererUnavailable) return;
     event.preventDefault();
     if (!mainWindow.isDestroyed()) {
       mainWindow.webContents.send(IpcChannels.window.closeRequest);
     }
+  });
+
+  // A crashed renderer can never answer closeRequest; allow one automatic
+  // recovery (state is rebuilt from disk + main-process snapshots), then let the
+  // window close normally if it crashes again.
+  let reloadAttempted = false;
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    rendererUnavailable = true;
+    console.error(
+      `[window] renderer gone: ${details.reason} (exit ${details.exitCode})`,
+    );
+    if (details.reason === "clean-exit" || reloadAttempted) return;
+    reloadAttempted = true;
+    try {
+      mainWindow.reload();
+    } catch {
+      // window already torn down
+    }
+  });
+  mainWindow.on("unresponsive", () => {
+    rendererUnavailable = true;
+  });
+  mainWindow.on("responsive", () => {
+    rendererUnavailable = false;
+  });
+  mainWindow.webContents.on("did-finish-load", () => {
+    // A successful (re)load means the renderer can answer closeRequest again.
+    rendererUnavailable = false;
   });
 
   mainWindow.on("closed", () => closeUpdateToast());

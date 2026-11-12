@@ -129,7 +129,3 @@ export function previewConflictContent(
   }
   return parts.join("");
 }
-
-export function conflictIds(segments: ConflictSegment[]): number[] {
-  return segments.filter((s) => s.kind === "conflict").map((s) => s.id);
-}

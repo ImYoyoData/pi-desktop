@@ -1041,8 +1041,6 @@ export const zh = {
 
 	// Browser
 	urlPlaceholder: "输入网址",
-	browserPreviewUnavailable:
-		"内置浏览器依赖 Electron 的 webview，外部浏览器预览模式下不可用，请在桌面端使用。",
 	resizeDevtools: "拖动调整宽度",
 	browserNotReady: "浏览器尚未就绪",
 	cannotOpenDevtools: "无法打开开发者工具",

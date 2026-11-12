@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { resolveWorkspacePath } from "../shared/path-sandbox";
+import { isPathInsideRoot, resolveWorkspacePath } from "../shared/path-sandbox";
 import {
 	rankFuzzyPathEntries,
 	scoreFuzzyPathQuery,
@@ -142,6 +142,9 @@ export function renameWorkspaceEntry(
 ): string {
 	const safe = assertSafeName(newName);
 	const abs = resolveWorkspacePath(root, relativePath);
+	if (path.resolve(abs) === path.resolve(root)) {
+		throw new Error("Cannot rename the workspace root");
+	}
 	const parentRel = path.dirname(relativePath.replace(/\\/g, "/"));
 	const parentKey = parentRel === "." ? "" : parentRel;
 	if (safe === path.basename(abs)) return toRel(parentKey, safe);
@@ -161,17 +164,25 @@ export function moveWorkspaceEntry(
 	destRelativeDir: string,
 ): string {
 	const abs = resolveWorkspacePath(root, relativePath);
+	const rootAbs = path.resolve(root);
+	// Moving the workspace root itself would relocate (and effectively destroy)
+	// the open project; delete blocks this too — keep the two in sync.
+	if (path.resolve(abs) === rootAbs) {
+		throw new Error("Cannot move the workspace root");
+	}
 	const base = path.basename(abs);
 	const fromNorm = relativePath.replace(/\\/g, "/");
 	const destNorm = (destRelativeDir || "")
 		.replace(/\\/g, "/")
 		.replace(/\/+$/, "");
-	if (destNorm === fromNorm || destNorm.startsWith(`${fromNorm}/`)) {
-		throw new Error("Cannot move into itself or a subdirectory");
-	}
 	const destDirAbs = destNorm
 		? resolveWorkspacePath(root, destNorm)
-		: path.resolve(root);
+		: rootAbs;
+	// Compare resolved paths, not relative strings: "./a" vs "a/b" must still
+	// be recognized as a move into itself.
+	if (destDirAbs === abs || isPathInsideRoot(abs, destDirAbs)) {
+		throw new Error("Cannot move into itself or a subdirectory");
+	}
 	if (workspaceEntryKind(destDirAbs) !== "dir") {
 		throw new Error("Destination folder does not exist");
 	}

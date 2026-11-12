@@ -2,7 +2,7 @@ import { useMemo, type ReactNode } from "react";
 import { Tooltip } from "antd";
 import AppearanceSliderRow from "@renderer/components/customize/AppearanceSliderRow";
 import { useAppearanceStore } from "@renderer/stores/appearance";
-import { wallpaperSrc } from "@renderer/utils/wallpaper-src";
+import { wallpaperMediaSrc } from "../../../../shared/appearance";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./AppearanceWallpaperCard.module.css";
 
@@ -13,7 +13,7 @@ export function AppearanceWallpaperCard(): ReactNode {
   const kind = appearance.wallpaper.kind;
   const isMedia = kind === "image" || kind === "video";
   const mediaSrc = useMemo(
-    () => (appearance.wallpaper.path ? wallpaperSrc(appearance.wallpaper.path) : ""),
+    () => (appearance.wallpaper.path ? wallpaperMediaSrc(appearance.wallpaper.path) : ""),
     [appearance.wallpaper.path],
   );
 

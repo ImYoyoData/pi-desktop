@@ -42,6 +42,7 @@ import ExtensionUiStrip from "@renderer/components/ExtensionUiStrip";
 import TurnDiffSummary from "@renderer/components/TurnDiffSummary";
 import WorkSectionGroup from "@renderer/components/WorkSectionGroup";
 import AgentWaitIndicator from "@renderer/components/AgentWaitIndicator";
+import { nextFrame } from "./next-frame";
 import { toolCardFor as toolCard } from "@renderer/utils/tool-diff";
 import { toolDisplayName } from "@renderer/utils/tool-xdev";
 import {
@@ -135,12 +136,6 @@ const LOAD_OLDER_TOP_PX = 360;
  * 更慢的异步渲染会晚于窗口落地，那一次长高仍会贴底。
  */
 const FOLD_HOLD_MS = 400;
-
-function nextFrame(): Promise<void> {
- const { promise, resolve } = Promise.withResolvers<void>();
- requestAnimationFrame(() => resolve());
- return promise;
-}
 
 function sleep(ms: number): Promise<void> {
  const { promise, resolve } = Promise.withResolvers<void>();

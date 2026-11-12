@@ -39,7 +39,7 @@ function broadcastEvent(event: unknown): void {
 }
 
 /**
- * 当前打开的会话：桌面端与浏览器预览页跟随最后一次显式切换。
+ * 当前打开的会话：各窗口跟随最后一次显式切换。
  * 启动后的首次打开只是恢复现场，不广播——否则另一侧会被拽到刚恢复的会话上。
  */
 let activeSession: { sessionId: string; cwd: string } | null = null;

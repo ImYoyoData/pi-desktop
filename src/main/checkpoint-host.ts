@@ -521,9 +521,11 @@ export function revertCheckpoint(
 
 	withoutAsar(() => {
 		for (const rel of cp.touched) {
-			const abs = path.join(cp.workspaceRoot, ...rel.split("/"));
 			const baseline = cp.baseline.get(rel);
 			try {
+				// Revert writes/deletes files: keep every restored path inside the
+				// workspace even if a touched entry ever carries "..".
+				const abs = resolveWorkspacePath(cp.workspaceRoot, rel);
 				if (baseline === undefined) {
 					// Created during turn → remove
 					if (fs.existsSync(abs)) {

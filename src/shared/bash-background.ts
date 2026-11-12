@@ -3,9 +3,6 @@
  * detach into the Running panel instead of blocking the agent turn.
  */
 
-/** Explicit opt-in the model can append (stripped before spawn). */
-export const BASH_BACKGROUND_MARKER = "# pi-desktop:background";
-
 /** 段首必须是启动器本身：否则 `grep next`、`cat vite.config.ts` 都会被误判成常驻进程。 */
 const PERSISTENT_PATTERNS: RegExp[] = [
   /^(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start|serve)\b/i,

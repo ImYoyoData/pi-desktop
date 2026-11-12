@@ -21,7 +21,6 @@ files:
   - "!scratch_*/**"
   - "!tmp-freeze/**"
   - "!vitest.config.ts"
-  - "!pnpm-workspace.yaml"
   # Dev scratch that used to be packaged as-is — promo-video alone added ~172 MB
   # to the installed payload, and the rest is graph/cache/log noise.
   - "!promo-video/**"
@@ -40,6 +39,16 @@ files:
   # Renderer-only packages are already bundled into out/ —
   # exclude to cut size hard
   - "!node_modules/sortablejs/**"
+  # react / react-dom / virtua / diff+markdown renderers are bundled into
+  # out/renderer and never required by main (verified via out/main requires),
+  # so shipping them only inflates the asar.
+  - "!node_modules/react/**"
+  - "!node_modules/react-dom/**"
+  - "!node_modules/virtua/**"
+  - "!node_modules/@pierre/**"
+  - "!node_modules/stream-diffs/**"
+  - "!node_modules/stream-markdown-parser/**"
+  - "!node_modules/markstream-react/**"
   - "!node_modules/@types/**"
   - "!node_modules/@xterm/**"
   - "!node_modules/mermaid/**"

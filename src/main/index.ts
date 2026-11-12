@@ -79,7 +79,6 @@ import { initProxy, registerProxyIpc, restoreStartupProxyEnv } from "./proxy-hos
 import { installApplicationMenu } from "./app-menu";
 import { enableHardwareAcceleration } from "./gpu-flags";
 import { enableRemoteDebugging } from "./remote-debugging";
-import { installDevBridge } from "./dev-bridge";
 import {
 	installLocalFileProtocol,
 	registerLocalFileScheme,
@@ -97,9 +96,6 @@ if (process.platform === "win32") process.env.HOME = homedir();
 /** GPU raster / compositing before ready (no-op if only software GL). */
 enableHardwareAcceleration();
 enableRemoteDebugging();
-// 只有 electron-vite dev（渲染层由 Vite 开发服务器提供）才开预览桥；
-// preview / 打包版都没有桥脚本，开了也只是白占端口。
-if (process.env.NODE_ENV_ELECTRON_VITE === "development") installDevBridge();
 markStartup("main:module-loaded");
 installIpcTiming();
 registerLocalFileScheme();
@@ -201,7 +197,8 @@ process.on("unhandledRejection", (reason) => {
 	console.error("[main] unhandledRejection:", message);
 });
 
-void acquireSingleInstanceLock().then((gotSingleInstanceLock) => {	if (!gotSingleInstanceLock) {
+void acquireSingleInstanceLock().then((gotSingleInstanceLock) => {
+	if (!gotSingleInstanceLock) {
 		app.quit();
 		return;
 	}
@@ -391,7 +388,11 @@ function boot(): void {
 		markStartup("main:ipc-critical-done");
 
 		// Allow mic/camera for the embedded browser (macOS TCC still gates via askForMediaAccess).
-		const allowPermissions = new Set([
+		/**
+		 * 应用自身文档（主窗口 / 悬浮窗）可用的权限：渲染层需要剪贴板、通知、
+		 * 媒体、全屏与外部打开。
+		 */
+		const appPermissions = new Set([
 			"media",
 			"mediaKeySystem",
 			"display-capture",
@@ -402,6 +403,23 @@ function boot(): void {
 			"pointerLock",
 			"openExternal",
 		]);
+		/**
+		 * 内置浏览器的网页（webview guest）只保留预览类权限。
+		 * 之前对所有来源放行，等于任何站点都能静默读取系统剪贴板、弹通知、
+		 * 申请屏幕捕获；这里按来源收窄，剪贴板/通知/屏幕捕获一律拒绝。
+		 */
+		const guestPermissions = new Set(["media", "fullscreen", "pointerLock"]);
+
+		function permissionsFor(contents: Electron.WebContents | null): Set<string> {
+			if (!contents) return appPermissions;
+			let type: string;
+			try {
+				type = contents.getType();
+			} catch {
+				return guestPermissions;
+			}
+			return type === "webview" ? guestPermissions : appPermissions;
+		}
 
 		async function ensureDarwinMediaAccess(
 			mediaTypes: Array<"audio" | "video"> | undefined,
@@ -426,9 +444,9 @@ function boot(): void {
 		}
 
 		session.defaultSession.setPermissionRequestHandler(
-			(_wc, permission, callback, details) => {
+			(wc, permission, callback, details) => {
 				void (async () => {
-					if (!allowPermissions.has(permission)) {
+					if (!permissionsFor(wc).has(permission)) {
 						callback(false);
 						return;
 					}
@@ -443,8 +461,8 @@ function boot(): void {
 				})();
 			},
 		);
-		session.defaultSession.setPermissionCheckHandler((_wc, permission) => {
-			return allowPermissions.has(permission);
+		session.defaultSession.setPermissionCheckHandler((wc, permission) => {
+			return permissionsFor(wc).has(permission);
 		});
 
 		const icon = resolveAppIcon();

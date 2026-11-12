@@ -70,7 +70,7 @@ export const IpcChannels = {
 		/** Renderer → main: 审批条的选择结果。 */
 		reply: "permissions:reply",
 	},
-	/** 共享状态统一通道：桌面端与浏览器预览页据此同步。 */
+	/** 共享状态统一通道：各窗口据此同步。 */
 	state: {
 		/** Main → renderer: 共享状态变化（按范围，见 shared/state-sync.ts）。 */
 		changed: "state:changed",

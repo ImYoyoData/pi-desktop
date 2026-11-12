@@ -60,7 +60,8 @@ function createToastWindow(): BrowserWindow {
 		alwaysOnTop: true,
 		webPreferences: {
 			preload: join(__dirname, "../preload/index.js"),
-			sandbox: false,
+			// Same preload bundle as the main window: it only requires "electron".
+			sandbox: true,
 			contextIsolation: true,
 		},
 	});

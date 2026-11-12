@@ -1079,8 +1079,6 @@ export const en = {
 
 	// Browser
 	urlPlaceholder: "Enter a URL",
-	browserPreviewUnavailable:
-		"The built-in browser needs Electron's webview and is unavailable in external browser preview mode. Use the desktop app.",
 	resizeDevtools: "Drag to resize",
 	browserNotReady: "Browser is not ready yet",
 	cannotOpenDevtools: "Could not open DevTools",

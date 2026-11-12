@@ -45,13 +45,6 @@ function broadcastAskUser(payload: AskUserAskRequest): void {
   }
 }
 
-/** Re-send every outstanding ask to a freshly loaded renderer (reload / language switch). */
-export function resendPendingAskUserAsks(webContents: Electron.WebContents): void {
-  for (const payload of snapshotPendingAskUserAsks()) {
-    webContents.send(IpcChannels.sessions.askUser, payload);
-  }
-}
-
 function broadcastCancelled(sessionId: string, requestId: string): void {
   broadcastAskUser({ sessionId, requestId, cancelled: true });
 }
