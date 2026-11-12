@@ -4,12 +4,22 @@
 
 修复切到 OMP 引擎后首条消息报 `Model not found` 的问题：模型菜单此前永远读 Pi 的 `models.json` 目录，把 Pi 的 `provider/id` 发给 OMP worker 的 `set_model` 必然失败；重新开会话能恢复，是因为新草稿的菜单回落到了 OMP 自己的列表。
 
+### 变更 Changes
+
+- **升级 omp SDK 到 18.18.9 与桌面依赖**：`@oh-my-pi/pi-coding-agent` / `pi-tui` / `pi-utils` 从 18.18.7 升到 18.18.9，桌面直接 import 的 SDK 子路径与设置 schema 均无变化（重新生成后仅 `ompVersion` 变动），斜杠命令清单同步移除上游已下线的 `/mcp smithery-search|login|logout`；electron 升至 45.3.1（Chromium 156.0.8078.96）、vite 8.3.8、`@vitejs/plugin-react` 6.3.0、marked 18.2.0、markstream-react 2.0.25（`markstream-core` 同步）。
+
 ### 修复 Fixes
 
 - **修复切到 OMP 后首条消息报 `Model not found`**：输入框的模型菜单之前只读 Pi 的模型目录（`models.json` + 桌面端筛选），而 Pi 与 OMP 是两套独立配置（`models.yml`），模型 id 只在各自后端成立。切到 OMP 后菜单仍列着 Pi 的模型，点选或发送时把 Pi 的 `provider/id` 下发给 OMP worker，`modelRegistry.find()` 找不到就报 `Model not found`，整条消息发不出去；重新开会话时新草稿回落到了 OMP 自己的模型列表，所以看起来“重开就好了”。现在菜单按当前引擎取目录：OMP 走新增的 `ompModels:list`（由 worker 的 `modelRegistry.getAvailableModels()` 返回真正可用、已按凭据过滤的模型），没有存活 worker 时退回 `models.yml` 的静态行，至少能列出用户自己配的供应商。
 - **会话级的模型/思考偏好按引擎隔离**：偏好键改为 `pi\u0000<sessionId>` / `omp\u0000<sessionId>`，同一个会话 id 在 Pi 与 OMP 下各存一份。此前共用一条键，切引擎后不但沿用另一侧的模型 id，菜单还会把不存在的模型标成“已选中”。升级时旧的裸会话 id 会一次性迁移到 Pi 前缀下，已有选择不会丢；OMP 侧则重新选择（把 Pi 的模型 id 搬过去只会重现同一个错误）。
 - **修复切换引擎后菜单不刷新**：切换引擎现在当作一次全新的会话绑定处理：清空已应用的模型标记、旧引擎的选中值与整个菜单，再按新引擎重新拉取，避免旧列表仍可点、点下去就是一次注定失败的 `set_model`。
 - **保存 OMP 模型配置后立即生效**：OMP 设置页保存 `models.yml` 后广播一次模型变更，输入框菜单马上重新读取，不必等到下次切会话。
+- **上下文轮换不再把系统提示词显示成摘要**：omp 的笔记式上下文轮换（`compaction.experimentalContextManagement`）把 `<context-window-rollover>` 提示词原样写进 compaction entry 的 `summary`，桌面按普通压缩摘要渲染，展开后是一整段英文内部提示。历史解析现在识别 `details.kind`，这类条目显示为「已切换上下文窗口」并标注 `N tokens → 新窗口`，展开是本地化说明；真实摘要不受影响。
+- **修复运行中切回会话时整轮消息重复**：切回运行中的会话时，磁盘历史要和内存里的 live 尾部拼接，拼接锚点是最后一条提问；图片消息发送时 `agentText` 是空格占位，落盘后却是空文本，两边按原文比较永远对不上，于是磁盘上那一轮（用户图片 + 整段过程）原样保留，后面又接了一份 live 副本。现在比较前先剥离注入块并去掉空白，且只把磁盘最后一条提问认作当前轮；提问还没落盘时仍按原逻辑接在磁盘历史后面，新消息不会丢。拼接时也会保留用户已经翻出来的更早分页，不再被刷新后的尾部一页截掉。
+
+### Changes (English)
+
+- **Upgraded the omp SDK to 18.18.9 and refreshed desktop dependencies**: `@oh-my-pi/pi-coding-agent`, `pi-tui` and `pi-utils` moved from 18.18.7 to 18.18.9; the SDK subpaths the desktop imports and the settings schema are unchanged (regeneration only bumps `ompVersion`), and the slash catalog drops the retired `/mcp smithery-search|login|logout` subcommands. Electron is now 45.3.1 (Chromium 156.0.8078.96), alongside vite 8.3.8, `@vitejs/plugin-react` 6.3.0, marked 18.2.0 and markstream-react 2.0.25 (`markstream-core` follows).
 
 ### Fixes
 
@@ -17,6 +27,8 @@
 - **Per-engine isolation of session model/thinking prefs**: pref keys are now `pi\u0000<sessionId>` / `omp\u0000<sessionId>`, so one session id keeps a separate choice per engine. They used to share a single key, which meant a switch carried the other engine's model id over and even marked a non-existent model as selected. Upgrading migrates the old bare ids to the Pi prefix once, so existing choices survive; OMP starts fresh because copying Pi's model ids there would just reproduce the same error.
 - **Fixed the menu not refreshing after an engine switch**: an engine switch is now treated as a fresh session binding — the applied-model marker, the previous engine's selection and the whole menu are cleared and refetched for the new engine, so a stale entry can no longer be clicked into a guaranteed-failing `set_model`.
 - **Saving the OMP model config takes effect immediately**: saving `models.yml` in OMP settings now broadcasts a models change, so the composer menu re-reads it right away instead of waiting for the next session switch.
+- **Context rollover no longer renders its system prompt as a summary**: omp's notes-backed context rollover (`compaction.experimentalContextManagement`) writes the `<context-window-rollover>` prompt verbatim into the compaction entry's `summary`, and the desktop rendered it as an ordinary compaction summary, so expanding the card showed internal English instructions. History parsing now reads `details.kind`; such entries display as "Context window rolled over" with `N tokens → new window` and a localized explanation when expanded. Real summaries are unchanged.
+- **Fixed a running session rendering its turn twice after switching back**: hydrating while a turn is live merges the disk history with the in-memory tail, anchoring on the last user prompt; image-only prompts are sent with `agentText` `" "` but land on disk as empty text, so the comparison never matched — the disk copy of the turn (user image plus every step) stayed and the live copy was appended after it. The comparison now strips injected blocks and whitespace, and only the disk's last prompt can anchor the current turn; when the prompt has not reached disk yet the live tail is still appended, so nothing new is lost. Older pages the user had already loaded are also kept instead of being truncated by the refreshed tail page.
 
 ## v0.3.8-rc.1 (2026-11-03)
 

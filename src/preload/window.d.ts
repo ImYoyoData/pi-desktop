@@ -1,9 +1,12 @@
 import type { PiDesktopApi } from "../shared/api";
-import type { ElectronAPI } from "@electron-toolkit/preload";
+
+export type RendererElectronApi = {
+  process: { versions: Record<string, string | undefined> };
+};
 
 declare global {
   interface Window {
-    electron: ElectronAPI;
+    electron: RendererElectronApi;
     api: PiDesktopApi;
   }
 }

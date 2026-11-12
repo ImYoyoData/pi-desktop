@@ -16,6 +16,8 @@ files:
   # 本地状态 / 临时目录 / 未构建的源（.pi-glla 是 GLLA 会话与 owner 数据，绝不能进包）
   - "!.pi/**"
   - "!.pi-glla/**"
+  - "!.vitest/**"
+  - "!.tmp-*/**"
   - "!scratch_*/**"
   - "!tmp-freeze/**"
   - "!vitest.config.ts"

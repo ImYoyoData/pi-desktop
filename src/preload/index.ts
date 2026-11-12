@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
-import { electronAPI } from "@electron-toolkit/preload";
 import { createApi } from "../shared/api";
 import type { ApiIpc } from "../shared/api";
 
@@ -38,14 +37,19 @@ const api = createApi(electronIpc, {
 	getPathForFile: (file) => webUtils.getPathForFile(file),
 });
 
+/** 仅暴露版本号：完整 electronAPI 会带出 ipcRenderer 与 process.env。 */
+const electronBridge = {
+	process: { versions: process.versions },
+};
+
 if (process.contextIsolated) {
 	try {
-		contextBridge.exposeInMainWorld("electron", electronAPI);
+		contextBridge.exposeInMainWorld("electron", electronBridge);
 		contextBridge.exposeInMainWorld("api", api);
 	} catch (error) {
 		console.error(error);
 	}
 } else {
-	window.electron = electronAPI;
+	window.electron = electronBridge;
 	window.api = api;
 }
