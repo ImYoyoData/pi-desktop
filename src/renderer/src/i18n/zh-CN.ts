@@ -281,7 +281,7 @@ export const zh = {
 	customizeKeysDesc: "自定义应用快捷键：改键、单项开关与总开关。",
 	hotkeyNewSession: "新建会话",
 	hotkeySelectSessions: "选择会话",
-	
+
 	hotkeyNewTerminal: "新建终端",
 	hotkeyCloseTerminal: "关闭终端",
 	hotkeyOpenFile: "打开文件",
@@ -595,7 +595,6 @@ export const zh = {
 	restore: "还原",
 	welcomeTitle: "开始使用 Pi",
 	addWorkspace: "添加工作区",
-	loadOlderHistory: "加载更早的历史",
 	agentRunning: "Pi 运行中…",
 	agentWaitStarting: "正在启动…",
 	agentWaitModel: "等待模型响应…",
@@ -689,6 +688,11 @@ export const zh = {
 	retryRequest: "重试",
 	summaryCompaction: "上下文已压缩",
 	summaryBranch: "分支摘要",
+	summaryRollover: "已切换上下文窗口",
+	summaryRolloverTokens: (tokens: number) =>
+		`${tokens.toLocaleString()} tokens → 新窗口`,
+	summaryRolloverNote:
+		"没有生成摘要；较早的对话已移出模型上下文，原始记录仍然保留，模型可按需回看。",
 	summaryTokens: (tokens: number) =>
 		`${tokens.toLocaleString()} tokens → 摘要`,
 	summaryDuration: (text: string) => `耗时 ${text}`,

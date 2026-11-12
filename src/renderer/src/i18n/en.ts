@@ -290,7 +290,7 @@ export const en = {
 	customizeKeysDesc: "Application shortcuts: rebind, toggle each, or disable all.",
 	hotkeyNewSession: "New session",
 	hotkeySelectSessions: "Select sessions",
-	
+
 	hotkeyNewTerminal: "New terminal",
 	hotkeyCloseTerminal: "Close terminal",
 	hotkeyOpenFile: "Open file",
@@ -612,7 +612,6 @@ export const en = {
 	restore: "Restore",
 	welcomeTitle: "Get started with Pi",
 	addWorkspace: "Add workspace",
-	loadOlderHistory: "Load earlier history",
 	agentRunning: "Pi is running…",
 	agentWaitStarting: "Starting…",
 	agentWaitModel: "Waiting for model…",
@@ -709,6 +708,11 @@ export const en = {
 	retryRequest: "Retry",
 	summaryCompaction: "Context compacted",
 	summaryBranch: "Branch summary",
+	summaryRollover: "Context window rolled over",
+	summaryRolloverTokens: (tokens: number) =>
+		`${tokens.toLocaleString()} tokens → new window`,
+	summaryRolloverNote:
+		"No summary was generated. Earlier turns left the model context; the raw transcript is preserved and can be recalled on demand.",
 	summaryTokens: (tokens: number) => `${tokens.toLocaleString()} tokens → summary`,
 	summaryDuration: (text: string) => `took ${text}`,
 	summaryCost: (text: string) => `${text} tokens for the summary`,

@@ -594,7 +594,6 @@ export const ja = {
 	restore: "元に戻す",
 	welcomeTitle: "Pi を始めよう",
 	addWorkspace: "ワークスペースを追加",
-	loadOlderHistory: "以前の履歴を読み込む",
 	agentRunning: "Pi 実行中…",
 	agentWaitStarting: "起動しています…",
 	agentWaitModel: "モデルの応答を待っています…",
@@ -688,6 +687,11 @@ export const ja = {
 	retryRequest: "再試行",
 	summaryCompaction: "コンテキストを圧縮しました",
 	summaryBranch: "ブランチの要約",
+	summaryRollover: "コンテキストウィンドウを切り替えました",
+	summaryRolloverTokens: (tokens: number) =>
+		`${tokens.toLocaleString()} tokens → 新しいウィンドウ`,
+	summaryRolloverNote:
+		"要約は生成されていません。以前の会話はモデルのコンテキストから外れましたが、元の記録は保持されており、必要に応じて参照できます。",
 	summaryTokens: (tokens: number) =>
 		`${tokens.toLocaleString()} tokens → 要約`,
 	summaryDuration: (text: string) => `${text} かかりました`,

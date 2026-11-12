@@ -718,6 +718,8 @@ export type SessionHistoryMessage =
 			text: string;
 			/** 上下文压缩摘要 / 分支摘要。 */
 			kind: "compaction" | "branch";
+			/** omp 实验性上下文轮换：summary 是系统提示词，不是模型摘要，界面不展示原文。 */
+			rollover?: boolean;
 			/** 压缩前的 token 数（compaction 才有）。 */
 			tokensBefore?: number;
 			/** 生成摘要消耗的输出 token（只能从落盘 usage 还原）。 */

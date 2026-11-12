@@ -45,17 +45,6 @@
   box-sizing: border-box;
 }
 
-/* 往上翻历史的入口常驻视口顶部：列表顶部可能压着很长的估算占位，不粘住就点不到。 */
-.loadOlder {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: flex;
-  justify-content: center;
-  flex-shrink: 0;
-  padding: 4px 0;
-}
-
 .jumpLatest {
   position: absolute;
   left: 50%;

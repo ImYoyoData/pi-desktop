@@ -594,7 +594,6 @@ export const zhTW = {
 	restore: "還原",
 	welcomeTitle: "開始使用 Pi",
 	addWorkspace: "新增工作區",
-	loadOlderHistory: "載入更早的歷史",
 	agentRunning: "Pi 執行中…",
 	agentWaitStarting: "正在啟動…",
 	agentWaitModel: "等待模型回應…",
@@ -688,6 +687,11 @@ export const zhTW = {
 	retryRequest: "重試",
 	summaryCompaction: "上下文已壓縮",
 	summaryBranch: "分支摘要",
+	summaryRollover: "已切換上下文視窗",
+	summaryRolloverTokens: (tokens: number) =>
+		`${tokens.toLocaleString()} tokens → 新視窗`,
+	summaryRolloverNote:
+		"未產生摘要；較早的對話已移出模型上下文，原始記錄仍然保留，模型可視需要回看。",
 	summaryTokens: (tokens: number) =>
 		`${tokens.toLocaleString()} tokens → 摘要`,
 	summaryDuration: (text: string) => `耗時 ${text}`,

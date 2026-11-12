@@ -93,6 +93,8 @@ export type ChatMessage =
 			text: string;
 			/** 上下文压缩摘要 / 分支摘要。 */
 			kind: "compaction" | "branch";
+			/** omp 实验性上下文轮换：text 是系统提示词，界面展示本地化说明。 */
+			rollover?: boolean;
 			/** 压缩前的 token 数。 */
 			tokensBefore?: number;
 			/** 压缩耗时（compaction_start → compaction_end）。 */
@@ -867,6 +869,7 @@ function imagesFromMessage(
 function assistantFromPartial(
 	msg: Record<string, unknown>,
 	prev: ChatMessage | null,
+	snapshots?: { text: string; thinking: string },
 ): Extract<ChatMessage, { role: "assistant" }> {
 	const id =
 		typeof msg.id === "string" && msg.id.length > 0
@@ -874,8 +877,8 @@ function assistantFromPartial(
 			: prev?.role === "assistant"
 				? prev.id
 				: localId("assistant");
-	const snapshot = textFromMessage(msg);
-	const thinkingSnap = thinkingFromMessage(msg);
+	const snapshot = snapshots?.text ?? textFromMessage(msg);
+	const thinkingSnap = snapshots?.thinking ?? thinkingFromMessage(msg);
 	const prevText = prev?.role === "assistant" ? prev.text : "";
 	const prevThinking = prev?.role === "assistant" ? (prev.thinking ?? "") : "";
 	const prevStarted =
@@ -1244,13 +1247,17 @@ function reduceAgentPayload(
 			return { ...state, running: true, messages };
 		}
 
-		let nextStream = assistantFromPartial(msg, state.streamingMessage);
+		const snapshot = textFromMessage(msg);
+		const thinkingSnap = thinkingFromMessage(msg);
+		let nextStream = assistantFromPartial(msg, state.streamingMessage, {
+			text: snapshot,
+			thinking: thinkingSnap,
+		});
 
 		const assistantEvent = payload.assistantMessageEvent;
 		if (assistantEvent && typeof assistantEvent === "object") {
 			const ev = assistantEvent as Record<string, unknown>;
 			if (ev.type === "text_delta" && typeof ev.delta === "string") {
-				const snapshot = textFromMessage(msg);
 				if (!snapshot) {
 					nextStream = stampThinkingClock({
 						...nextStream,
@@ -1259,7 +1266,7 @@ function reduceAgentPayload(
 				}
 			}
 			if (ev.type === "thinking_delta" && typeof ev.delta === "string") {
-				const snap = thinkingFromMessage(msg);
+				const snap = thinkingSnap;
 				const current = nextStream.thinking ?? "";
 				// Prefer growing snapshot; only append delta when snapshot is empty/stale.
 				if (snap && snap.length >= current.length) {

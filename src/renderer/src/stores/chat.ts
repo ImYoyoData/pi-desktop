@@ -348,9 +348,9 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 			const parsed = (raw ? JSON.parse(raw) : {}) as Record<string, AskUserAnswerDraft>;
 			parsed[requestId] = draft;
 			const keys = Object.keys(parsed).slice(-8);
-		const trimmed: Record<string, AskUserAnswerDraft> = {};
-		for (const k of keys) trimmed[k] = parsed[k]!;
-		sessionStorage.setItem(ASK_DRAFT_KEY, JSON.stringify(trimmed));
+			const trimmed: Record<string, AskUserAnswerDraft> = {};
+			for (const k of keys) trimmed[k] = parsed[k]!;
+			sessionStorage.setItem(ASK_DRAFT_KEY, JSON.stringify(trimmed));
 		} catch {
 			// ignore — best effort only
 		}
@@ -381,7 +381,7 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 			if (!raw) return;
 			const parsed = JSON.parse(raw) as Record<string, unknown>;
 			delete parsed[requestId];
-		sessionStorage.setItem(ASK_DRAFT_KEY, JSON.stringify(parsed));
+			sessionStorage.setItem(ASK_DRAFT_KEY, JSON.stringify(parsed));
 		} catch {
 			// ignore
 		}
@@ -561,6 +561,7 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 				role: "summary" as const,
 				text: row.text,
 				kind: row.kind,
+				...(row.rollover ? { rollover: true } : {}),
 				...(row.tokensBefore != null ? { tokensBefore: row.tokensBefore } : {}),
 				...(row.summaryTokens != null ? { summaryTokens: row.summaryTokens } : {}),
 			};
@@ -723,7 +724,7 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 		}
 		if (event.method === "setEditorText") {
 			if (event.sessionId !== useSessionsStore.getState().activeId) return;
-			useComposerStore.setState({ draft: event.text });
+			useComposerStore.getState().setDraft(event.text);
 			return;
 		}
 		if (event.method === "setWidget") {
@@ -1082,8 +1083,8 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 			if (softHangReported.has(sessionId)) continue;
 			const waitingUser = Boolean(
 				state.pendingAskUser ||
-					state.pendingExtensionUi ||
-					state.pendingPermission,
+				state.pendingExtensionUi ||
+				state.pendingPermission,
 			);
 			const outputSilenceMs = agentOutputSilenceMs(state, now);
 			const workerSilenceMs = agentWorkerSilenceMs(state, now);
@@ -1179,22 +1180,40 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 		if (!liveMessages.length) return mapped;
 		if (!mapped.length) return liveMessages;
 		const diskTailId = mapped.at(-1)!.id;
+		// live 可能已经加载了更早的分页：磁盘页起点之前那段要保留，否则切回运行中的
+		// 会话时，用户翻出来的历史会被这一页截掉。
+		const liveHeadIdx = liveMessages.findIndex((m) => m.id === mapped[0]!.id);
+		const prefix = liveHeadIdx > 0 ? liveMessages.slice(0, liveHeadIdx) : [];
 		const anchorIdx = liveMessages.findIndex((m) => m.id === diskTailId);
 		if (anchorIdx >= 0) {
 			// live 由同一份磁盘历史 hydrate 而来：保留对象身份，只追加更新的尾部。
 			if (anchorIdx === liveMessages.length - 1) return liveMessages;
-			return [...mapped, ...liveMessages.slice(anchorIdx + 1)];
+			return [...prefix, ...mapped, ...liveMessages.slice(anchorIdx + 1)];
 		}
 		const liveUser = liveMessages.findLastIndex((m) => m.role === "user");
 		const liveUserMsg = liveUser >= 0 ? liveMessages[liveUser] : undefined;
 		if (liveUserMsg?.role !== "user") return mapped;
-		const liveText = liveUserMsg.agentText ?? liveUserMsg.text;
-		const diskUser = mapped.findLastIndex(
-			(m) =>
-				m.role === "user" && (m.agentText ?? m.text) === liveText,
-		);
-		const head = diskUser >= 0 ? mapped.slice(0, diskUser) : mapped;
-		return [...head, ...liveMessages.slice(liveUser)];
+		// 注入块（附件、选区引用）和发送时的空格占位都不算内容：图片消息在磁盘上是
+		// 空文本、在 live 里是 agentText " "，只按原文比较永远对不上。
+		const liveKey = stripInjectedBlocks(
+			liveUserMsg.agentText ?? liveUserMsg.text,
+		).trim();
+		const diskUser = mapped.findLastIndex((m) => m.role === "user");
+		const diskUserMsg = diskUser >= 0 ? mapped[diskUser] : undefined;
+		const diskKey =
+			diskUserMsg?.role === "user"
+				? stripInjectedBlocks(diskUserMsg.agentText ?? diskUserMsg.text).trim()
+				: null;
+		// 磁盘最后一条提问就是这一轮：整轮改用 live 行，否则磁盘尾部会原样留一份。
+		if (diskKey !== null && diskKey === liveKey) {
+			return [
+				...prefix,
+				...mapped.slice(0, diskUser),
+				...liveMessages.slice(liveUser),
+			];
+		}
+		// 提问还没落盘（磁盘停在上一轮）：live 尾部不能丢，直接接在磁盘历史后面。
+		return [...prefix, ...mapped, ...liveMessages.slice(liveUser)];
 	}
 
 	/**
@@ -1248,11 +1267,11 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 		const mapped = history.map(mapHistoryRow);
 		const live = get().bySession[sessionId];
 		if (live && hasLiveTurnState(live)) {
-// Session already has a live turn in memory (streaming tail / ask_user
+			// Session already has a live turn in memory (streaming tail / ask_user
 			// / extension strip). The disk page read on session switch
 			// lags the live turn, so replacing state would drop the pending prompt
 			// and any un-flushed stream tail; keep it until the turn settles.
-softHangReported.delete(sessionId);
+			softHangReported.delete(sessionId);
 			const merged = reconcileRunning(sessionId, {
 				...live,
 				messages: mergeHistoryWithLive(mapped, live.messages),
@@ -1398,7 +1417,7 @@ softHangReported.delete(sessionId);
 	 * 返回停止函数，由应用级 bootstrap 持有。
 	 */
 	function startSoftHangWatchdog(): () => void {
-		if (softHangTimer) return () => {};
+		if (softHangTimer) return () => { };
 		softHangTimer = setInterval(() => checkSoftHangSessions(), 5_000);
 		return () => {
 			if (!softHangTimer) return;
