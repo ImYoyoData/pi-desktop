@@ -37,7 +37,7 @@
     "dist:mac:x64": "npm run icons && npm run build && node scripts/build-omp-worker.mjs darwin x64 && node scripts/ensure-dugite-git.mjs x64 && npx --yes @electron/rebuild --force --only=node-pty --arch=x64 && electron-builder --mac --x64 -c.npmRebuild=false --publish never",
     "dist:linux:x64": "npm run icons && npm run build && node scripts/build-omp-worker.mjs linux x64 && node scripts/ensure-dugite-git.mjs x64 && electron-builder --linux --x64 -c.npmRebuild=false --publish never",
     "dist:dir": "npm run icons && npm run build && node scripts/build-omp-worker.mjs && npm run dugite:git && electron-builder --dir",
-    "postinstall": "node node_modules/electron/install.js && node scripts/ensure-dugite-git.mjs && node scripts/patch-highlightjs-exports.mjs && electron-builder install-app-deps"
+    "postinstall": "node scripts/install-electron.mjs && node scripts/ensure-dugite-git.mjs && node scripts/patch-highlightjs-exports.mjs && electron-builder install-app-deps"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^1.5.2",

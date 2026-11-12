@@ -94,6 +94,11 @@ npm run build      # 构建
 npm run dist       # 构建当前平台安装包
 ```
 
+依赖安装阶段的下载（Electron 二进制、electron-builder 二进制）仍由 `.npmrc` 里的镜像键驱动；
+npm 13 起不再读取这些键，需改用环境变量 `ELECTRON_MIRROR`、`ELECTRON_CUSTOM_DIR`、
+`ELECTRON_BUILDER_BINARIES_MIRROR`。仓库自身的 `postinstall` 已先从 `.npmrc` 取值再调用
+Electron 安装脚本，因此仓库内重装不受 npm 版本影响。
+
 ## 界面语言
 
 支持简体中文、繁體中文、英语、日语

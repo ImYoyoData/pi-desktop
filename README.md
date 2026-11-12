@@ -94,6 +94,11 @@ npm run build      # build
 npm run dist       # package for the current platform
 ```
 
+Dependency installs (Electron binary and electron-builder binaries) are still driven by the
+keys in `.npmrc`; npm 13 stops reading those keys, so on npm 13+ set `ELECTRON_MIRROR`,
+`ELECTRON_CUSTOM_DIR` and `ELECTRON_BUILDER_BINARIES_MIRROR` as environment variables instead.
+The repo's own `postinstall` already sets them from `.npmrc` before running Electron's installer.
+
 ## Interface languages
 
 English, Simplified Chinese, Traditional Chinese and Japanese.
