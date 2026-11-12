@@ -29,7 +29,7 @@
   <img alt="language" src="https://img.shields.io/badge/language-TypeScript-3178C6?style=for-the-badge&labelColor=1a1a1a&logo=typescript&logoColor=white" />
 </a>
 <a href="https://www.electronjs.org/">
-  <img alt="electron" src="https://img.shields.io/badge/Electron-44-47848F?style=for-the-badge&labelColor=1a1a1a&logo=electron&logoColor=white" />
+  <img alt="electron" src="https://img.shields.io/badge/Electron-45-47848F?style=for-the-badge&labelColor=1a1a1a&logo=electron&logoColor=white" />
 </a>
 <a href="https://react.dev/">
   <img alt="react" src="https://img.shields.io/badge/React-19-087EA4?style=for-the-badge&labelColor=1a1a1a&logo=react&logoColor=61DAFB" />

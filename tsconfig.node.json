@@ -11,6 +11,7 @@
     "tests/main/**/*",
     "tests/shared/**/*",
     "tests/agent-worker/**/*",
+    "tests/omp-worker/**/*",
     "tests/scripts/**/*"
   ],
   "compilerOptions": {

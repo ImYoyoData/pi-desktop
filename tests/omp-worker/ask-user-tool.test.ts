@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { createOmpAskUserTool } from "../../src/omp-worker/ask-user-tool";
+import {
+	createOmpAskUserTool,
+	type OmpAskUserWaitForAnswers,
+} from "../../src/omp-worker/ask-user-tool";
 
 const OPTIONS = [
 	{ id: "y", label: "Yes" },
@@ -18,7 +21,7 @@ const QUESTIONS = [
 
 describe("createOmpAskUserTool", () => {
 	it("takes the abort signal from the custom-tool execute position", async () => {
-		const waitForAnswers = vi.fn(async () => "done");
+		const waitForAnswers = vi.fn<OmpAskUserWaitForAnswers>(async () => "done");
 		const tool = createOmpAskUserTool({ waitForAnswers });
 		const controller = new AbortController();
 

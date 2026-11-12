@@ -1,6 +1,7 @@
 # pnpm 11: these live here now, NOT in .npmrc (`.npmrc` pnpm settings are ignored).
 # Do not fail the whole install over a dependency script we deliberately skip —
-# scripts/ensure-dugite-git.mjs + scripts/rebuild-native.mjs do that work instead.
+# scripts/ensure-dugite-git.mjs and scripts/rebuild-native.mjs cover that work
+# (the latter is a manual fallback; no npm script invokes it).
 strictDepBuilds: false
 
 # `pnpm dev` used to spawn a hidden `pnpm install` (deps-status check) whose
@@ -9,10 +10,6 @@ strictDepBuilds: false
 verifyDepsBeforeRun: false
 allowBuilds:
   '@google/genai': false
-  # Skipped on purpose: the postinstall downloads the cloudflared *binary* with
-  # bare node:https (no system proxy), and the app resolves/verifies the binary
-  # itself at runtime (src/main/cloudflared-binary.ts).
-  cloudflared: false
   dugite: false
   electron: true
   electron-winstaller: false

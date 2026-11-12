@@ -145,7 +145,7 @@ export default defineConfig({
     // 浏览器预览桥的端口：dev 时注入，env 可换端口避开多实例抢占。
     plugins: [react(), devBridgePlugin()],
     build: {
-      // Electron 39 ships a modern Chromium: avoid transpiling to old
+      // Electron 45 ships a modern Chromium: avoid transpiling to old
       // syntax and speed up esbuild.
       target: "chrome130",
       reportCompressedSize: false,

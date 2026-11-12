@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import {
   parseSessionHistoryPageFromJsonl,
   parseSessionHistoryPageReverse,
@@ -198,8 +198,8 @@ describe("parseSessionHistoryPageReverse", () => {
     expect(page.messages).toEqual(full.messages);
   });
 
-  it("cleans up", () => {
-    rmSync(dir, { recursive: true, force: true });
-    expect(true).toBe(true);
-  });
+});
+
+afterAll(() => {
+  rmSync(dir, { recursive: true, force: true });
 });

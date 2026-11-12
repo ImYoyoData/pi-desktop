@@ -4,7 +4,6 @@ import {
 	ASK_USER_MAX_OPTIONS,
 	ASK_USER_MAX_QUESTIONS,
 	ASK_USER_MIN_OPTIONS,
-	ASK_USER_RULES,
 	ASK_USER_TOOL_NAME,
 	parseAskUserArgs,
 	type AskUserQuestion,
@@ -190,5 +189,3 @@ export function createOmpAskUserTool(deps?: {
 		},
 	};
 }
-
-export const OMP_ASK_USER_RULES: readonly string[] = ASK_USER_RULES;
