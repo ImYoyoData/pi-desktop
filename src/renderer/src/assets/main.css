@@ -121,7 +121,7 @@
   --scrollbar-hover-alpha: 0.62;
   --scrollbar-active-alpha: 0.72;
 
-  /* Copilot (VS Code) chat tokens — 历史设计说明见 docs/superpowers/README.md */
+  /* Copilot (VS Code) chat tokens — 历史设计说明见 docs/archive/superpowers/README.md */
   --chat-font-m: 1rem;
   --chat-font-s: 0.9231rem;
   --chat-font-xs: 0.8462rem;

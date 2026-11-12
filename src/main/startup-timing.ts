@@ -52,7 +52,7 @@ function flushStartupTiming(): void {
 	}
 	// Startup report (marks + renderer resources + loop lag) used to print here
 	// and append to userData/startup-timing.log under PI_DESKTOP_STARTUP_TIMING=1.
-	// See git history / docs/superpowers/plans for the measurement scripts.
+	// See git history / docs/archive/superpowers/plans for the measurement scripts.
 	if (process.env.PI_DESKTOP_QUIT_AFTER_READY === "1") {
 		setTimeout(() => app.quit(), 500);
 	}
