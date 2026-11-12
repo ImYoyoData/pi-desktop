@@ -16,7 +16,6 @@ import {
 import { electronApp, is } from "@electron-toolkit/utils";
 import { homedir } from "node:os";
 import { join } from "path";
-import { existsSync } from "fs";
 import { IpcChannels } from "../shared/protocol";
 import { createUtilityProcessSpawnWorker } from "./agent-worker-host";
 import { createAgentBackends } from "./agent-backends";
@@ -30,7 +29,7 @@ import { registerSlashCommandsIpc } from "./slash-commands-ipc";
 import { registerOmpResourcesIpc } from "./omp-resources-ipc";
 import { registerSessionsIpc, cancelSessionUiAsks } from "./sessions-ipc";
 import { disposeAllOmpWorkers } from "./omp-worker-host";
-import { allowForceClose, createMainWindow } from "./window";
+import { allowForceClose, createMainWindow, resolveAppIcon } from "./window";
 import { cleanupUpdateTempDir } from "./update-temp";
 import { registerBrowserIpc } from "./browser-host";
 import type { WorkerOutbound } from "../shared/agent-worker-messages";
@@ -339,19 +338,6 @@ function boot(): void {
 				else window.webContents.openDevTools({ mode: "detach" });
 			}
 		});
-	}
-
-	function resolveAppIcon(): string | undefined {
-		const candidates = [
-			join(process.resourcesPath, "resources", "icon.png"),
-			join(process.resourcesPath, "icon.png"),
-			join(__dirname, "../../build/icon.png"),
-			join(__dirname, "../../resources/icon.png"),
-		];
-		for (const p of candidates) {
-			if (existsSync(p)) return p;
-		}
-		return undefined;
 	}
 
 	app.whenReady().then(() => {

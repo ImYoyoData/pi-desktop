@@ -12,7 +12,7 @@ import type {
 	SessionSummary,
 	TerminalShellOption,
 } from "./protocol";
-import { IpcChannels } from "./protocol";
+import { IpcChannels, toIpcPlain } from "./protocol";
 import type { AgentBackend } from "./agent-backend";
 import type { OmpCliStatus } from "./omp-cli";
 import type {
@@ -131,7 +131,7 @@ export type {
 function plainArgs<T>(value: T): T {
 	if (value === undefined || value === null) return value;
 	try {
-		return JSON.parse(JSON.stringify(value)) as T;
+		return toIpcPlain(value);
 	} catch {
 		return value;
 	}

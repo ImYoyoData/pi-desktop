@@ -527,10 +527,6 @@ export function createSessionBroker(deps: {
   }
 
   /**
-   * Start the Pi agent worker in the background so the first prompt after
-   * switching to a session is fast (no cold-start stall on send).
-   */
-  /**
    * Destroy the oldest idle workers once more than MAX_IDLE_WORKERS are alive,
    * so prewarming many sessions cannot balloon the process count.
    */
@@ -560,6 +556,10 @@ export function createSessionBroker(deps: {
     }
   }
 
+  /**
+   * Start the Pi agent worker in the background so the first prompt after
+   * switching to a session is fast (no cold-start stall on send).
+   */
   function prewarmWorker(sessionId: string): void {
     trimIdleWorkers();
     const rec = sessions.get(sessionId);

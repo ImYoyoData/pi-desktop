@@ -100,10 +100,10 @@ function hideToast(): void {
 
 /** 跟随主进程广播的更新状态显示/收起卡片；用户手动收起后同一状态不再弹出。 */
 export function syncUpdateToast(state: AppUpdateState): void {
-	if (state.status !== lastState.status) {
-		dismissed = false;
-		lastState = state;
-	}
+	// 同一状态下只记最新进度，但不再自动弹出（用户已手动收起）；
+	// 状态变化才恢复自动显示，避免下载进度一路刷新把卡片反复弹出来。
+	if (state.status !== lastState.status) dismissed = false;
+	lastState = state;
 	if (!VISIBLE_STATUS[state.status] || dismissed) {
 		hideToast();
 		return;

@@ -161,7 +161,6 @@ export async function downloadImageToCache(
   };
 }
 
-/** Remove the whole per-session attachment folder (session deleted). */
 /**
  * Delete one cached image file, but only if it lives inside the session's
  * attachments folder (never touch arbitrary paths from the renderer).
@@ -179,6 +178,7 @@ export function deleteImageFile(sessionFile: string, absPath: string): void {
   }
 }
 
+/** Remove the whole per-session attachment folder (session deleted). */
 export function deleteImageCache(filePath: string): void {
   const dir = imageCacheDirFor(filePath);
   try {

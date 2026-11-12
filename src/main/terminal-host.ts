@@ -67,6 +67,7 @@ function flushTerminalData(): void {
       data = data.slice(MAX_CHUNK);
       const payload = { id, data: chunk };
       for (const win of windows) {
+        if (win.isDestroyed()) continue;
         win.webContents.send(IpcChannels.terminal.data, payload);
       }
     }

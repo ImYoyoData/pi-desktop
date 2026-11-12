@@ -17,6 +17,7 @@ import { flushPendingFsWatch } from "./fs-watch-host";
 
 function broadcastUpdated(summary: CheckpointSummary): void {
 	for (const win of BrowserWindow.getAllWindows()) {
+		if (win.isDestroyed()) continue;
 		win.webContents.send(IpcChannels.checkpoint.updated, summary);
 	}
 }
