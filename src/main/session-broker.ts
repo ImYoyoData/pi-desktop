@@ -1165,6 +1165,11 @@ export function createSessionBroker(deps: {
     } else if (command.type === "prompt") {
       await rec!.settingsGate;
     }
+    if (!rec || sessions.get(sessionId) !== rec || rec.worker !== worker) {
+      gate.release?.();
+      if (!coldStart) return undefined;
+      throw new Error(`session worker unavailable: ${sessionId}`);
+    }
     if (command.type === "prompt" || command.type === "hang") {
       setStatus(sessionId, "running");
     }
@@ -1190,8 +1195,11 @@ export function createSessionBroker(deps: {
     const outbound = { kind: "command" as const, id: cmdId, command };
 
     if (!awaitsResult) {
-      await worker.send(outbound);
-      gate.release?.();
+      try {
+        await worker.send(outbound);
+      } finally {
+        gate.release?.();
+      }
       return undefined;
     }
 
@@ -1235,21 +1243,29 @@ export function createSessionBroker(deps: {
           resolve({ ok: true, forced: true });
         }, ABORT_FORCE_KILL_MS);
       }
-      void worker.send(outbound).then((direct) => {
-        if (direct?.kind === "result") {
-          const pending = rec!.pendingCommands.get(cmdId);
-          if (!pending) {
-            return;
-          }
-          rec!.pendingCommands.delete(cmdId);
-          clearForce();
-          if (direct.error) {
-            reject(new Error(direct.error));
-          } else {
-            resolve(direct.data);
-          }
-        }
-      });
+      const failSend = (error: unknown): void => {
+        rec!.pendingCommands.delete(cmdId);
+        clearForce();
+        reject(error instanceof Error ? error : new Error(String(error)));
+      };
+      try {
+        void worker.send(outbound)
+          .then((direct) => {
+            if (direct?.kind !== "result") return;
+            const pending = rec!.pendingCommands.get(cmdId);
+            if (!pending) return;
+            rec!.pendingCommands.delete(cmdId);
+            clearForce();
+            if (direct.error) {
+              reject(new Error(direct.error));
+            } else {
+              resolve(direct.data);
+            }
+          })
+          .catch(failSend);
+      } catch (error) {
+        failSend(error);
+      }
     });
     void settled.then(
       () => gate.release?.(),

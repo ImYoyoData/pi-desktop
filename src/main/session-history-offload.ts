@@ -25,6 +25,7 @@ type WorkerReplyWithId = WorkerReply & { id?: number };
 type PendingJob = {
   resolve: (msg: WorkerReply) => void;
   reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
 };
 
 type PooledWorker = {
@@ -55,6 +56,7 @@ function workerUnavailable(): Error {
 
 const MAX_POOL_SIZE = 2;
 const IDLE_TERMINATE_MS = 30_000;
+const JOB_TIMEOUT_MS = 120_000;
 const pool: PooledWorker[] = [];
 let nextJobId = 1;
 let idleTimer: NodeJS.Timeout | null = null;
@@ -94,6 +96,7 @@ function spawnPooledWorker(scriptPath: string): PooledWorker {
       }
     }
     if (!job) return;
+    clearTimeout(job.timer);
     if (!msg || typeof msg !== "object") {
       job.reject(new Error("history worker: invalid reply"));
     } else if (!msg.ok) {
@@ -104,7 +107,10 @@ function spawnPooledWorker(scriptPath: string): PooledWorker {
     armIdleTimer();
   });
   const failAll = (err: Error): void => {
-    for (const job of entry.pending.values()) job.reject(err);
+    for (const job of entry.pending.values()) {
+      clearTimeout(job.timer);
+      job.reject(err);
+    }
     entry.pending.clear();
     const idx = pool.indexOf(entry);
     if (idx >= 0) pool.splice(idx, 1);
@@ -149,10 +155,25 @@ function runHistoryWorker(job: {
   if (!scriptPath) return Promise.reject(workerUnavailable());
   const entry = acquireWorker(scriptPath);
   const id = nextJobId++;
-  return new Promise((resolve, reject) => {
-    entry.pending.set(id, { resolve, reject });
+  const { promise, resolve, reject } = Promise.withResolvers<WorkerReply>();
+  const timer = setTimeout(() => {
+    if (!entry.pending.delete(id)) return;
+    reject(new Error("history worker timed out"));
+    if (entry.pending.size === 0) {
+      const idx = pool.indexOf(entry);
+      if (idx >= 0) pool.splice(idx, 1);
+      void entry.worker.terminate();
+    }
+  }, JOB_TIMEOUT_MS);
+  entry.pending.set(id, { resolve, reject, timer });
+  try {
     entry.worker.postMessage({ ...job, id });
-  });
+  } catch (error) {
+    clearTimeout(timer);
+    entry.pending.delete(id);
+    reject(error instanceof Error ? error : new Error(String(error)));
+  }
+  return promise;
 }
 
 /** Session dir scan + summary parse off the Electron main process. */

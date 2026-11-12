@@ -16,6 +16,15 @@ export type SkillDto = {
   disableModelInvocation: boolean;
 };
 
+const knownSkillFiles = new Set<string>();
+
+function skillPathKey(filePath: string): string {
+  const resolved = path.resolve(filePath);
+  return process.platform === "win32" || process.platform === "darwin"
+    ? resolved.toLowerCase()
+    : resolved;
+}
+
 export async function listSkills(cwd: string): Promise<{ skills: SkillDto[]; diagnostics: string[] }> {
   const {
     DefaultResourceLoader,
@@ -29,6 +38,7 @@ export async function listSkills(cwd: string): Promise<{ skills: SkillDto[]; dia
   const loader = new DefaultResourceLoader({ cwd, agentDir, settingsManager });
   await loader.reload();
   const { skills, diagnostics } = loader.getSkills();
+  for (const skill of skills) knownSkillFiles.add(skillPathKey(skill.filePath));
   return {
     skills: skills.map((s) => ({
       name: s.name,
@@ -66,11 +76,18 @@ export function createSkillFromDraft(
   return { filePath };
 }
 
-export async function setSkillDisabled(filePath: string, disableModelInvocation: boolean): Promise<void> {
-  if (!fs.existsSync(filePath)) {
+export async function setSkillDisabled(
+  filePath: string,
+  disableModelInvocation: boolean,
+): Promise<void> {
+  const resolved = path.resolve(filePath);
+  if (path.basename(resolved) !== "SKILL.md" || !knownSkillFiles.has(skillPathKey(resolved))) {
+    throw new Error("Only loaded SKILL.md files can be toggled");
+  }
+  if (!fs.existsSync(resolved)) {
     throw new Error("skill file not found");
   }
-  const content = fs.readFileSync(filePath, "utf8");
+  const content = fs.readFileSync(resolved, "utf8");
   const key = "disable-model-invocation";
   const linePattern = new RegExp(`^${key}\\s*:[^\\n]*(\\r?\\n|$)`, "m");
   const frontmatter = /^\uFEFF?---\r?\n[\s\S]*?\r?\n---(?=\r?\n|$)/.exec(content);
@@ -92,7 +109,7 @@ export async function setSkillDisabled(filePath: string, disableModelInvocation:
 
   const updated = nextHead + body;
   if (updated !== content) {
-    fs.writeFileSync(filePath, updated, "utf8");
+    fs.writeFileSync(resolved, updated, "utf8");
   }
 }
 

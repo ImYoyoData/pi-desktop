@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { app } from "electron";
 import path from "node:path";
 import type {
@@ -91,6 +91,19 @@ function toOmpInbound(msg: WorkerInbound): OmpWorkerInbound | null {
 	}
 }
 
+const ompWorkers = new Set<ChildProcess>();
+
+export function disposeAllOmpWorkers(): void {
+	for (const child of ompWorkers) {
+		try {
+			child.kill();
+		} catch {
+			// ignore
+		}
+	}
+	ompWorkers.clear();
+}
+
 export function createOmpSpawnWorker(): SpawnWorker {
 	return async (cwd, filePath) => {
 		await refreshSystemProxy();
@@ -101,6 +114,8 @@ export function createOmpSpawnWorker(): SpawnWorker {
 			stdio: ["pipe", "pipe", "pipe"],
 			windowsHide: true,
 		});
+		ompWorkers.add(child);
+		child.once("close", () => ompWorkers.delete(child));
 
 		const listeners = new Set<(msg: WorkerOutbound) => void>();
 		let expectExit = false;
@@ -119,8 +134,14 @@ export function createOmpSpawnWorker(): SpawnWorker {
 			stderrTail = (stderrTail + chunk).slice(-4000);
 			process.stderr.write(`[omp-worker] ${chunk}`);
 		});
+		child.stdin?.on("error", (err) => {
+			process.stderr.write(`[omp-worker] stdin error: ${err.message}\n`);
+		});
 		child.on("error", (err) => {
 			emitFatal(err.message);
+		});
+		child.on("exit", () => {
+			exited = true;
 		});
 		child.on("close", (code) => {
 			exited = true;
@@ -154,11 +175,15 @@ export function createOmpSpawnWorker(): SpawnWorker {
 		const handle: WorkerHandle = {
 			send: (msg: WorkerInbound) => {
 				const outbound = toOmpInbound(msg);
-				if (outbound) child.stdin?.write(`${JSON.stringify(outbound)}\n`);
+				if (outbound) {
+					const stdin = child.stdin;
+					if (!stdin || stdin.destroyed || !stdin.writable) return Promise.resolve(null);
+					stdin.write(`${JSON.stringify(outbound)}\n`);
+				}
 				if (msg.kind !== "shutdown" || exited) return Promise.resolve(null);
-				return new Promise((resolve) => {
-					child.once("exit", () => resolve(null));
-				});
+				const { promise, resolve } = Promise.withResolvers<WorkerOutbound | null>();
+				child.once("exit", () => resolve(null));
+				return promise;
 			},
 			kill: () => {
 				expectExit = true;

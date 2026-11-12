@@ -16,7 +16,18 @@ type SelectState = {
 };
 
 const selectByWebContentsId = new Map<number, SelectState>();
+const selectCleanupBound = new Set<number>();
 const guestF12Bound = new Set<number>();
+
+function bindSelectCleanup(page: Electron.WebContents): void {
+  const id = page.id;
+  if (selectCleanupBound.has(id)) return;
+  selectCleanupBound.add(id);
+  page.once("destroyed", () => {
+    selectCleanupBound.delete(id);
+    selectByWebContentsId.delete(id);
+  });
+}
 
 function broadcastElementSelected(citation: ElementCitation): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -221,6 +232,7 @@ export function registerBrowserIpc(): void {
     try {
       await injectSelectMode(wc, getUiLocale());
       wc.on("console-message", onConsoleMessage);
+      bindSelectCleanup(wc);
       selectByWebContentsId.set(webContentsId, { active: true, onConsoleMessage });
       return { ok: true as const };
     } catch {

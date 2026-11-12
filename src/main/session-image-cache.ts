@@ -55,6 +55,33 @@ function ensureDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true });
 }
 
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+const IMAGE_HEADER_TIMEOUT_MS = 30_000;
+const IMAGE_BODY_TIMEOUT_MS = 60_000;
+
+async function readImageBody(resp: Response): Promise<Buffer> {
+  const declared = Number.parseInt(resp.headers.get("content-length") ?? "", 10);
+  if (Number.isFinite(declared) && declared > MAX_IMAGE_BYTES) {
+    throw new Error("downloaded image is too large");
+  }
+  if (!resp.body) throw new Error("downloaded image has no body");
+  const reader = resp.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > MAX_IMAGE_BYTES) {
+      await reader.cancel();
+      throw new Error("downloaded image is too large");
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks);
+}
+
 function writeImageBuffer(
   sessionFile: string,
   mimeType: string,
@@ -104,7 +131,7 @@ export async function downloadImageToCache(
     throw new Error("unsupported image URL protocol");
   }
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30_000);
+  const headerTimer = setTimeout(() => controller.abort(), IMAGE_HEADER_TIMEOUT_MS);
   let resp: Response;
   try {
     resp = await netFetch(url, {
@@ -113,10 +140,16 @@ export async function downloadImageToCache(
       headers: { accept: "image/avif,image/webp,image/png,image/jpeg,image/gif,image/*;q=0.8,*/*;q=0.1" },
     });
   } finally {
-    clearTimeout(timer);
+    clearTimeout(headerTimer);
   }
   if (!resp.ok) throw new Error(`failed to download image: HTTP ${resp.status}`);
-  const buffer = Buffer.from(await resp.arrayBuffer());
+  const bodyTimer = setTimeout(() => controller.abort(), IMAGE_BODY_TIMEOUT_MS);
+  let buffer: Buffer;
+  try {
+    buffer = await readImageBody(resp);
+  } finally {
+    clearTimeout(bodyTimer);
+  }
   if (buffer.length === 0) throw new Error("downloaded image is empty");
   const contentType = (resp.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
   const mimeType = /^image\//i.test(contentType) ? contentType : sniffMime(buffer);

@@ -186,6 +186,12 @@ export function moveWorkspaceEntry(
 
 export function deleteWorkspaceEntry(root: string, relativePath: string): void {
 	const abs = resolveWorkspacePath(root, relativePath);
+	const rootResolved = path.resolve(root);
+	const same =
+		process.platform === "win32" || process.platform === "darwin"
+			? abs.toLowerCase() === rootResolved.toLowerCase()
+			: abs === rootResolved;
+	if (same) throw new Error("Cannot delete the workspace root");
 	withoutAsar(() => fs.rmSync(abs, { recursive: true, force: false }));
 }
 

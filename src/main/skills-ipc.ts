@@ -27,8 +27,8 @@ export function registerSkillsIpc(broker?: {
   ipcMain.handle(
     IpcChannels.skills.setDisabled,
     async (_event, filePath: string, disableModelInvocation: boolean, cwd?: string) => {
-      await setSkillDisabled(filePath, disableModelInvocation);
       const root = cwd || getWorkspace() || undefined;
+      await setSkillDisabled(filePath, disableModelInvocation);
       if (root) await broker?.notifyWorkersReloadResources?.(root);
     },
   );

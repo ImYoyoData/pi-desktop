@@ -55,6 +55,7 @@ function publish(patch: Partial<AppUpdateState>): void {
 
 /** 检查新版本。 */
 async function runCheck(): Promise<AppUpdateState> {
+	if (download) return state;
 	if (isOfflineMode()) {
 		publish({ status: "idle", info: null, progress: null, error: null });
 		return state;
@@ -130,7 +131,7 @@ function applyAutoCheckPrefs(keys: string[]): void {
 async function runDownload(): Promise<void> {
 	const info = state.info;
 	if (!info) return;
-	if (state.status === "downloading" || state.status === "ready") return;
+	if (download || state.status === "downloading" || state.status === "ready") return;
 	cancelRequested = false;
 	downloadedPath = null;
 	publish({ status: "downloading", progress: null, error: null });
@@ -140,7 +141,7 @@ async function runDownload(): Promise<void> {
 			publish({ status: "ready", progress });
 			return;
 		}
-		publish({ progress });
+		publish({ status: "downloading", progress });
 	};
 
 	download = startAppUpdateDownload(info, onProgress);
@@ -162,7 +163,7 @@ async function runDownload(): Promise<void> {
  * 用于验证「检测 → 下载 → 安装」整条链路。
  */
 async function runForceUpdate(): Promise<void> {
-	if (state.status === "downloading" || state.status === "ready") return;
+	if (download || state.status === "downloading" || state.status === "ready") return;
 	publish({ status: "checking", info: null, progress: null, error: null });
 	try {
 		const info = await checkForAppUpdate(app.getVersion(), true);

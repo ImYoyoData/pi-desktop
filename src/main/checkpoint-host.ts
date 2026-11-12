@@ -63,8 +63,10 @@ const sessionStartKeyBySession = new Map<string, string>();
  *  baseline/touched payloads stay in memory, so revert still only works for
  *  the live session, but the button state survives. */
 const persistedBySession = new Map<string, CheckpointSummary[]>();
+const dirtySessions = new Set<string>();
+/** 每个会话最多保留的已完成检查点数；起点快照永不淘汰。 */
+const MAX_LIVE_CHECKPOINTS_PER_SESSION = 50;
 let persistDir: string | null = null;
-let persistDirty = false;
 
 function keyOf(sessionId: string, userMessageId: string): string {
 	return `${sessionId}::${userMessageId}`;
@@ -100,12 +102,18 @@ export function initCheckpointPersistence(dir: string): void {
 }
 
 function flushPersisted(): void {
-	if (!persistDirty || !persistDir) return;
-	persistDirty = false;
+	if (!persistDir || dirtySessions.size === 0) return;
+	const pending = [...dirtySessions];
+	dirtySessions.clear();
 	try {
-		for (const [sessionId, rows] of persistedBySession) {
-			if (!rows.length) continue;
-			fs.writeFileSync(persistFileFor(sessionId), JSON.stringify(rows), "utf8");
+		for (const sessionId of pending) {
+			const rows = persistedBySession.get(sessionId);
+			const file = persistFileFor(sessionId);
+			if (!rows?.length) {
+				fs.rmSync(file, { force: true });
+				continue;
+			}
+			fs.writeFileSync(file, JSON.stringify(rows), "utf8");
 		}
 	} catch {
 		// ignore persistence failures
@@ -126,7 +134,48 @@ function persistSummary(sessionId: string, userMessageId: string): void {
 	// Keep the newest 200 summaries per session to bound the file size.
 	if (rows.length > 200) rows.splice(0, rows.length - 200);
 	persistedBySession.set(sessionId, rows);
-	persistDirty = true;
+	dirtySessions.add(sessionId);
+	flushPersisted();
+}
+
+function dropCheckpoint(key: string): void {
+	const cp = byKey.get(key);
+	if (!cp) return;
+	byKey.delete(key);
+	if (activeBySession.get(cp.sessionId) === key) activeBySession.delete(cp.sessionId);
+	const rows = persistedBySession.get(cp.sessionId);
+	if (!rows) return;
+	const next = rows.filter((row) => row.userMessageId !== cp.userMessageId);
+	if (next.length === rows.length) return;
+	persistedBySession.set(cp.sessionId, next);
+	dirtySessions.add(cp.sessionId);
+	flushPersisted();
+}
+
+function pruneSessionCheckpoints(sessionId: string): void {
+	const startKey = sessionStartKeyBySession.get(sessionId);
+	const keys = [...byKey.entries()]
+		.filter(([, cp]) => cp.sessionId === sessionId && cp.status !== "capturing")
+		.sort((a, b) => a[1].createdAt - b[1].createdAt)
+		.map(([key]) => key);
+	let excess = keys.length - MAX_LIVE_CHECKPOINTS_PER_SESSION;
+	for (const key of keys) {
+		if (excess <= 0) break;
+		if (key === startKey) continue;
+		dropCheckpoint(key);
+		excess -= 1;
+	}
+}
+
+/** 会话被删除时释放内存中的基线并移除持久化摘要。 */
+export function clearSessionCheckpoints(sessionId: string): void {
+	for (const [key, cp] of [...byKey]) {
+		if (cp.sessionId === sessionId) byKey.delete(key);
+	}
+	activeBySession.delete(sessionId);
+	sessionStartKeyBySession.delete(sessionId);
+	persistedBySession.delete(sessionId);
+	dirtySessions.add(sessionId);
 	flushPersisted();
 }
 
@@ -314,6 +363,7 @@ export function finishCheckpoint(
 		activeBySession.delete(sessionId);
 	}
 	persistSummary(sessionId, userMessageId);
+	pruneSessionCheckpoints(sessionId);
 	return toSummary(cp);
 }
 
@@ -516,8 +566,8 @@ export function _resetCheckpointsForTests(): void {
 	activeBySession.clear();
 	sessionStartKeyBySession.clear();
 	persistedBySession.clear();
+	dirtySessions.clear();
 	persistDir = null;
-	persistDirty = false;
 }
 
 export type SessionNetFileStats = {

@@ -113,13 +113,23 @@ function toText(value: string | Buffer): string {
  * with "Unable to create index.lock: File exists" even though the exact same
  * command succeeds in a native terminal.
  */
-let gitChain: Promise<void> = Promise.resolve();
-function enqueueGit<T>(fn: () => Promise<T>): Promise<T> {
-  const run = gitChain.then(fn, fn);
-  gitChain = run.then(
+const gitChains = new Map<string, Promise<void>>();
+function gitChainKey(cwd: string): string {
+  const resolved = path.resolve(cwd);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+function enqueueGit<T>(cwd: string, fn: () => Promise<T>): Promise<T> {
+  const key = gitChainKey(cwd);
+  const previous = gitChains.get(key) ?? Promise.resolve();
+  const run = previous.then(fn, fn);
+  const tail = run.then(
     () => undefined,
     () => undefined,
   );
+  gitChains.set(key, tail);
+  void tail.then(() => {
+    if (gitChains.get(key) === tail) gitChains.delete(key);
+  });
   return run;
 }
 
@@ -129,7 +139,7 @@ async function git(
   maxBuffer = GIT_STATUS_MAX_BUFFER,
   timeoutMs = GIT_TIMEOUT_MS,
 ): Promise<string> {
-  return enqueueGit(() => gitSpawn(cwd, args, maxBuffer, timeoutMs));
+  return enqueueGit(cwd, () => gitSpawn(cwd, args, maxBuffer, timeoutMs));
 }
 
 async function gitSpawn(

@@ -1,6 +1,7 @@
 import { BrowserWindow, nativeImage, shell } from "electron";
-import { join } from "path";
+import { join, resolve, sep } from "path";
 import { existsSync } from "fs";
+import { fileURLToPath } from "url";
 import { is } from "@electron-toolkit/utils";
 import { IpcChannels } from "../shared/protocol";
 import type { EditContextMenuPayload } from "../shared/context-menu";
@@ -60,6 +61,43 @@ export function allowWindowClose(): void {
 
 export function allowForceClose(): void {
   forceClosing = true;
+}
+
+function isWebUrl(raw: string): boolean {
+  try {
+    const protocol = new URL(raw).protocol;
+    return protocol === "https:" || protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+function isExternalUrl(raw: string): boolean {
+  try {
+    const protocol = new URL(raw).protocol;
+    return protocol === "https:" || protocol === "http:" || protocol === "mailto:";
+  } catch {
+    return false;
+  }
+}
+
+function openExternalSafely(raw: string): void {
+  if (!isExternalUrl(raw)) return;
+  void shell.openExternal(raw);
+}
+
+/** 主框架只能停留在应用自己的文档上，其余导航交给系统浏览器。 */
+function isAppDocumentUrl(raw: string): boolean {
+  const devUrl = process.env["ELECTRON_RENDERER_URL"];
+  try {
+    const target = new URL(raw);
+    if (devUrl) return target.origin === new URL(devUrl).origin;
+    if (target.protocol !== "file:") return false;
+    const rendererDir = `${resolve(__dirname, "../renderer")}${sep}`;
+    return resolve(fileURLToPath(target)).startsWith(rendererDir);
+  } catch {
+    return false;
+  }
 }
 
 export function createMainWindow(): BrowserWindow {
@@ -126,8 +164,35 @@ export function createMainWindow(): BrowserWindow {
   mainWindow.on("closed", () => closeUpdateToast());
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    void shell.openExternal(details.url);
+    openExternalSafely(details.url);
     return { action: "deny" };
+  });
+
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (isAppDocumentUrl(url)) return;
+    event.preventDefault();
+    openExternalSafely(url);
+  });
+
+  mainWindow.webContents.on("will-attach-webview", (event, webPreferences, params) => {
+    delete webPreferences.preload;
+    webPreferences.nodeIntegration = false;
+    webPreferences.nodeIntegrationInSubFrames = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = true;
+    webPreferences.webSecurity = true;
+    webPreferences.allowRunningInsecureContent = false;
+    const src = params.src ?? "";
+    if (src && src !== "about:blank" && !isWebUrl(src)) {
+      event.preventDefault();
+    }
+  });
+
+  mainWindow.webContents.on("did-attach-webview", (_event, guest) => {
+    guest.setWindowOpenHandler((details) => {
+      openExternalSafely(details.url);
+      return { action: "deny" };
+    });
   });
 
   installEditContextMenu(mainWindow);

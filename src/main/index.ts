@@ -28,7 +28,8 @@ import { registerOmpModelsIpc } from "./omp-models-ipc";
 import { registerOmpSettingsIpc } from "./omp-settings-ipc";
 import { registerSlashCommandsIpc } from "./slash-commands-ipc";
 import { registerOmpResourcesIpc } from "./omp-resources-ipc";
-import { registerSessionsIpc } from "./sessions-ipc";
+import { registerSessionsIpc, cancelSessionUiAsks } from "./sessions-ipc";
+import { disposeAllOmpWorkers } from "./omp-worker-host";
 import { allowForceClose, createMainWindow } from "./window";
 import { cleanupUpdateTempDir } from "./update-temp";
 import { registerBrowserIpc } from "./browser-host";
@@ -273,8 +274,10 @@ function boot(): void {
 				}
 			})();
 		},
-		onSessionWorkerGone: (sessionId) =>
-			registryHolder.current?.endSessionRuns(sessionId),
+		onSessionWorkerGone: (sessionId) => {
+			cancelSessionUiAsks(sessionId);
+			registryHolder.current?.endSessionRuns(sessionId);
+		},
 		hasActiveRuns: (sessionId) =>
 			Boolean(registryHolder.current?.hasActiveRuns(sessionId)),
 	});
@@ -503,6 +506,13 @@ function boot(): void {
 				BrowserWindow.getAllWindows()[0]?.show();
 			}
 		});
+	}).catch((error) => {
+		console.error("[main] initialization failed:", error);
+		dialog.showErrorBox(
+			"Pi Desktop failed to start",
+			error instanceof Error && error.stack ? error.stack : String(error),
+		);
+		app.quit();
 	});
 
 	app.on("window-all-closed", () => {
@@ -515,5 +525,6 @@ function boot(): void {
 		// 程序化退出（如更新安装）不再等渲染层确认，直接放行关闭
 		allowForceClose();
 		disposeAllTerminals();
+		disposeAllOmpWorkers();
 	});
 }

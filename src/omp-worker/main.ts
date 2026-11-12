@@ -60,6 +60,10 @@ function dispatch(line: string): void {
 	});
 }
 
+process.stdin.on("end", () => process.exit(0));
+process.stdin.on("close", () => process.exit(0));
+process.stdin.on("error", () => process.exit(0));
+
 let buffer = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk: string) => {

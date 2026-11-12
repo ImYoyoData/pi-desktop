@@ -68,6 +68,9 @@ export function registerFilesIpc(): void {
   ipcMain.handle(IpcChannels.files.delete, (_event, relativePath: string) => {
     const root = getWorkspace();
     if (!root) throw new Error("Open a workspace folder first");
+    if (typeof relativePath !== "string" || !relativePath.trim()) {
+      throw new Error("A workspace-relative path is required");
+    }
     deleteWorkspaceEntry(root, relativePath);
   });
 
