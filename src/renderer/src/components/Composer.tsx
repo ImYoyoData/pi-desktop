@@ -142,6 +142,7 @@ import {
   thinkingLevelLabel,
   type ThinkingLevel,
 } from "@renderer/utils/thinking-level";
+import { nextFrame } from "./next-frame";
 import styles from "./Composer.module.css";
 
 export type ComposerProps = {
@@ -216,12 +217,6 @@ function useLatest<T>(initial: T): Latest<T> {
     }),
     [set],
   );
-}
-
-function nextFrame(): Promise<void> {
-  return new Promise<void>((resolve) => {
-    requestAnimationFrame(() => resolve());
-  });
 }
 
 /**
@@ -2606,7 +2601,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
                 <button
                   type="button"
                   className={styles.imgX}
-                  title="remove"
+                  title={t.remove}
                   onClick={(e) => {
                     e.stopPropagation();
                     useComposerStore.getState().removeImage(img.id);

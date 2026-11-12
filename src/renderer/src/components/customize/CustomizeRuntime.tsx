@@ -19,19 +19,10 @@ import {
 import { useMessage } from "@renderer/services/feedback";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./CustomizeRuntime.module.css";
+import { withCurrent, type NumericOption } from "./with-current";
 
-type Option = { label: string; value: number | string };
-
-function tokenOptions(values: readonly number[]): Option[] {
+function tokenOptions(values: readonly number[]): NumericOption[] {
   return values.map((value) => ({ label: value.toLocaleString(), value }));
-}
-
-/** 手写的非档位值也要能回显：并入选项，避免下拉把用户值显示成别的档位。 */
-function withCurrent(options: Option[], current: number): Option[] {
-  if (options.some((option) => option.value === current)) return options;
-  return [...options, { label: current.toLocaleString(), value: current }].sort(
-    (a, b) => Number(a.value) - Number(b.value),
-  );
 }
 
 export function CustomizeRuntime(): ReactNode {
@@ -62,12 +53,12 @@ export function CustomizeRuntime(): ReactNode {
     idle: t.runtimeCacheWarmingIdle,
   };
 
-  const warmingOptions: Option[] = CACHE_WARMING_MODES.map((mode) => ({
+  const warmingOptions: NumericOption<string>[] = CACHE_WARMING_MODES.map((mode) => ({
     label: warmingLabel[mode],
     value: mode,
   }));
 
-  const deliveryOptions: Option[] = DELIVERY_MODES.map((mode) => ({
+  const deliveryOptions: NumericOption<string>[] = DELIVERY_MODES.map((mode) => ({
     label: mode === "all" ? t.runtimeDeliveryAll : t.runtimeDeliveryOneAtATime,
     value: mode,
   }));

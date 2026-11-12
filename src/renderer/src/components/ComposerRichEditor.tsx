@@ -114,7 +114,7 @@ export const ComposerRichEditor = forwardRef<
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "chip-x";
-    btn.setAttribute("aria-label", "remove");
+    btn.setAttribute("aria-label", t.remove);
     btn.textContent = "×";
     btn.addEventListener("mousedown", (e) => {
       e.preventDefault();

@@ -2164,7 +2164,7 @@ export function SessionSidebar(): ReactNode {
     if (archivedOpen) return;
     setArchivedQuery((prev) => (prev ? "" : prev));
     setArchivedSelected((prev) => (prev.length ? [] : prev));
-    setArchivedAnchorId((prev) => prev ?? null);
+    setArchivedAnchorId(null);
   }, [archivedOpen]);
 
   useEffect(() => {

@@ -19,6 +19,7 @@ import {
   type PiPackageListItem,
   type PiPackageType,
 } from "../../../shared/pi-market";
+import { nextFrame } from "./next-frame";
 import styles from "./MarketSettings.module.css";
 
 type InstalledPkg = {
@@ -32,12 +33,6 @@ type Props = {
 };
 
 type TypeOption = { label: string; value: PiPackageType };
-
-function nextFrame(): Promise<void> {
-  return new Promise<void>((resolve) => {
-    requestAnimationFrame(() => resolve());
-  });
-}
 
 export function MarketSettings({ open, onClose }: Props): ReactNode {
   const t = useI18n();

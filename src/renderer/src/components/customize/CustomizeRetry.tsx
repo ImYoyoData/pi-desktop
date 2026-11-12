@@ -19,29 +19,20 @@ import {
 } from "@renderer/components/customize/SettingsGroup";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./CustomizeRetry.module.css";
+import { withCurrent, type NumericOption } from "./with-current";
 
 /** 请求超时下拉的「默认」档位（跟跟随 httpIdleTimeoutMs）。 */
 const TIMEOUT_DEFAULT = -1;
 
-type Option = { label: string; value: number };
-
-function countOptions(values: readonly number[]): Option[] {
+function countOptions(values: readonly number[]): NumericOption[] {
   return values.map((value) => ({ label: String(value), value }));
 }
 
 function durationOptions(
   values: readonly number[],
   label: (ms: number) => string,
-): Option[] {
+): NumericOption[] {
   return values.map((value) => ({ label: label(value), value }));
-}
-
-/** 手写的非档位值也要能回显：并入选项，避免下拉把用户值显示成别的档位。 */
-function withCurrent(options: Option[], current: number): Option[] {
-  if (options.some((option) => option.value === current)) return options;
-  return [...options, { label: current.toLocaleString(), value: current }].sort(
-    (a, b) => Number(a.value) - Number(b.value),
-  );
 }
 
 export function CustomizeRetry(): ReactNode {
@@ -63,7 +54,7 @@ export function CustomizeRetry(): ReactNode {
     durationOptions(RETRY_AGENT_MAX_DELAY_CHOICES, t.retryDuration),
     settings.maxAgentDelayMs,
   );
-  const timeoutOptions: Option[] = RETRY_TIMEOUT_CHOICES.map((ms) => ({
+  const timeoutOptions: NumericOption[] = RETRY_TIMEOUT_CHOICES.map((ms) => ({
     label: ms === null ? t.retryValueDefault : t.retryDuration(ms),
     value: ms === null ? TIMEOUT_DEFAULT : ms,
   }));
