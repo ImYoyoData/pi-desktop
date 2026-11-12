@@ -33,9 +33,13 @@ const electronIpc: ApiIpc = {
 	sendSync: (channel, ...args) => ipcRenderer.sendSync(channel, ...args),
 };
 
-const api = createApi(electronIpc, {
-	getPathForFile: (file) => webUtils.getPathForFile(file),
-});
+const api = createApi(
+	electronIpc,
+	{
+		getPathForFile: (file) => webUtils.getPathForFile(file),
+	},
+	process.platform,
+);
 
 /** 仅暴露版本号：完整 electronAPI 会带出 ipcRenderer 与 process.env。 */
 const electronBridge = {

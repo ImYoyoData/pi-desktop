@@ -60,8 +60,7 @@ describe("markdown html images", () => {
   });
 });
 
-describe("markdown after html blocks", () => {
-  const DOC = [
+describe("markdown after html blocks", () => {  const DOC = [
     '<h2 align="center">截图</h2>',
     "",
     '<p align="center">',
@@ -76,5 +75,23 @@ describe("markdown after html blocks", () => {
     expect(nodes.map((node) => node.type)).toEqual(["html_block", "html_block", "heading"]);
     expect(nodes[0]?.tag).toBe("h2");
     expect(nodes[1]?.tag).toBe("img");
+  });
+});
+
+describe("markdown html sanitization", () => {
+  it("strips unsafe container elements before the renderer", () => {
+    const nodes = parse(
+      '<style>body{color:red}</style><iframe src="https://x.test"></iframe><p align="center">hello</p>',
+      MARKDOWN_PARSE_OPTIONS,
+    );
+    const serialized = JSON.stringify(nodes);
+    expect(serialized).not.toContain("<style");
+    expect(serialized).not.toContain("<iframe");
+    expect(serialized).toContain("hello");
+  });
+
+  it("keeps ordinary html blocks intact", () => {
+    const nodes = parse('<p align="center">hello</p>', MARKDOWN_PARSE_OPTIONS);
+    expect(nodes[0]?.tag).toBe("p");
   });
 });

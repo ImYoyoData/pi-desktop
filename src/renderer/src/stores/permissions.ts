@@ -8,6 +8,8 @@ type PermissionsState = {
   settings: PermissionSettings;
   load: () => Promise<void>;
   save: (next: PermissionSettings) => Promise<void>;
+  /** 读取失败或另一端改档后重新读取。 */
+  refresh: () => Promise<void>;
 };
 
 /** 工具审批档位：主进程落到 settings.json，worker 每次调用都由 main 判定。 */
@@ -19,7 +21,8 @@ export const usePermissionsStore = create<PermissionsState>()((set) => {
       try {
         set({ settings: await window.api.permissions.get() });
       } catch {
-        // 读取失败时保持默认档
+        // 读取失败时保持默认档，并允许下次重试
+        loading = null;
       }
     })();
     return loading;
@@ -29,5 +32,13 @@ export const usePermissionsStore = create<PermissionsState>()((set) => {
     set({ settings: await window.api.permissions.set(next) });
   }
 
-  return { settings: { ...DEFAULT_PERMISSION_SETTINGS }, load, save };
+  async function refresh(): Promise<void> {
+    try {
+      set({ settings: await window.api.permissions.get() });
+    } catch {
+      // 读取失败时保持当前值
+    }
+  }
+
+  return { settings: { ...DEFAULT_PERMISSION_SETTINGS }, load, save, refresh };
 });

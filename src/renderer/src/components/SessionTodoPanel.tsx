@@ -36,7 +36,7 @@ type DurationItem = {
 
 const EXPAND_ANIM_MS = 140;
 
-function formatDuration(ms: number | undefined): string {
+function formatTodoDuration(ms: number | undefined): string {
   if (ms == null || !Number.isFinite(ms) || ms < 0) return "";
   const totalSec = Math.round(ms / 1000);
   if (totalSec < 60) return `${totalSec}s`;
@@ -49,9 +49,9 @@ function formatDuration(ms: number | undefined): string {
 }
 
 function itemDuration(item: DurationItem, nowMs: number): string {
-  if (item.durationMs != null) return formatDuration(item.durationMs);
+  if (item.durationMs != null) return formatTodoDuration(item.durationMs);
   if (!item.done && item.startedAt != null) {
-    return formatDuration(nowMs - item.startedAt);
+    return formatTodoDuration(nowMs - item.startedAt);
   }
   return "";
 }

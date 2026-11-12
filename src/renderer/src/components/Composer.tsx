@@ -2607,7 +2607,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
                     useComposerStore.getState().removeImage(img.id);
                   }}
                 >
-                  x
+                  ×
                 </button>
               </div>
             ))}

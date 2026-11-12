@@ -158,6 +158,7 @@ export type ApiWebUtils = {
 export function createApi(
 	ipcRenderer: ApiIpc,
 	webUtils: ApiWebUtils,
+	platform: string = "",
 ) {
 	return {
 	clipboard: {
@@ -215,6 +216,7 @@ export function createApi(
 		},
 	},
 	window: {
+		platformSync: platform,
 		platform: () =>
 			ipcRenderer.invoke(IpcChannels.window.platform) as Promise<NodeJS.Platform>,
 		systemInfo: () =>

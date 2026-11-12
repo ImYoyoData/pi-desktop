@@ -15,10 +15,12 @@ export type FsChangedPayload = {
 };
 
 /** 与主进程 fs-watch-host 的 rootsEqual 对齐：仅 Windows 折叠大小写。 */
-let pathCaseInsensitive = false;
-void window.api.window.platform().then((p) => {
-  pathCaseInsensitive = p === "win32";
-});
+let pathCaseInsensitive = window.api.window.platformSync === "win32";
+if (!window.api.window.platformSync) {
+  void window.api.window.platform().then((p) => {
+    pathCaseInsensitive = p === "win32";
+  });
+}
 
 export function normalizeFsPath(p: string): string {
   const n = p.replace(/\\/g, "/").replace(/\/+$/, "");

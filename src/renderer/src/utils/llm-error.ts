@@ -135,7 +135,7 @@ const LONG_DUMP_PREFIX: Record<"zh-CN" | "zh-TW", string> = {
   "zh-TW": "呼叫失敗：",
 };
 
-export function formatLlmError(raw: string, locale: UiLocale = "zh-CN"): string {
+export function formatLlmError(raw: string, locale: UiLocale): string {
   let text = raw.trim();
   // Electron IPC wraps worker errors: Error invoking remote method 'x': Error: <actual>
   text = text.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, "").trim();

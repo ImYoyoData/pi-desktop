@@ -46,6 +46,9 @@ export function OmpModels(): ReactNode {
 	const [providers, setProviders] = useState<OmpProviderRow[]>([]);
 	const [selectedIndex, setSelectedIndex] = useState(0);
 	const [saving, setSaving] = useState(false);
+	/** 供应商行用稳定 key，新增/删除时不复用 DOM 节点。 */
+	const [providerKeys, setProviderKeys] = useState<string[]>([]);
+	const providerKeySeq = useRef(0);
 	/** 模型行用稳定 key，删除行时不串展开状态。 */
 	const [rowKeys, setRowKeys] = useState<string[]>([]);
 	const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
@@ -58,6 +61,7 @@ export function OmpModels(): ReactNode {
 				setSnapshot(next);
 				setProviders(next.providers);
 				resetRowKeys(next.providers[0]?.models.length ?? 0);
+				resetProviderKeys(next.providers.length);
 			} catch (err) {
 				message.error(err instanceof Error ? err.message : String(err));
 			}
@@ -76,6 +80,17 @@ export function OmpModels(): ReactNode {
 		const keys: string[] = [];
 		for (let i = 0; i < count; i += 1) keys.push(nextRowKey());
 		setRowKeys(keys);
+	}
+
+	function nextProviderKey(): string {
+		providerKeySeq.current += 1;
+		return `p-${providerKeySeq.current}`;
+	}
+
+	function resetProviderKeys(count: number): void {
+		const keys: string[] = [];
+		for (let i = 0; i < count; i += 1) keys.push(nextProviderKey());
+		setProviderKeys(keys);
 	}
 
 	function toggleRow(key: string): void {
@@ -117,6 +132,7 @@ export function OmpModels(): ReactNode {
 	function addProvider(): void {
 		const index = providers.length;
 		setProviders((prev) => [...prev, newOmpProvider()]);
+		setProviderKeys((prev) => [...prev, nextProviderKey()]);
 		setSelectedIndex(index);
 		resetRowKeys(0);
 	}
@@ -127,6 +143,7 @@ export function OmpModels(): ReactNode {
 			selectedIndex > 0 && selectedIndex >= index ? selectedIndex - 1 : selectedIndex;
 		const clamped = Math.min(Math.max(nextIndex, 0), Math.max(remaining.length - 1, 0));
 		setProviders(remaining);
+		setProviderKeys((prev) => prev.filter((_, i) => i !== index));
 		setSelectedIndex(clamped);
 		resetRowKeys(remaining[clamped]?.models.length ?? 0);
 	}
@@ -191,7 +208,7 @@ export function OmpModels(): ReactNode {
 						<div className={modelsStyles.providerList}>
 							{providers.map((provider, index) => (
 								<button
-									key={index}
+									key={providerKeys[index] ?? provider.id ?? index}
 									type="button"
 									className={
 										index === selectedIndex

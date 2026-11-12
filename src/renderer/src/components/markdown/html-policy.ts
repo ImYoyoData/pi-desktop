@@ -1,3 +1,4 @@
+import DOMPurify from "dompurify";
 import {
   EXTENDED_STANDARD_HTML_TAGS,
   hasCompleteHtmlTagContent,
@@ -14,6 +15,22 @@ import {
 const UNSAFE_HTML_TAG_RE =
   /<(style|iframe|object|embed|form|base|link|meta|template)\b[\s\S]*?(?:<\/\1\s*>|$)/gi;
 
+const UNSAFE_HTML_TAGS = [
+  "style",
+  "iframe",
+  "object",
+  "embed",
+  "form",
+  "base",
+  "link",
+  "meta",
+  "template",
+] as const;
+
+/** 纯 node 环境（单测）没有 window，DOMPurify 不提供 sanitize。 */
+const canSanitizeHtml =
+  typeof (DOMPurify as unknown as { sanitize?: unknown }).sanitize === "function";
+
 const LEADING_TAG_RE = /^\s*<\s*([A-Za-z][\w-]*)(?=[\s/>]|$)/;
 
 function isUnknownTag(tag: string): boolean {
@@ -22,6 +39,13 @@ function isUnknownTag(tag: string): boolean {
 
 function stripUnsafeHtml(content: string): string {
   return content.replace(UNSAFE_HTML_TAG_RE, "");
+}
+
+/** 渲染器按 trusted 策略直出 HTML，这里先过滤危险标签，再交给 DOMPurify 收口。 */
+function sanitizeHtml(content: string): string {
+  const stripped = stripUnsafeHtml(content);
+  if (!canSanitizeHtml) return stripped;
+  return DOMPurify.sanitize(stripped, { FORBID_TAGS: [...UNSAFE_HTML_TAGS] });
 }
 
 function asHtmlBlock(tag: string, content: string): ParsedNode {
@@ -46,8 +70,8 @@ function cleanHtmlNode(node: ParsedNode): ParsedNode {
   const record = node as { content?: string; raw?: string };
   const content = String(record.content ?? "");
   const raw = String(record.raw ?? "");
-  const nextContent = stripUnsafeHtml(content);
-  const nextRaw = stripUnsafeHtml(raw);
+  const nextContent = sanitizeHtml(content);
+  const nextRaw = sanitizeHtml(raw);
   if (nextContent === content && nextRaw === raw) return node;
   return { ...node, content: nextContent, raw: nextRaw } as ParsedNode;
 }
@@ -155,7 +179,10 @@ function extractImages(nodes: ParsedNode[]): ParsedNode[] {
   });
 }
 
-/** markstream 的解析钩子：HTML 策略放宽到 trusted，同时补上旧管线的两条行为。 */
+/**
+ * markstream 的解析钩子：HTML 策略放宽到 trusted（本地图片与未知标签需要），
+ * 节点内容先经 DOMPurify 收口，同时补上旧管线的两条行为。
+ */
 export const MARKDOWN_PARSE_OPTIONS: ParseOptions = {
   postTransformNodes: transformNodes,
 };

@@ -1176,7 +1176,7 @@ export function MessageList({
    const top2 = cardRect2.bottom - scRect2.top + sc2.scrollTop - sc2.clientHeight + 8;
    sc2.scrollTo({ top: Math.max(0, top2), behavior: "smooth" });
   });
- }, [rowsRef.current.latestUserMessageId]);
+ }, [latestUserMessageId]);
 
  const prevStreamRun = useRef<{
   length: number;

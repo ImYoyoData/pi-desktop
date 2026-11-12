@@ -17,8 +17,17 @@ type CustomizationsState = {
   setToolToggles: (items: CustomizationsSnapshot["toolToggles"]) => void;
   setCodemode: (state: CustomizationsSnapshot["codemode"]) => void;
   setSkillEnabled: (id: string, enabled: boolean) => void;
-  removeFileItem: (id: string) => void;
+  removeSkill: (id: string) => void;
 };
+
+/** 按 id 打补丁 / 删除，智能体设置页的本地快照改写共用。 */
+function updateById<T extends { id: string }>(list: T[], id: string, patch: Partial<T>): T[] {
+  return list.map((item) => (item.id === id ? { ...item, ...patch } : item));
+}
+
+function removeById<T extends { id: string }>(list: T[], id: string): T[] {
+  return list.filter((item) => item.id !== id);
+}
 
 /** 智能体设置页数据：按工作区加载一次，工作区切换时重取。 */
 export const useCustomizationsStore = create<CustomizationsState>()((set, get) => {
@@ -54,37 +63,20 @@ export const useCustomizationsStore = create<CustomizationsState>()((set, get) =
   /** 本地更新 MCP 开关状态，避免重新加载整份快照。 */
   function setMcpEnabled(id: string, enabled: boolean): void {
     const snapshot = get().snapshot;
-    set({
-      snapshot: {
-        ...snapshot,
-        mcp: snapshot.mcp.map((item) =>
-          item.id === id ? { ...item, enabled } : item,
-        ),
-      },
-    });
+    set({ snapshot: { ...snapshot, mcp: updateById(snapshot.mcp, id, { enabled }) } });
   }
 
   /** 从本地快照中移除已删除的 MCP 服务器。 */
   function removeMcp(id: string): void {
     const snapshot = get().snapshot;
-    set({
-      snapshot: {
-        ...snapshot,
-        mcp: snapshot.mcp.filter((item) => item.id !== id),
-      },
-    });
+    set({ snapshot: { ...snapshot, mcp: removeById(snapshot.mcp, id) } });
   }
 
   /** 本地更新插件启用状态，避免重新加载整份快照。 */
   function setPluginEnabled(id: string, enabled: boolean): void {
     const snapshot = get().snapshot;
     set({
-      snapshot: {
-        ...snapshot,
-        plugins: snapshot.plugins.map((item) =>
-          item.id === id ? { ...item, enabled } : item,
-        ),
-      },
+      snapshot: { ...snapshot, plugins: updateById(snapshot.plugins, id, { enabled }) },
     });
   }
 
@@ -108,22 +100,13 @@ export const useCustomizationsStore = create<CustomizationsState>()((set, get) =
   /** 本地更新技能启用状态，避免重新加载整份快照。 */
   function setSkillEnabled(id: string, enabled: boolean): void {
     const snapshot = get().snapshot;
-    set({
-      snapshot: {
-        ...snapshot,
-        skills: snapshot.skills.map((item) =>
-          item.id === id ? { ...item, enabled } : item,
-        ),
-      },
-    });
+    set({ snapshot: { ...snapshot, skills: updateById(snapshot.skills, id, { enabled }) } });
   }
 
   /** 从本地快照中移除已删除的技能。 */
-  function removeFileItem(id: string): void {
+  function removeSkill(id: string): void {
     const snapshot = get().snapshot;
-    set({
-      snapshot: { ...snapshot, skills: snapshot.skills.filter((item) => item.id !== id) },
-    });
+    set({ snapshot: { ...snapshot, skills: removeById(snapshot.skills, id) } });
   }
 
   return {
@@ -139,6 +122,6 @@ export const useCustomizationsStore = create<CustomizationsState>()((set, get) =
     setToolToggles,
     setCodemode,
     setSkillEnabled,
-    removeFileItem,
+    removeSkill,
   };
 });

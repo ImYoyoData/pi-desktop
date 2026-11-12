@@ -62,12 +62,9 @@ async function invoke(channel: string, args: unknown[]): Promise<unknown> {
 	return payload.result;
 }
 
+/** 浏览器预览桥专用的 fire-and-forget 调用。 */
 function post(channel: string, args: unknown[]): void {
-	void fetch(`${BRIDGE_ORIGIN}/invoke`, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ channel, args }),
-	}).catch(() => undefined);
+	void invoke(channel, args).catch(() => undefined);
 }
 
 /** 偏好存储在渲染层启动时同步读取，这里用同步 XHR 保持同样的语义。 */
@@ -143,7 +140,11 @@ const bridgeIpc: ApiIpc = {
 if (!window.api) {
 	window.__piBrowserPreview = true;
 	window.__piBridgeOrigin = BRIDGE_ORIGIN;
-	window.api = createApi(bridgeIpc, { getPathForFile: () => "" });
+	window.api = createApi(
+		bridgeIpc,
+		{ getPathForFile: () => "" },
+		/Windows/i.test(navigator.userAgent) ? "win32" : "",
+	);
 	connectEvents();
 	void verifyInstance();
 }

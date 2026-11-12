@@ -320,17 +320,47 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 	/** requestId → 本轮回答待提交的附件（图片 dataUrl 太大，不写 sessionStorage）。 */
 	const askUserAttachments = new Map<string, AskUserAttachment[]>();
 	let pendingUiRecovered = false;
-	const ASK_DRAFT_KEY = "pi-desktop:ask-user-drafts:v1";
+	const ASK_DRAFT_KEY = "pi-desktop:ask-user-drafts:v2";
+	const ASK_DRAFT_LEGACY_KEY = "pi-desktop:ask-user-drafts:v1";
+	const ASK_DRAFT_LIMIT = 8;
+
+	type StoredDraft = { draft: AskUserAnswerDraft; touchedAt: number };
+
+	/** v2 按 touchedAt 裁剪；读到 v1 的裸草稿时原样迁移。 */
+	function readStoredDrafts(): Record<string, StoredDraft> {
+		for (const key of [ASK_DRAFT_KEY, ASK_DRAFT_LEGACY_KEY]) {
+			const raw = sessionStorage.getItem(key);
+			if (!raw) continue;
+			const parsed = JSON.parse(raw) as Record<string, unknown>;
+			const out: Record<string, StoredDraft> = {};
+			for (const [id, value] of Object.entries(parsed ?? {})) {
+				if (!value || typeof value !== "object") continue;
+				const record = value as { draft?: unknown; touchedAt?: unknown };
+				const draft = "draft" in record ? record.draft : value;
+				if (!draft || typeof draft !== "object") continue;
+				out[id] = {
+					draft: draft as AskUserAnswerDraft,
+					touchedAt: typeof record.touchedAt === "number" ? record.touchedAt : 0,
+				};
+			}
+			return out;
+		}
+		return {};
+	}
+
+	function storeDrafts(drafts: Record<string, StoredDraft>): void {
+		const kept = Object.entries(drafts)
+			.sort((a, b) => b[1].touchedAt - a[1].touchedAt)
+			.slice(0, ASK_DRAFT_LIMIT);
+		sessionStorage.setItem(ASK_DRAFT_KEY, JSON.stringify(Object.fromEntries(kept)));
+		sessionStorage.removeItem(ASK_DRAFT_LEGACY_KEY);
+	}
 
 	function readAskDraft(requestId: string): AskUserAnswerDraft | null {
 		const mem = askUserDrafts.get(requestId);
 		if (mem) return mem;
 		try {
-			const raw = sessionStorage.getItem(ASK_DRAFT_KEY);
-			if (!raw) return null;
-			const parsed = JSON.parse(raw) as Record<string, AskUserAnswerDraft>;
-			const draft = parsed?.[requestId];
-			return draft && typeof draft === "object" ? draft : null;
+			return readStoredDrafts()[requestId]?.draft ?? null;
 		} catch {
 			return null;
 		}
@@ -344,13 +374,9 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 		askUserDrafts.set(requestId, draft);
 		if (!persist) return;
 		try {
-			const raw = sessionStorage.getItem(ASK_DRAFT_KEY);
-			const parsed = (raw ? JSON.parse(raw) : {}) as Record<string, AskUserAnswerDraft>;
-			parsed[requestId] = draft;
-			const keys = Object.keys(parsed).slice(-8);
-			const trimmed: Record<string, AskUserAnswerDraft> = {};
-			for (const k of keys) trimmed[k] = parsed[k]!;
-			sessionStorage.setItem(ASK_DRAFT_KEY, JSON.stringify(trimmed));
+			const drafts = readStoredDrafts();
+			drafts[requestId] = { draft, touchedAt: Date.now() };
+			storeDrafts(drafts);
 		} catch {
 			// ignore — best effort only
 		}
@@ -377,11 +403,10 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 		askUserSteps.delete(requestId);
 		askUserAttachments.delete(requestId);
 		try {
-			const raw = sessionStorage.getItem(ASK_DRAFT_KEY);
-			if (!raw) return;
-			const parsed = JSON.parse(raw) as Record<string, unknown>;
-			delete parsed[requestId];
-			sessionStorage.setItem(ASK_DRAFT_KEY, JSON.stringify(parsed));
+			const drafts = readStoredDrafts();
+			if (!(requestId in drafts)) return;
+			delete drafts[requestId];
+			storeDrafts(drafts);
 		} catch {
 			// ignore
 		}
@@ -1419,6 +1444,9 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 	 * 只能由应用级 bootstrap（app-events）调用：会话事件是单向推送，组件一旦
 	 * 卸载就再也补不回来。ChatPanel 会被 `v-if` 反复销毁重建（切换拉取请求视图），
 	 * 把订阅挂在组件生命周期上会让事件流出现空窗，界面永久停在「等待模型响应」。
+	 *
+	 * 返回值只归 bootstrap 所有：非 bootstrap 调用方拿到的是同一个解绑函数，
+	 * 一旦持有并调用就会摘掉全局订阅。
 	 */
 	function bindEvents(): () => void {
 		if (unbindEvents) return unbindEvents;

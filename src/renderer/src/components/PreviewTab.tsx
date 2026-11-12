@@ -576,7 +576,7 @@ export const PreviewTab = memo(forwardRef<PreviewTabHandle, Props>(function Prev
   }, [workspaceRoot]);
 
   useEffect(() => {
-    if (useLayoutStore.getState().rightCollapsed) stopMedia();
+    if (rightCollapsed) stopMedia();
   }, [rightCollapsed]);
 
   useEffect(() => {
