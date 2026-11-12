@@ -13,6 +13,7 @@ import ThinkingBlock from "@renderer/components/ThinkingBlock";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import { toolStatus, type ToolMessage } from "@renderer/utils/message-metrics";
 import { toolCardFor } from "@renderer/utils/tool-diff";
+import { toolDisplayName } from "@renderer/utils/tool-xdev";
 import { currentBackend } from "@renderer/utils/current-backend";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
@@ -75,10 +76,10 @@ function toolMessageOf(entry: ToolEntry, agentId: string, key: string): ToolMess
     result:
       !pending && (entry.text != null || entry.resultDetails !== undefined)
         ? {
-            content: entry.text ? [{ type: "text", text: entry.text }] : [],
-            details: entry.resultDetails,
-            isError: entry.isError === true,
-          }
+          content: entry.text ? [{ type: "text", text: entry.text }] : [],
+          details: entry.resultDetails,
+          isError: entry.isError === true,
+        }
         : undefined,
     isError: entry.isError,
     ...(pending ? { streaming: true } : {}),
@@ -100,6 +101,7 @@ function ToolEntryView({
     () => toolMessageOf(entry, agentId, key),
     [agentId, entry, key],
   );
+  const args = useMemo(() => argsOf(entry), [entry]);
   const status = toolStatus(message);
   const pending = entry.pending === true;
   return (
@@ -107,7 +109,7 @@ function ToolEntryView({
       <Suspense fallback={null}>
         <ToolCallCard
           card={toolCardFor(message)}
-          toolName={entry.toolName}
+          toolName={toolDisplayName(entry.toolName, args, message.result)}
           statusLabel={status.label}
           statusType={status.type}
           streaming={pending}
@@ -270,46 +272,46 @@ export const SubagentTranscript = memo(function SubagentTranscript({
           ) : null}
           {transcript && transcript.messages.length > 0
             ? transcript.messages.map((entry, index) => {
-                const key = entryKey(entry, index);
-                if (entry.kind === "tool") {
-                  return (
-                    <ToolEntryView
-                      key={key}
-                      entry={entry}
-                      agentId={agentId}
-                      entryKey={key}
-                      onOpen={openPreview}
-                    />
-                  );
-                }
-                if (entry.role === "user") {
-                  return (
-                    <div key={key} className={styles.userRow}>
-                      <div className={styles.userBubble}>{entry.text}</div>
-                    </div>
-                  );
-                }
+              const key = entryKey(entry, index);
+              if (entry.kind === "tool") {
                 return (
-                  <div key={key} className={styles.assistantRow}>
-                    {entry.thinking ? (
-                      <ThinkingBlock
-                        thinking={entry.thinking}
-                        autoCollapse
-                        leadingIcon={<BrainOutline size={13} aria-hidden="true" />}
-                      />
-                    ) : null}
-                    {entry.text ? (
-                      <Suspense fallback={<pre className={styles.plain}>{entry.text}</pre>}>
-                        <MarkdownView
-                          content={entry.text}
-                          variant="chat"
-                          className="assistant-md"
-                        />
-                      </Suspense>
-                    ) : null}
+                  <ToolEntryView
+                    key={key}
+                    entry={entry}
+                    agentId={agentId}
+                    entryKey={key}
+                    onOpen={openPreview}
+                  />
+                );
+              }
+              if (entry.role === "user") {
+                return (
+                  <div key={key} className={styles.userRow}>
+                    <div className={styles.userBubble}>{entry.text}</div>
                   </div>
                 );
-              })
+              }
+              return (
+                <div key={key} className={styles.assistantRow}>
+                  {entry.thinking ? (
+                    <ThinkingBlock
+                      thinking={entry.thinking}
+                      autoCollapse
+                      leadingIcon={<BrainOutline size={13} aria-hidden="true" />}
+                    />
+                  ) : null}
+                  {entry.text ? (
+                    <Suspense fallback={<pre className={styles.plain}>{entry.text}</pre>}>
+                      <MarkdownView
+                        content={entry.text}
+                        variant="chat"
+                        className="assistant-md"
+                      />
+                    </Suspense>
+                  ) : null}
+                </div>
+              );
+            })
             : null}
           {!failed && !loading && transcript && transcript.messages.length === 0 ? (
             <div className={styles.empty}>{t.agentTranscriptEmpty}</div>
