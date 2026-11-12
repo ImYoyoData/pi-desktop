@@ -114,7 +114,10 @@ export function startStateSync(): void {
 			const sessions = useSessionsStore.getState();
 			if (sessions.activeId === active.sessionId) return;
 			if (sessions.draftRoot) return;
-			void useSessionsStore.getState().selectSession(active.sessionId, active.cwd);
+			void useSessionsStore
+				.getState()
+				.selectSession(active.sessionId, active.cwd)
+				.catch((error) => console.warn("[state-sync] session switch failed", error));
 		} else if (change.scope === "models") {
 			window.dispatchEvent(new CustomEvent("pi-models-changed"));
 		} else if (change.scope === "streamRender") {

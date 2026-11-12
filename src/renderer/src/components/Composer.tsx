@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -2801,4 +2802,4 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   );
 }
 
-export default Composer;
+export default memo(Composer);

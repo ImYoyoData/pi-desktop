@@ -238,6 +238,10 @@ function MarkdownViewView({
     content.length >
     (maxChars ?? (streaming ? STREAM_MARKDOWN_MAX_CHARS : MESSAGE_MARKDOWN_MAX_CHARS));
 
+  /**
+   * 一次性渲染：分批渲染会先铺 shimmer 占位块，且内容每次增长都会把批次重置回首批，
+   * 流式长文和切换会话时看起来一直在闪。
+   */
   return (
     <div ref={rootRef} className={markdownRootClassName(variant, styles.root, className)}>
       {tooLong ? (
@@ -252,6 +256,7 @@ function MarkdownViewView({
             isDark={appearance.resolvedTheme === "dark"}
             fade={false}
             smoothStreaming={false}
+            batchRendering={false}
             deferNodesUntilVisible={false}
             maxLiveNodes={variant === "chat" ? 0 : undefined}
             viewportPriority

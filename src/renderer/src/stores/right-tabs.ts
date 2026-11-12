@@ -66,6 +66,36 @@ type PersistedTabs = {
   activeIndex: number;
 };
 
+function persistedTabsOf(state: { tabs: RightTab[]; activeId: string }): PersistedTabs {
+  return {
+    tabs: state.tabs.map((tab) => ({
+      kind: tab.kind,
+      label: tab.label,
+      filePath: tab.filePath,
+      transient: tab.transient,
+      labelLocked: tab.labelLocked,
+      // 渲染进程重载后主进程的 pty 仍在运行，靠这个 id 重连才能回放 scrollback。
+      // 应用重启后 id 失效，由 TerminalTab 的 isAlive 校验丢弃并新建。
+      ptyId: tab.kind === "terminal" ? tab.ptyId : undefined,
+      cwd: tab.kind === "terminal" ? tab.cwd : undefined,
+      shellId: tab.kind === "terminal" ? tab.shellId : undefined,
+      url: tab.kind === "browser" ? tab.url : undefined,
+    })),
+    activeIndex: Math.max(
+      0,
+      state.tabs.findIndex((tab) => tab.id === state.activeId),
+    ),
+  };
+}
+
+/** 仅包含会落盘的字段：终端运行状态等瞬时变化不应触发偏好写入。 */
+export function tabsPersistSignature(state: {
+  tabs: RightTab[];
+  activeId: string;
+}): string {
+  return JSON.stringify(persistedTabsOf(state));
+}
+
 export const TABS_STORAGE_PREFIX = "pi-desktop:right-tabs:v2:";
 
 function storageKey(root: string): string {
@@ -482,29 +512,8 @@ export const useRightTabsStore = create<RightTabsState>()((set, get) => {
 
   function persistTabs(root: string | null): void {
     if (!persistReady || !root) return;
-    const state = get();
-    const payload: PersistedTabs = {
-      tabs: state.tabs
-        .map((tab) => ({
-          kind: tab.kind,
-          label: tab.label,
-          filePath: tab.filePath,
-          transient: tab.transient,
-          labelLocked: tab.labelLocked,
-          // 渲染进程重载后主进程的 pty 仍在运行，靠这个 id 重连才能回放 scrollback。
-          // 应用重启后 id 失效，由 TerminalTab 的 isAlive 校验丢弃并新建。
-          ptyId: tab.kind === "terminal" ? tab.ptyId : undefined,
-          cwd: tab.kind === "terminal" ? tab.cwd : undefined,
-          shellId: tab.kind === "terminal" ? tab.shellId : undefined,
-          url: tab.kind === "browser" ? tab.url : undefined,
-        })),
-      activeIndex: Math.max(
-        0,
-        state.tabs.findIndex((tab) => tab.id === state.activeId),
-      ),
-    };
     try {
-      prefs.setItem(storageKey(root), JSON.stringify(payload));
+      prefs.setItem(storageKey(root), JSON.stringify(persistedTabsOf(get())));
     } catch {
       // ignore quota
     }

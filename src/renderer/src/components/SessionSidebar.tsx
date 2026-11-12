@@ -1,6 +1,5 @@
 import {
   memo,
-  startTransition,
   useEffect,
   useMemo,
   useRef,
@@ -859,10 +858,9 @@ export function SessionSidebar(): ReactNode {
     if (discardLeaving && useWorkspaceStore.getState().root !== root) {
       await discardUnstartedSession(leavingRoot, leaving!.id);
     }
-    // 消息区整体换内容是一次大渲染：标成 transition，点击先响，渲染可被打断。
-    startTransition(() => {
-      useChatStore.getState().beginHistoryLoad(sessionId);
-    });
+    // 消息区整体换内容是一次大渲染；Zustand 走 useSyncExternalStore（SyncLane），
+    // startTransition 延后不了这次提交，这里直接同步标记，避免误导。
+    useChatStore.getState().beginHistoryLoad(sessionId);
     try {
       if (useWorkspaceStore.getState().root !== root) {
         await useWorkspaceStore.getState().openWorkspacePath(root);
@@ -875,19 +873,17 @@ export function SessionSidebar(): ReactNode {
       // history only needs the file path, so the two round-trips no longer stack.
       const historyPromise = opened?.filePath
         ? window.api.sessions.history(opened.filePath, {
-            limit: SESSION_HISTORY_INITIAL_LIMIT,
-          })
+          limit: SESSION_HISTORY_INITIAL_LIMIT,
+        })
         : Promise.resolve({ messages: [], hasMore: false, total: 0 });
       const [page] = await Promise.all([
         historyPromise,
         useSessionsStore.getState().selectSession(sessionId, root),
       ]);
       if (token !== selectToken.current) return;
-      startTransition(() => {
-        useChatStore
-          .getState()
-          .hydrateFromHistory(sessionId, page.messages, page.hasMore);
-      });
+      useChatStore
+        .getState()
+        .hydrateFromHistory(sessionId, page.messages, page.hasMore);
       if (discardLeaving && useWorkspaceStore.getState().root === root) {
         await discardUnstartedSession(leavingRoot, leaving!.id);
       }
@@ -1431,15 +1427,12 @@ export function SessionSidebar(): ReactNode {
     return (
       <li
         key={sessionId}
-        className={`${styles.sessionRow} ${
-          selectedSessionId === sessionId ? styles.sessionRowActive : ""
-        } ${
-          guidesVisibleFor(root, item) ? styles.sessionRowGuidesVisible : ""
-        } ${
-          selectMode && isSessionSelected(sessionId)
+        className={`${styles.sessionRow} ${selectedSessionId === sessionId ? styles.sessionRowActive : ""
+          } ${guidesVisibleFor(root, item) ? styles.sessionRowGuidesVisible : ""
+          } ${selectMode && isSessionSelected(sessionId)
             ? styles.sessionRowSelected
             : ""
-        }`}
+          }`}
         data-session-row
         data-id={sessionId}
         data-no-ws-drag
@@ -1463,13 +1456,12 @@ export function SessionSidebar(): ReactNode {
           {item.guideFull.map((full, gi) => (
             <span
               key={gi}
-              className={`${styles.treeGuide} ${
-                full
-                  ? styles.treeGuideFull
-                  : gi === item.guideFull.length - 1
-                    ? styles.treeGuideElbow
-                    : styles.treeGuideEnded
-              }`}
+              className={`${styles.treeGuide} ${full
+                ? styles.treeGuideFull
+                : gi === item.guideFull.length - 1
+                  ? styles.treeGuideElbow
+                  : styles.treeGuideEnded
+                }`}
               style={{ "--g": gi } as CSSProperties}
               aria-hidden="true"
             />
@@ -1490,11 +1482,10 @@ export function SessionSidebar(): ReactNode {
           ) : null}
           <span className={styles.activeBar} />
           <span
-            className={`${styles.statusMark} ${
-              styles[
-                `st${(item.session.status || "idle").charAt(0).toUpperCase()}${(item.session.status || "idle").slice(1)}`
-              ] ?? ""
-            }`}
+            className={`${styles.statusMark} ${styles[
+              `st${(item.session.status || "idle").charAt(0).toUpperCase()}${(item.session.status || "idle").slice(1)}`
+            ] ?? ""
+              }`}
             aria-hidden="true"
           >
             <i className={styles.statusCore} />
@@ -1502,9 +1493,8 @@ export function SessionSidebar(): ReactNode {
           {item.hasChildren ? (
             <button
               type="button"
-              className={`${styles.treeTwistie} ${
-                collapsedNode ? styles.treeTwistieCollapsed : ""
-              }`}
+              className={`${styles.treeTwistie} ${collapsedNode ? styles.treeTwistieCollapsed : ""
+                }`}
               onClick={(e) => {
                 e.stopPropagation();
                 toggleTreeNode(root, sessionId);
@@ -1533,9 +1523,8 @@ export function SessionSidebar(): ReactNode {
               </span>
               {isRunning(item.session.status) ? (
                 <span
-                  className={`${styles.runTag} ${
-                    hasPendingAsk(sessionId) ? styles.runTagAsk : ""
-                  }`}
+                  className={`${styles.runTag} ${hasPendingAsk(sessionId) ? styles.runTagAsk : ""
+                    }`}
                 >
                   {hasPendingAsk(sessionId) ? "ask" : "live"}
                 </span>
@@ -2307,9 +2296,8 @@ export function SessionSidebar(): ReactNode {
                 {t.workspacePanelProjects}
               </span>
               <span
-                className={`${styles.wsPanelChevron} ${
-                  workspaceCollapsed ? styles.wsPanelChevronSticky : ""
-                }`}
+                className={`${styles.wsPanelChevron} ${workspaceCollapsed ? styles.wsPanelChevronSticky : ""
+                  }`}
               >
                 {workspaceCollapsed ? (
                   <ChevronForwardOutline size={13} />
@@ -2379,11 +2367,10 @@ export function SessionSidebar(): ReactNode {
                 return (
                   <div key={root} data-ws-block data-root={root}>
                     <div
-                      className={`${styles.wsRowWrap} ${
-                        workspace.root === root && !sessionsStore.activeId
-                          ? styles.wsRowWrapActive
-                          : ""
-                      }`}
+                      className={`${styles.wsRowWrap} ${workspace.root === root && !sessionsStore.activeId
+                        ? styles.wsRowWrapActive
+                        : ""
+                        }`}
                     >
                       <button
                         type="button"
@@ -2394,9 +2381,8 @@ export function SessionSidebar(): ReactNode {
                         onContextMenu={(e) => openWorkspaceCtx(e, root)}
                       >
                         <span
-                          className={`${styles.chevron} ${
-                            expandedRoot ? styles.chevronOpen : ""
-                          }`}
+                          className={`${styles.chevron} ${expandedRoot ? styles.chevronOpen : ""
+                            }`}
                         >
                           <ChevronForwardOutline size={14} />
                         </span>
@@ -2639,9 +2625,8 @@ export function SessionSidebar(): ReactNode {
             {archivedFilteredRows.map((row) => (
               <li
                 key={row.id}
-                className={`${styles.archivedRow} ${
-                  isArchivedSelected(row.id) ? styles.archivedRowSelected : ""
-                }`}
+                className={`${styles.archivedRow} ${isArchivedSelected(row.id) ? styles.archivedRowSelected : ""
+                  }`}
                 onClick={(e) => onArchivedRowClick(row.id, e.shiftKey)}
               >
                 <Checkbox
@@ -2665,22 +2650,22 @@ export function SessionSidebar(): ReactNode {
 
       {ctx.show
         ? createPortal(
-            <div className={styles.ctxAnchor} style={{ left: ctx.x, top: ctx.y }}>
-              <Dropdown
-                {...NO_OVERLAY_MOTION}
-                open
-                trigger={[]}
-                placement={ctx.placement}
-                menu={{
-                  items: ctxItems,
-                  onClick: ({ key }) => void onCtxSelect(key),
-                }}
-              >
-                <span className={styles.ctxAnchorTarget} />
-              </Dropdown>
-            </div>,
-            document.body,
-          )
+          <div className={styles.ctxAnchor} style={{ left: ctx.x, top: ctx.y }}>
+            <Dropdown
+              {...NO_OVERLAY_MOTION}
+              open
+              trigger={[]}
+              placement={ctx.placement}
+              menu={{
+                items: ctxItems,
+                onClick: ({ key }) => void onCtxSelect(key),
+              }}
+            >
+              <span className={styles.ctxAnchorTarget} />
+            </Dropdown>
+          </div>,
+          document.body,
+        )
         : null}
     </aside>
   );
