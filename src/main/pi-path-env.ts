@@ -63,8 +63,12 @@ export function augmentPathForPiCli(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     );
   }
   const parts = current.split(sep).filter(Boolean);
+  const seen = new Set(parts);
   for (const e of extras) {
-    if (e && !parts.includes(e)) parts.push(e);
+    if (e && !seen.has(e)) {
+      seen.add(e);
+      parts.push(e);
+    }
   }
   const next = { ...env, PATH: parts.join(sep) };
   if (process.platform === "win32") next["Path"] = next.PATH;
@@ -121,11 +125,6 @@ export function resolveSystemNodeExecutable(
   const resolved = resolveSystemNodeExecutableUncached(env);
   cachedSystemNode = { key: cacheKey, value: resolved };
   return resolved;
-}
-
-/** Test helper — clear process-lifetime node resolution cache. */
-export function clearSystemNodeExecutableCache(): void {
-  cachedSystemNode = null;
 }
 
 function resolveSystemNodeExecutableUncached(

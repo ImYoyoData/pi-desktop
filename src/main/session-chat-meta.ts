@@ -1,10 +1,11 @@
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, rmSync } from "node:fs";
 import {
   chatMetaPath,
   type ChatMessageTag,
   type SessionChatMeta,
   type SessionChatMetaEntry,
 } from "../shared/chat-meta";
+import { writeJsonAtomicSync } from "./atomic-write";
 
 /**
  * Read the per-session UI-meta sidecar (attachment tags for user messages).
@@ -56,7 +57,7 @@ export function appendChatMeta(
       ...(displayText ? { displayText } : {}),
     });
   }
-  writeFileSync(path, JSON.stringify(meta, null, 2), { encoding: "utf8" });
+  writeJsonAtomicSync(path, meta);
 }
 
 export function deleteChatMeta(filePath: string): void {

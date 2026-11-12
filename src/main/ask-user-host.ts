@@ -155,12 +155,6 @@ export function registerAskUserIpc(): void {
   );
 }
 
-export function clearPendingAskUserAsks(reason = "ask_user asks cleared"): void {
-  for (const id of [...pendingAsks.keys()]) {
-    cancelAskUserAsk(id, reason);
-  }
-}
-
 /** Parse RPC params into normalized questions (with ensured custom options). */
 export function questionsFromAskUserParams(
   params: Record<string, unknown>,

@@ -33,7 +33,9 @@ type PooledWorker = {
   pending: Map<number, PendingJob>;
 };
 
-function workerScriptPath(): string | null {
+let workerScriptCache: { dir: string; path: string | null } | null = null;
+
+function resolveWorkerScriptPath(): string | null {
   // Prefer sibling of this module (packaged / electron-vite out/main).
   // Vitest runs from src/ — fall back to the built out/main worker when present.
   const candidates = [
@@ -50,7 +52,17 @@ function workerScriptPath(): string | null {
   return null;
 }
 
+/** 历史分页是高频路径，按 __dirname 缓存探测结果。 */
+function workerScriptPath(): string | null {
+  if (workerScriptCache?.dir === __dirname) return workerScriptCache.path;
+  const found = resolveWorkerScriptPath();
+  workerScriptCache = { dir: __dirname, path: found };
+  return found;
+}
+
 function workerUnavailable(): Error {
+  // dev 下可能先调用后构建，失效一次后允许下次重新探测。
+  workerScriptCache = null;
   return new Error("session-history worker not built (run electron-vite build)");
 }
 

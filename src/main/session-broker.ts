@@ -74,8 +74,7 @@ const HEARTBEAT_MISS_LIMIT_IDLE = 3;
 let stallEmitMs = 75_000;
 
 /** 「重试」设置热更新卡死判定阈值。 */
-export function setStallEmitMs(ms: number): void {
-  stallEmitMs = ms;
+export function setStallEmitMs(ms: number): void {  stallEmitMs = ms;
 }
 /**
  * Stop is a cancel, not a disconnect: `session.abort()` is a signal that
@@ -90,6 +89,17 @@ export function setStallEmitMs(ms: number): void {
  */
 export const ABORT_FORCE_KILL_MS = 8_000;
 const SHUTDOWN_GRACE_MS = 800;
+/** worker 进程已退出/通道断开：属「不存活」，与真实 IPC 故障区分。 */
+function isWorkerGoneError(error: unknown): boolean {
+	const code = (error as NodeJS.ErrnoException | null)?.code;
+	if (code === "ERR_IPC_CHANNEL_CLOSED" || code === "ERR_IPC_DISCONNECTED") {
+		return true;
+	}
+	const message = error instanceof Error ? error.message : String(error);
+	return /channel closed|channel is already disconnected|not connected|disconnected/i.test(
+		message,
+	);
+}
 const CONTEXT_SEGMENT_IDS = new Set<ContextUsageSegmentId>([
   "system",
   "tools",
@@ -127,8 +137,7 @@ export type SessionBroker = {
     backend?: AgentBackend,
   ) => Promise<SessionSummary | null>;
   closeSession: (sessionId: string) => Promise<void>;
-  send: (sessionId: string, command: AgentCommand) => Promise<unknown>;
-  /**
+  send: (sessionId: string, command: AgentCommand) => Promise<unknown>;  /**
    * Like send, but never cold-starts a worker. Returns `undefined` when no worker is alive
    * (used for UI sync without waking the Pi agent).
    */
@@ -1132,8 +1141,13 @@ export function createSessionBroker(deps: {
     if (!worker) {
       return false;
     }
-    await worker.send(msg);
-    return true;
+    try {
+      await worker.send(msg);
+      return rec?.worker === worker;
+    } catch (error) {
+      if (rec?.worker !== worker || isWorkerGoneError(error)) return false;
+      throw error;
+    }
   }
 
   async function send(
@@ -1479,14 +1493,15 @@ export function createSessionBroker(deps: {
       ([, rec]) =>
         rec.worker !== null && (backend === undefined || rec.backend === backend),
     );
-    for (const [id, rec] of targets) {
-      // AuthStorage 缓存 auth.json，pi 需要重建进程；omp 的 worker 支持热刷新。
-      if (rec.backend === "omp") {
-        await sendRawIfAlive(id, { kind: "reload_models" });
-      } else {
-        await restartWorkerWhenIdle(id);
-      }
-    }
+    await Promise.all(
+      [...targets].map(([id, rec]) => {
+        // AuthStorage 缓存 auth.json，pi 需要重建进程；omp 的 worker 支持热刷新。
+        if (rec.backend === "omp") {
+          return sendRawIfAlive(id, { kind: "reload_models" });
+        }
+        return restartWorkerWhenIdle(id);
+      }),
+    );
   }
 
   async function notifyWorkersReloadStreamRender(
@@ -1495,9 +1510,9 @@ export function createSessionBroker(deps: {
     const ids = [...sessions.entries()]
       .filter(([, rec]) => rec.worker !== null)
       .map(([id]) => id);
-    for (const id of ids) {
-      await sendRawIfAlive(id, { kind: "reload_stream_render", streamRender });
-    }
+    await Promise.all(
+      ids.map((id) => sendRawIfAlive(id, { kind: "reload_stream_render", streamRender })),
+    );
   }
 
   /** 界面语言变化时热更新存活 worker 的后台截断提示文案。 */
@@ -1505,14 +1520,15 @@ export function createSessionBroker(deps: {
     const ids = [...sessions.entries()]
       .filter(([, rec]) => rec.worker !== null)
       .map(([id]) => id);
-    for (const id of ids) {
-      await sendRawIfAlive(id, { kind: "reload_locale", locale });
-    }
+    await Promise.all(
+      ids.map((id) => sendRawIfAlive(id, { kind: "reload_locale", locale })),
+    );
   }
 
   /** 空闲 worker 在进程内重载资源（扩展/MCP 配置），忙碌的等空闲后销毁重建。 */
   async function notifyWorkersReloadResources(cwd?: string): Promise<void> {
     const resolved = cwd ? path.resolve(cwd) : null;
+    const pending: Promise<unknown>[] = [];
     for (const [id, rec] of sessions.entries()) {
       if (!rec.worker) continue;
       if (resolved && path.resolve(rec.cwd) !== resolved) continue;
@@ -1520,8 +1536,9 @@ export function createSessionBroker(deps: {
         rec.restartOnIdle = true;
         continue;
       }
-      await sendRawIfAlive(id, { kind: "reload_resources" });
+      pending.push(sendRawIfAlive(id, { kind: "reload_resources" }));
     }
+    await Promise.all(pending);
   }
 
   return {

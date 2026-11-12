@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { PullRequestPage } from "../shared/github-types";
 import { agentDir } from "./agent-dir";
+import { writeFileAtomicSync } from "./atomic-write";
 import type { TtlCacheEntry, TtlCacheOptions } from "./github-list";
 
 const WRITE_DELAY_MS = 800;
@@ -43,10 +44,7 @@ function jsonStore<T>(fileName: string): JsonStore<T> {
 	const flush = (): void => {
 		try {
 			const target = pathOf();
-			fs.mkdirSync(path.dirname(target), { recursive: true });
-			const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
-			fs.writeFileSync(tmp, JSON.stringify({ version: 1, entries }), "utf8");
-			fs.renameSync(tmp, target);
+			writeFileAtomicSync(target, JSON.stringify({ version: 1, entries }));
 		} catch {
 			// 落盘失败只影响下次启动的预热
 		}

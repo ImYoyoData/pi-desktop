@@ -194,8 +194,14 @@ process.on("uncaughtException", (err) => {
 	}
 });
 
-void acquireSingleInstanceLock().then((gotSingleInstanceLock) => {
-	if (!gotSingleInstanceLock) {
+// 未处理拒绝只记日志：单次后台任务失败不应终止主进程。
+process.on("unhandledRejection", (reason) => {
+	const message =
+		reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
+	console.error("[main] unhandledRejection:", message);
+});
+
+void acquireSingleInstanceLock().then((gotSingleInstanceLock) => {	if (!gotSingleInstanceLock) {
 		app.quit();
 		return;
 	}

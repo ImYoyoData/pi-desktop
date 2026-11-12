@@ -2,38 +2,15 @@ import path from "node:path";
 import fs from "node:fs";
 import { BrowserWindow, dialog, ipcMain } from "electron";
 import { IpcChannels } from "../shared/protocol";
-import { isPathInsideRoot, resolveWorkspacePath } from "../shared/path-sandbox";
+import { isPathInsideRoot } from "../shared/path-sandbox";
 import { readPreviewAt } from "./preview-host";
+import { resolvePreviewReadPath, resolvePreviewWritePath } from "./preview-paths";
 import { agentDir } from "./agent-dir";
 import { getWorkspace } from "./workspace-ipc";
 import { withoutAsar } from "./workspace-fs";
 
 function dialogParent(): BrowserWindow | undefined {
   return BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
-}
-
-/**
- * 预览读取路径：绝对路径按原样（工作区外的本地文件也可预览），
- * 相对路径相对工作区解析。
- */
-function resolvePreviewReadPath(root: string, filePath: string): string {
-  return path.isAbsolute(filePath)
-    ? path.normalize(filePath)
-    : path.resolve(root, filePath);
-}
-
-/**
- * 预览写入路径：工作区内，或 pi 用户资源目录（~/.pi/agent）——
- * 智能体设置页需要编辑用户级/扩展级定制文件。
- */
-function resolvePreviewWritePath(root: string, filePath: string): string {
-  try {
-    return resolveWorkspacePath(root, filePath);
-  } catch (err) {
-    const resolved = path.resolve(filePath);
-    if (isPathInsideRoot(agentDir(), resolved)) return resolved;
-    throw err;
-  }
 }
 
 export function registerPreviewIpc(): void {
@@ -56,7 +33,7 @@ export function registerPreviewIpc(): void {
   ipcMain.handle(IpcChannels.preview.write, (_event, filePath: string, content: string) => {
     const root = getWorkspace();
     if (!root) throw new Error("Open a workspace folder first");
-    const absolute = resolvePreviewWritePath(root, filePath);
+    const absolute = resolvePreviewWritePath(root, filePath, agentDir());
     withoutAsar(() => {
       fs.mkdirSync(path.dirname(absolute), { recursive: true });
       fs.writeFileSync(absolute, content, "utf8");

@@ -1,5 +1,5 @@
 import { app, ipcMain } from "electron";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { IpcChannels } from "../shared/protocol";
 import { netFetch } from "./net-fetch";
@@ -44,6 +44,35 @@ function avatarDir(): string {
   return app.isPackaged
     ? join(process.resourcesPath, "resources", "Avatar")
     : join(app.getAppPath(), "resources", "Avatar");
+}
+
+const DISK_AVATAR_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+let diskPruneStarted = false;
+
+/** 磁盘头像按 mtime 保留 30 天：URL 变化留下的旧文件不会无限累积。 */
+async function pruneDiskAvatars(): Promise<void> {
+  if (diskPruneStarted) return;
+  diskPruneStarted = true;
+  try {
+    const dir = avatarDir();
+    const names = await readdir(dir);
+    const now = Date.now();
+    await Promise.all(
+      names.map(async (name) => {
+        try {
+          const full = join(dir, name);
+          const info = await stat(full);
+          if (now - info.mtimeMs > DISK_AVATAR_MAX_AGE_MS) {
+            await rm(full, { force: true });
+          }
+        } catch {
+          // 单个文件不可读/不可删时跳过
+        }
+      }),
+    );
+  } catch {
+    // 目录尚未创建或不可读：首次写入时会创建
+  }
 }
 
 /** 由头像地址推导出稳定、可读的缓存文件名（不含扩展名）。 */
@@ -127,6 +156,7 @@ async function loadAvatar(url: string): Promise<string | null> {
 }
 
 export function registerContributorsIpc(): void {
+  void pruneDiskAvatars();
   ipcMain.handle(IpcChannels.contributors.avatar, (_event, url: unknown) => {
     const normalized = normalizeAvatarUrl(url);
     return normalized ? loadAvatar(normalized) : null;

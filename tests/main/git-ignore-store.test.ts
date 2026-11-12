@@ -40,6 +40,21 @@ describe("git-ignore-store (.gitignore-backed)", () => {
     expect(raw).not.toContain("pi-desktop filter");
   });
 
+  it("preserves user content byte-for-byte when removing the managed block", () => {
+    const userBody = "node_modules/\n\n# keep   this\n   spaced  \nlast";
+    fs.writeFileSync(path.join(ws, ".gitignore"), userBody, "utf8");
+    addGitIgnored(ws, ["out/"]);
+    expect(fs.readFileSync(path.join(ws, ".gitignore"), "utf8")).toContain(userBody);
+    removeGitIgnored(ws, "out");
+    expect(fs.readFileSync(path.join(ws, ".gitignore"), "utf8")).toBe(userBody);
+  });
+
+  it("keeps the file when the managed block was the only content", () => {
+    addGitIgnored(ws, ["dist"]);
+    removeGitIgnored(ws, "dist");
+    expect(fs.existsSync(path.join(ws, ".gitignore"))).toBe(true);
+  });
+
   it("matches exact files and folder prefixes", () => {
     addGitIgnored(ws, ["dist", "tmp.log"]);
     expect(isGitIgnoredPath(ws, "dist/child/x.js")).toBe(true);

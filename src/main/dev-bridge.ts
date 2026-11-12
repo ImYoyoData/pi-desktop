@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import { isFontFilePath, wallpaperKindForPath } from "../shared/appearance";
 import {
 	DEV_BRIDGE_DEFAULT_PORT,
 	DEV_BRIDGE_PORT_OFFSET,
@@ -215,8 +216,8 @@ function originAllowed(req: IncomingMessage): boolean {
 }
 
 /**
- * 供外部浏览器预览读取本地媒体（壁纸图片/视频）。
- * 只能由本机页面发起，避免任意站点借桥读本地文件。
+ * 供外部浏览器预览读取本地媒体（壁纸图片/视频/字体）。
+ * 只能由本机页面发起，且只服务 pi-media 允许的扩展名，避免任意站点借桥读本地文件。
  */
 function serveLocalMedia(req: IncomingMessage, res: ServerResponse): void {
 	if (!isLocalPageRequest(req)) {
@@ -228,9 +229,17 @@ function serveLocalMedia(req: IncomingMessage, res: ServerResponse): void {
 		res.writeHead(400).end("missing path");
 		return;
 	}
+	const absolute = path.normalize(filePath);
+	if (
+		!path.isAbsolute(absolute) ||
+		(!wallpaperKindForPath(absolute) && !isFontFilePath(absolute))
+	) {
+		res.writeHead(400).end("unsupported media path");
+		return;
+	}
 	let stat: fs.Stats;
 	try {
-		stat = fs.statSync(filePath);
+		stat = fs.statSync(absolute);
 	} catch {
 		res.writeHead(404).end("not found");
 		return;
@@ -239,7 +248,7 @@ function serveLocalMedia(req: IncomingMessage, res: ServerResponse): void {
 		res.writeHead(404).end("not found");
 		return;
 	}
-	const contentType = mediaContentType(filePath);
+	const contentType = mediaContentType(absolute);
 	const range = parseRange(req.headers.range, stat.size);
 	const headers: Record<string, string> = {
 		"Content-Type": contentType,
@@ -249,12 +258,12 @@ function serveLocalMedia(req: IncomingMessage, res: ServerResponse): void {
 	if (range) {
 		headers["Content-Range"] = `bytes ${range.start}-${range.end}/${stat.size}`;
 		res.writeHead(206, headers);
-		fs.createReadStream(filePath, { start: range.start, end: range.end }).pipe(res);
+		fs.createReadStream(absolute, { start: range.start, end: range.end }).pipe(res);
 		return;
 	}
 	headers["Content-Length"] = String(stat.size);
 	res.writeHead(200, headers);
-	fs.createReadStream(filePath).pipe(res);
+	fs.createReadStream(absolute).pipe(res);
 }
 
 /** 本机页面：带 localhost 的 Origin 或 Referer。 */

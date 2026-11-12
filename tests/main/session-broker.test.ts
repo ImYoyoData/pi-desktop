@@ -1024,6 +1024,8 @@ describe("listBackendModels", () => {
   });
 
   it("首个 worker 报错时换下一个候选重试", async () => {
+    // 候选重试会打印预期错误，测试里静音，避免淹没真实回归。
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const rows = [{ provider: "custom", id: "m1" }];
     const broker = createSessionBroker({
       allocateSession: allocateSeq(["session-a", "session-b"]),
@@ -1050,5 +1052,6 @@ describe("listBackendModels", () => {
     await broker.createSession("/tmp/a");
     await broker.createSession("/tmp/a");
     await vi.waitFor(async () => expect(await broker.listBackendModels("pi")).toEqual(rows));
+    errorSpy.mockRestore();
   });
 });
