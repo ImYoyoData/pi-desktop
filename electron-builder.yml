@@ -10,7 +10,7 @@ files:
   - "!tests/*"
   - "!_ev-scaffold2/*"
   - "!.superpowers/*"
-  - "!docs/*"
+  - "!assets/**"
   - "!scripts/*"
   - "!release*/**"
   # 本地状态 / 临时目录 / 未构建的源（.pi-glla 是 GLLA 会话与 owner 数据，绝不能进包）

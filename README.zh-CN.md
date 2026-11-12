@@ -55,7 +55,7 @@
 <h2 align="center">截图</h2>
 
 <p align="center">
-  <img src="docs/screenshots/new-session.png" alt="Pi Desktop 新会话" width="760" />
+  <img src="assets/screenshots/new-session.png" alt="Pi Desktop 新会话" width="760" />
 </p>
 
 ---

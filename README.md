@@ -55,7 +55,7 @@
 <h2 align="center">Screenshots</h2>
 
 <p align="center">
-  <img src="docs/screenshots/new-session.png" alt="Pi Desktop new session" width="760" />
+  <img src="assets/screenshots/new-session.png" alt="Pi Desktop new session" width="760" />
 </p>
 
 ---
