@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.3.8-rc.3 (2026-11-13)
+
+本版把内置 omp / Pi SDK 与桌面依赖更新到最新，并对主进程、worker 生命周期与渲染层状态做了一轮完整审计：修掉会话挂起、窗口无法关闭、权限越界等一批缺陷，同时清掉死代码、收紧安装包体积。
+
+### 变更 Changes
+
+- **升级内置 SDK 与依赖**：omp `18.18.9`（`pi-coding-agent` / `pi-tui` / `pi-utils`）、Pi `1.5.2`，electron `45.3.1`（Chromium 156）；设置 schema 与斜杠命令清单按新版本重新生成。
+- **性能与资源**：页签持久化改为按内容签名去抖，优化 Composer 与 Markdown 渲染、流式解析上限提到 64k；空闲 worker 最多保留 4 个，且回收前会等待在途命令结束。
+- **安装包体积**：排除 7 个纯渲染层依赖（react / react-dom / virtua / @pierre 等，约 26MB），删除未使用的 `pnpm-workspace.yaml`。
+
+### 修复 Fixes
+
+- **会话不再无声卡死**：空闲裁剪不会再杀掉仍有在途命令的 worker（`list_models` / `get_state` 曾会永久挂起）；prompt 投递失败后状态复位，停止按钮不再卡住；渲染进程崩溃或卡死时窗口可以正常关闭并自动重载一次。
+- **收紧安全边界**：渲染层开启 sandbox；内置浏览器的网页不再静默获得剪贴板 / 通知 / 屏幕捕获权限；`pi-local` 协议限定为工作区、agent 目录与主进程预览过的目录；检查点回滚与文件移动 / 重命名统一走工作区沙箱校验。
+- **状态一致性**：切回运行中的会话不再重复整轮消息，上下文轮换条目独立展示，OMP 自动重试不再残留旧错误条。
+- **工程清理**：移除 dev-bridge、18 个零引用导出与 3 个死代码模块，补齐 `PI_DESKTOP_BASH_SHELL` 环境变量契约。
+
+### Changes (English)
+
+- **Upgraded bundled SDKs and dependencies**: omp `18.18.9` (`pi-coding-agent` / `pi-tui` / `pi-utils`) and Pi `1.5.2`, with electron `45.3.1` (Chromium 156); the settings schema and slash-command catalog were regenerated.
+- **Performance and resources**: tab persistence is debounced by content signature, Composer/Markdown rendering and the streaming parser (64k cap) were optimized, and at most 4 idle workers stay alive — none are reclaimed while a command is still in flight.
+- **Installer size**: seven renderer-only packages (react, react-dom, virtua, @pierre and friends, ~26 MB) are no longer packed, and the unused `pnpm-workspace.yaml` is gone.
+
+### Fixes
+
+- **Sessions no longer hang silently**: idle trimming skips workers with an in-flight command (`list_models` / `get_state` used to wait forever), a failed prompt send resets the session to idle instead of leaving Stop stuck, and a crashed or unresponsive renderer can be closed after one automatic reload attempt.
+- **Tighter security boundaries**: the renderer runs sandboxed, pages in the embedded browser no longer get clipboard / notification / display-capture permissions silently, `pi-local` is limited to the workspace, the agent dir and directories the main process actually previewed, and checkpoint revert plus file move/rename now run through the workspace sandbox check.
+- **Consistent state**: switching back to a running session no longer duplicates the whole turn, context-rollover entries render as their own card, and OMP auto-retry no longer leaves a stale error row.
+- **Cleanup**: dev-bridge, 18 unreferenced exports and three dead modules were removed, and the `PI_DESKTOP_BASH_SHELL` contract is now actually honored.
+
 ## v0.3.8-rc.2 (2026-11-07)
 
 修复切到 OMP 引擎后首条消息报 `Model not found` 的问题：模型菜单此前永远读 Pi 的 `models.json` 目录，把 Pi 的 `provider/id` 发给 OMP worker 的 `set_model` 必然失败；重新开会话能恢复，是因为新草稿的菜单回落到了 OMP 自己的列表。
