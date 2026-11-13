@@ -333,6 +333,7 @@ function tunnelConnector(proxy: ProxyEndpoint): buildConnector.connector {
 			signal?.removeEventListener("abort", onAbort);
 			if (error) {
 				socket?.destroy();
+				raw?.destroy();
 				callback(error, null);
 				return;
 			}

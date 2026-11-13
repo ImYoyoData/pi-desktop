@@ -13,6 +13,10 @@ import { Image } from "antd";
 import {
   CodeBlockNode as MarkstreamCodeBlockNode,
   MermaidBlockNode,
+  PreCodeNode,
+  languageMap,
+  normalizeLanguageIdentifier,
+  resolveLanguageId,
   setCustomComponents,
 } from "markstream-react";
 import {
@@ -78,9 +82,11 @@ type FenceNode = {
   raw?: string;
 };
 
-type CodeBlockProps = {
+type CodeBlockProps = Omit<
+  ComponentProps<typeof MarkstreamCodeBlockNode>,
+  "node"
+> & {
   node: FenceNode;
-  isDark?: boolean;
 };
 
 function fenceLanguage(node: FenceNode): string {
@@ -99,18 +105,106 @@ const GLASS_CODE_CSS =
 /** diff 只清掉 :host 的深色壳：改动行的底色是 diff 的语义信息，不能一并抹掉。 */
 const GLASS_DIFF_CSS = ":host{--diffs-light-bg:transparent;--diffs-dark-bg:transparent}";
 
+/** 与 markstream 最终代码块的默认高度上限一致，避免闭合时高度回退。 */
+const STREAM_CODE_MAX_HEIGHT = 500;
+
+/** 代码块闭合时才去加载 diffs / shiki 会卡住整条消息，围栏一出现就预热主题与语法。 */
+function preloadHighlight(language: string, isDark?: boolean): void {
+  const lang = resolveLanguageId(normalizeLanguageIdentifier(language));
+  if (!lang || lang === "text" || lang === "plaintext") return;
+  void import("@pierre/diffs")
+    .then(({ getSharedHighlighter }) =>
+      getSharedHighlighter({
+        themes: [isDark ? "vitesse-dark" : "vitesse-light"],
+        langs: [lang],
+      }),
+    )
+    .catch(() => {
+      // 预热失败不影响最终渲染
+    });
+}
+
+/**
+ * 围栏未闭合时的预览。markstream 内置的骨架屏会遮住正文直到围栏闭合，
+ * 这里直接跟随纯文本，既没有骨架闪烁，也不会提前触发 shiki 高亮。
+ */
+function StreamingFence({
+  node,
+  code,
+  language,
+  isDark,
+  maxHeight,
+}: {
+  node: FenceNode;
+  code: string;
+  language: string;
+  isDark?: boolean;
+  maxHeight: number;
+}): ReactNode {
+  useEffect(() => {
+    preloadHighlight(language, isDark);
+  }, [isDark, language]);
+
+  const lang = resolveLanguageId(normalizeLanguageIdentifier(language));
+  const label = languageMap[lang] || (lang ? lang.charAt(0).toUpperCase() + lang.slice(1) : "Plain Text");
+
+  return (
+    <div
+      className={`code-block-container my-4 rounded-lg border overflow-hidden shadow-sm${isDark ? " is-dark" : ""}`}
+      style={{
+        color: "var(--vscode-editor-foreground, var(--markstream-code-fallback-fg, var(--code-fg)))",
+        backgroundColor: "var(--vscode-editor-background, var(--markstream-code-fallback-bg, var(--code-bg)))",
+        borderColor: "var(--markstream-code-border-color, var(--code-border))",
+      }}
+    >
+      <div className="code-block-header">
+        <div className="code-header-main">
+          <span className="icon-slot h-4 w-4 flex-shrink-0" />
+          <div className="code-header-copy min-w-0">
+            <div className="code-header-title truncate">
+              {label}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="code-block-body">
+        <PreCodeNode
+          className="code-fallback-plain m-0"
+          node={
+            { ...node, type: "code_block", code, language } as ComponentProps<
+              typeof PreCodeNode
+            >["node"]
+          }
+          showLineNumbers={!node.diff}
+          style={{ maxHeight, overflow: "auto" }}
+        />
+      </div>
+    </div>
+  );
+}
+
 /** 代码块与 ```diff 都交给 markstream 的代码块（stream-diffs 高亮），只有图表自己渲染。 */
-function CodeBlockNode({ node, isDark }: CodeBlockProps): ReactNode {
+function CodeBlockNode({
+  node,
+  isDark,
+  codeBlockOptions,
+  ...codeProps
+}: CodeBlockProps): ReactNode {
   // markstream 把 code 原样交给渲染器，fence 末尾的换行会多出一行空行（行号也多一个）。
   const code = node.diff ? (node.code ?? "") : (node.code ?? "").replace(/\r\n$|\n$|\r$/, "");
   const language = fenceLanguage(node);
   const langKey = language.toLowerCase();
   const glassSurface = useAppearanceStore((state) => state.glassSurface);
-  const codeBlockOptions = useMemo(
-    () =>
-      glassSurface ? { unsafeCSS: node.diff ? GLASS_DIFF_CSS : GLASS_CODE_CSS } : undefined,
-    [glassSurface, node.diff],
-  );
+  const mergedOptions = useMemo(() => {
+    if (!glassSurface && !codeBlockOptions) return undefined;
+    const unsafeCSS = [
+      codeBlockOptions?.unsafeCSS,
+      glassSurface ? (node.diff ? GLASS_DIFF_CSS : GLASS_CODE_CSS) : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    return { ...codeBlockOptions, ...(unsafeCSS ? { unsafeCSS } : {}) };
+  }, [codeBlockOptions, glassSurface, node.diff]);
 
   if (MERMAID_LANGS.has(langKey) || (!langKey && looksLikeMermaidSource(code))) {
     return (
@@ -129,8 +223,33 @@ function CodeBlockNode({ node, isDark }: CodeBlockProps): ReactNode {
     );
   }
 
+  if (node.loading) {
+    const previewCode = node.diff
+      ? (node.raw ?? code).replace(/\r\n$|\n$|\r$/, "")
+      : code;
+    return (
+      <StreamingFence
+        node={node}
+        code={previewCode}
+        language={language}
+        isDark={isDark}
+        maxHeight={
+          typeof mergedOptions?.maxHeight === "number"
+            ? mergedOptions.maxHeight
+            : STREAM_CODE_MAX_HEIGHT
+        }
+      />
+    );
+  }
+
   return (
     <MarkstreamCodeBlockNode
+      showLineNumbers
+      showExpandButton={false}
+      enableFontSizeControl={false}
+      showCollapseButton={false}
+      showFontSizeButtons={false}
+      {...codeProps}
       node={
         { ...node, type: "code_block", code, language } as ComponentProps<
           typeof MarkstreamCodeBlockNode
@@ -138,12 +257,7 @@ function CodeBlockNode({ node, isDark }: CodeBlockProps): ReactNode {
       }
       isDark={isDark}
       loading={Boolean(node.loading)}
-      codeBlockOptions={codeBlockOptions}
-      showLineNumbers
-      showExpandButton={false}
-      enableFontSizeControl={false}
-      showCollapseButton={false}
-      showFontSizeButtons={false}
+      codeBlockOptions={mergedOptions}
     />
   );
 }

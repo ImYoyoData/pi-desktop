@@ -8,6 +8,10 @@ import type {
 	OmpModelsSnapshot,
 	OmpProviderRow,
 } from "../shared/omp-models";
+import {
+	THINKING_LEVELS,
+	type ThinkingLevel,
+} from "../shared/thinking-level";
 
 export function ompModelsPath(): string {
 	return path.join(ompAgentDir(), "models.yml");
@@ -17,6 +21,61 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 	return value && typeof value === "object" && !Array.isArray(value)
 		? (value as Record<string, unknown>)
 		: null;
+}
+
+/** models.yml 的 thinking 用 efforts，也可能用旧的 levels / minLevel+maxLevel。 */
+function readThinkingEfforts(raw: unknown): ThinkingLevel[] | null {
+	const thinking = asRecord(raw);
+	if (!thinking) return null;
+	const declared = Array.isArray(thinking.efforts)
+		? thinking.efforts
+		: Array.isArray(thinking.levels)
+			? thinking.levels
+			: levelRange(thinking.minLevel, thinking.maxLevel);
+	const efforts = THINKING_LEVELS.filter(
+		({ value }) => value !== "off" && declared.includes(value),
+	).map(({ value }) => value);
+	return efforts.length ? efforts : null;
+}
+
+function levelRange(min: unknown, max: unknown): string[] {
+	const from =
+		typeof min === "string"
+			? THINKING_LEVELS.findIndex(({ value }) => value === min)
+			: -1;
+	const to =
+		typeof max === "string"
+			? THINKING_LEVELS.findIndex(({ value }) => value === max)
+			: -1;
+	if (from < 0 || to < 0) return [];
+	return THINKING_LEVELS.slice(from, Math.max(from, to) + 1).map(
+		({ value }) => value,
+	);
+}
+
+/** 只改页面上的思考档位：null 保留文件原值，空数组删掉 thinking。 */
+function applyThinking(
+	model: Record<string, unknown>,
+	previous: Record<string, unknown>,
+	efforts: ThinkingLevel[] | null,
+): void {
+	if (efforts === null) return;
+	if (efforts.length === 0) {
+		delete model.thinking;
+		return;
+	}
+	const previousThinking = asRecord(previous.thinking) ?? {};
+	const mode =
+		typeof previousThinking.mode === "string" ? previousThinking.mode : "effort";
+	const thinking: Record<string, unknown> = {
+		...previousThinking,
+		mode,
+		efforts: [...efforts],
+	};
+	delete thinking.levels;
+	delete thinking.minLevel;
+	delete thinking.maxLevel;
+	model.thinking = thinking;
 }
 
 function providerRows(doc: unknown): OmpProviderRow[] {
@@ -44,6 +103,7 @@ function providerRows(doc: unknown): OmpProviderRow[] {
 							typeof m.contextWindow === "number" ? m.contextWindow : null,
 						maxTokens: typeof m.maxTokens === "number" ? m.maxTokens : null,
 						reasoning: m.reasoning === true,
+						thinkingEfforts: readThinkingEfforts(m.thinking),
 						vision: input.includes("image"),
 					};
 				})
@@ -83,6 +143,7 @@ function modelPlain(
 	put(model, "maxTokens", row.maxTokens);
 	put(model, "reasoning", row.reasoning ? true : null);
 	put(model, "input", row.vision ? ["text", "image"] : null);
+	applyThinking(model, previous, row.thinkingEfforts);
 	return model;
 }
 

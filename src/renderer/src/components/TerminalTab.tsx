@@ -17,6 +17,7 @@ import { useI18n } from "@renderer/i18n/use-i18n";
 import { handleAppLinkClick } from "@renderer/utils/open-link";
 import { ProgramStatusScanner } from "@renderer/utils/osc-program-status";
 import { xtermTheme } from "@renderer/utils/xterm-theme";
+import { nextFrame } from "./next-frame";
 import styles from "./TerminalTab.module.css";
 
 type Props = {
@@ -34,12 +35,6 @@ type Props = {
 
 const MAX_WRITE_BUF = 512 * 1024;
 const WRITE_PER_FRAME = 64 * 1024;
-
-function nextFrame(): Promise<void> {
-  return new Promise<void>((resolve) => {
-    requestAnimationFrame(() => resolve());
-  });
-}
 
 export function TerminalTab({
   instanceId,

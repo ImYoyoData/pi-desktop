@@ -33,6 +33,8 @@ type ParsedEntry = {
   thinkingLevel?: string;
   /** compaction / branch_summary entries. */
   summary?: string;
+  /** compaction entries: omp 实验性上下文轮换（summary 是系统提示词，不是摘要）。 */
+  rollover?: boolean;
   /** compaction entries: token 数（压缩前）。 */
   tokensBefore?: number;
 };
@@ -296,6 +298,16 @@ function findLeafId(entries: ParsedEntry[]): string | null {
   return leaves[0]?.id ?? null;
 }
 
+/** omp 的笔记式上下文轮换把系统提示词写进 summary，必须和真实摘要区分。 */
+function isExperimentalRollover(details: unknown): boolean {
+  return (
+    typeof details === "object" &&
+    details !== null &&
+    "kind" in details &&
+    details.kind === "experimental-context-rollover"
+  );
+}
+
 function parseEntryLine(
   line: string,
   pendingImages: Map<string, HistoryImage[]>,
@@ -329,6 +341,7 @@ function parseEntryLine(
       ? { thinkingLevel: parsed.thinkingLevel }
       : {}),
     ...(typeof parsed.summary === "string" ? { summary: parsed.summary } : {}),
+    ...(isExperimentalRollover(parsed.details) ? { rollover: true } : {}),
     ...(typeof parsed.tokensBefore === "number" && Number.isFinite(parsed.tokensBefore)
       ? { tokensBefore: parsed.tokensBefore }
       : {}),
@@ -412,6 +425,7 @@ function buildMessagesFromEntries(
         role: "summary",
         text: truncateForUi(text),
         kind: entry.type === "compaction" ? "compaction" : "branch",
+        ...(entry.rollover ? { rollover: true } : {}),
         ...(entry.tokensBefore != null && entry.tokensBefore > 0
           ? { tokensBefore: entry.tokensBefore }
           : {}),
@@ -725,6 +739,8 @@ export function parseSessionHistoryPageReverse(
       }
     }
 
+    // path 不超过 tail 长度，先用它挡掉构建 Map 的开销。
+    if (!reachedStart && tail.length < needed) continue;
     const path = tailLeafPath(tail);
     if (!reachedStart && path.length < needed) continue;
 
@@ -740,12 +756,19 @@ export function parseSessionHistoryPageReverse(
     if (beforeId) {
       const idx = all.findIndex((m) => m.id === beforeId);
       // 尾部区间还没覆盖到 beforeId：继续往回读。
-      if (idx < 0 && !reachedStart) {
+      if (idx < 0) {
+        if (reachedStart) return { messages: [], hasMore: false, total };
         needed = path.length + limit;
         continue;
       }
-      if (idx <= 0) return { messages: [], hasMore: false, total };
       end = idx;
+    }
+
+    // 已读区间还不到一页：路径头部并不是文件头，继续往回读补齐这一页。
+    // 否则会返回半页，并把游标停在该区间头部（下次请求 idx === 0）误判成没有更早。
+    if (!reachedStart && end < limit) {
+      needed = path.length + limit;
+      continue;
     }
 
     const start = Math.max(0, end - limit);

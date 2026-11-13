@@ -106,8 +106,14 @@ export type DetailToolCard = {
   chips: DetailChip[];
   flags: DetailFlag[];
   sections: DetailSection[];
-  /** task 结果里的子代理对话入口。 */
-  transcripts: Array<{ agentId: string; label: string }>;
+  /** task 结果里的子代理对话入口；异步 spawn 的行来自 details.progress。 */
+  transcripts: Array<{
+    agentId: string;
+    label: string;
+    status?: "running" | "completed" | "failed" | "cancelled";
+    model?: string | null;
+    durationMs?: number;
+  }>;
   images: string[];
   args: unknown;
   durationMs?: number | null;

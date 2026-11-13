@@ -72,8 +72,12 @@ export function taskCard(
   const results = arrayValue(details.results).filter(
     (entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object",
   );
+  const progressRows = arrayValue(details.progress).filter(
+    (entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object",
+  );
   const items: DetailItem[] = [];
-  const transcripts: Array<{ agentId: string; label: string }> = [];
+  const transcripts: DetailToolCard["transcripts"] = [];
+  const transcriptIds = new Set<string>();
   for (const result of results) {
     const agent = textValue(result.agent) ?? "agent";
     const description =
@@ -98,7 +102,27 @@ export function taskCard(
       ),
     );
     const id = textValue(result.id);
-    if (id) transcripts.push({ agentId: id, label });
+    if (id) {
+      transcripts.push({
+        agentId: id,
+        label,
+        status: result.aborted === true ? "cancelled" : exitCode !== 0 ? "failed" : "completed",
+        model: textValue(result.resolvedModel),
+        durationMs: durationMs ?? 0,
+      });
+      transcriptIds.add(id);
+    }
+  }
+  for (const row of progressRows) {
+    const id = textValue(row.id);
+    if (!id || transcriptIds.has(id)) continue;
+    transcripts.push({
+      agentId: id,
+      label: textValue(row.description) ?? textValue(row.task) ?? (textValue(row.agent) ?? id),
+      status: progressStatus(row.status),
+      model: textValue(row.resolvedModel),
+      durationMs: numberValue(row.durationMs) ?? 0,
+    });
   }
   const totalDuration = numberValue(details.totalDurationMs);
   const tasks = arrayValue(data.tasks).filter(
@@ -151,7 +175,19 @@ export function askCard(
   );
   const items: DetailItem[] = [];
   let flatQuestion: string | null = null;
-  if (results.length) {
+  const answers = arrayValue(details.answers).filter(
+    (entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object",
+  );
+  if (answers.length) {
+    for (const entry of answers) {
+      items.push(
+        item(
+          textValue(entry.question) ?? textValue(entry.name) ?? "Question",
+          textValue(entry.answer) ?? undefined,
+        ),
+      );
+    }
+  } else if (results.length) {
     for (const result of results) {
       const selected = arrayValue(result.selectedOptions)
         .map((entry) => textValue(entry))
@@ -204,7 +240,7 @@ export function askCard(
     });
   }
   if (!sections.length) sections.push(textSection(parts.text));
-  else if (!results.length && !flatQuestion) sections.push(textSection(parts.text));
+  else if (!results.length && !flatQuestion && !answers.length) sections.push(textSection(parts.text));
   return buildCard("ask", args, parts, opts, {
     target: items[0]?.title ?? null,
     summary: firstLine(parts.text),
@@ -273,6 +309,16 @@ export function debugCard(
           : [],
     sections,
   });
+}
+
+/** AgentProgress.status 是 pending/running/completed/failed/aborted；aborted 归入 cancelled。 */
+function progressStatus(
+  value: unknown,
+): "running" | "completed" | "failed" | "cancelled" | undefined {
+  if (value === "running" || value === "completed" || value === "failed") return value;
+  if (value === "aborted") return "cancelled";
+  if (value === "pending") return "running";
+  return undefined;
 }
 
 export function idaCard(

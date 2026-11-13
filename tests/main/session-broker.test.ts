@@ -1024,6 +1024,8 @@ describe("listBackendModels", () => {
   });
 
   it("首个 worker 报错时换下一个候选重试", async () => {
+    // 候选重试会打印预期错误，测试里静音，避免淹没真实回归。
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const rows = [{ provider: "custom", id: "m1" }];
     const broker = createSessionBroker({
       allocateSession: allocateSeq(["session-a", "session-b"]),
@@ -1050,5 +1052,69 @@ describe("listBackendModels", () => {
     await broker.createSession("/tmp/a");
     await broker.createSession("/tmp/a");
     await vi.waitFor(async () => expect(await broker.listBackendModels("pi")).toEqual(rows));
+    errorSpy.mockRestore();
+  });
+
+  it("does not trim an idle worker that still has an in-flight command", async () => {
+    type Entry = {
+      id: string;
+      cmdId: string | null;
+      deliver: ((msg: WorkerOutbound) => void) | null;
+    };
+    const entries: Entry[] = [];
+    const kills = new Map<string, number>();
+    const broker = createSessionBroker({
+      allocateSession: allocateSeq(["w1", "w2", "w3", "w4", "w5", "w6", "w7"]),
+      // Keep the idle timer out of the picture so only trimming can kill.
+      idleDestroyMs: 60_000,
+      spawnWorker: async (cwd, filePath) => {
+        const id = idFromPath(filePath);
+        const entry: Entry = { id, cmdId: null, deliver: null };
+        entries.push(entry);
+        return {
+          id,
+          cwd,
+          filePath: filePath ?? `/tmp/${id}.jsonl`,
+          worker: {
+            send: async (msg) => {
+              // Record the command id but never answer: the command stays in flight.
+              if (msg.kind === "command") entry.cmdId = msg.id;
+              return null;
+            },
+            kill: () => kills.set(id, (kills.get(id) ?? 0) + 1),
+            onMessage: (cb) => {
+              entry.deliver = cb;
+              return () => {};
+            },
+          },
+        };
+      },
+    });
+
+    const ids = ["w1", "w2", "w3", "w4", "w5", "w6", "w7"];
+    try {
+      await broker.createSession("/tmp/w1");
+      await vi.waitFor(() => expect(entries.length).toBe(1));
+
+      // w1 is the oldest idle worker AND has a command awaiting its result.
+      const pending = broker.send("w1", { type: "list_models" });
+      pending.catch(() => {}); // settled explicitly below; avoids unhandled rejection
+      await vi.waitFor(() => expect(entries.find((e) => e.id === "w1")?.cmdId).toBeTruthy());
+
+      // Prewarm more sessions so trimming runs with an over-cap idle population.
+      for (const id of ids.slice(1)) await broker.createSession(`/tmp/${id}`);
+      await vi.waitFor(() => expect(entries.length).toBe(ids.length));
+
+      // Killing w1 would strand its promise (expected exits emit no fatal), so the
+      // oldest *idle* worker without pending work is trimmed instead.
+      expect(kills.get("w1")).toBeUndefined();
+      expect(kills.get("w2")).toBeGreaterThan(0);
+
+      const w1 = entries.find((e) => e.id === "w1")!;
+      w1.deliver?.({ kind: "result", id: w1.cmdId!, data: [{ provider: "p", id: "m" }] });
+      await expect(pending).resolves.toEqual([{ provider: "p", id: "m" }]);
+    } finally {
+      for (const id of ids) await broker.closeSession(id);
+    }
   });
 });

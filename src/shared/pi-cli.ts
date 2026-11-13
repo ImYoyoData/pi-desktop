@@ -8,8 +8,6 @@ export const PI_INSTALL_PS1 = "https://pi.dev/install.ps1";
 /** npm search for discoverable Pi packages (extensions / skills / prompts / themes). */
 export const PI_MARKET_URL = "https://pi.dev/packages";
 export const PI_PACKAGES_DOCS_URL = "https://pi.dev/docs/latest";
-export const PI_MARKETPLACE_INSTALL = "npm:pi-marketplace";
-export const PI_MARKETPLACE_INSTALL_CMD = "pi install npm:pi-marketplace";
 
 export type PiCliInstallMethod =
 	| "bun"

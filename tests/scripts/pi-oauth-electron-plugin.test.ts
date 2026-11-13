@@ -7,7 +7,7 @@ import {
 const SAMPLE = `
 const importOAuthModule = (specifier) => {
     const runtimeSpecifier = import.meta.url.endsWith(".js") ? specifier.replace(/\\.ts$/, ".js") : specifier;
-    return import(__rewriteRelativeImportExtension(runtimeSpecifier));
+    return import(__rewriteRelativeImportExtension(new URL(runtimeSpecifier, import.meta.url).href));
 };
 export const loadOpenAICodexOAuth = async () => {
     return (await importOAuthModule("./openai-codex.ts")).openaiCodexOAuth;

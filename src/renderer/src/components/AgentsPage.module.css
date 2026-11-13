@@ -1,0 +1,94 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 4px 8px;
+  box-sizing: border-box;
+  background: var(--pi-dock-bg, #1a1a19);
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 0.9231rem;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--bg-hover);
+}
+
+.row.selected {
+  background: var(--bg-active, var(--bg-hover));
+}
+
+.statusIcon {
+  flex-shrink: 0;
+  color: var(--fg-muted);
+}
+
+.statusIcon.statusRunning {
+  color: var(--fg);
+  animation: agents-spin 1.2s linear infinite;
+}
+
+.statusIcon.statusFailed {
+  color: var(--error, #e5484d);
+}
+
+.rowLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowMeta {
+  flex-shrink: 0;
+  font-size: 0.8462rem;
+  color: var(--fg-faint, var(--fg-muted));
+  font-variant-numeric: tabular-nums;
+}
+
+.runningBadge {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 0.7692rem;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+@keyframes agents-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.empty {
+  margin-top: 64px;
+}

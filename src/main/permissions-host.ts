@@ -45,6 +45,8 @@ const pendingAsks = new Map<string, PendingAsk>();
 const sessionAllows = new Map<string, Set<PermissionCategory>>();
 /** 同一会话的审批一次只弹一条，并联调用排队等用户逐条处理。 */
 const askChains = new Map<string, Promise<unknown>>();
+/** 正在排队、尚未弹条的请求，用于会话关闭时一并取消。 */
+const queuedBySession = new Map<string, Set<string>>();
 /** 排队中就被取消（Stop / 会话关闭）的请求；上限只防意外泄漏。 */
 const cancelledRequests = new Set<string>();
 
@@ -149,19 +151,28 @@ function askInOrder(
   requestId: string,
   ask: () => Promise<PermissionDecision>,
 ): Promise<PermissionDecision> {
-  const start = (): Promise<PermissionDecision> =>
-    cancelledRequests.delete(requestId)
+  const queued = queuedBySession.get(sessionId) ?? new Set<string>();
+  queued.add(requestId);
+  queuedBySession.set(sessionId, queued);
+  const start = (): Promise<PermissionDecision> => {
+    queued.delete(requestId);
+    if (queued.size === 0 && queuedBySession.get(sessionId) === queued) {
+      queuedBySession.delete(sessionId);
+    }
+    return cancelledRequests.delete(requestId)
       ? Promise.reject(new Error("permission ask cancelled"))
       : ask();
+  };
   const previous = askChains.get(sessionId) ?? Promise.resolve();
   const run = previous.then(start);
-  askChains.set(
-    sessionId,
-    run.then(
-      () => undefined,
-      () => undefined,
-    ),
+  const chain = run.then(
+    () => undefined,
+    () => undefined,
   );
+  askChains.set(sessionId, chain);
+  void chain.then(() => {
+    if (askChains.get(sessionId) === chain) askChains.delete(sessionId);
+  });
   return run;
 }
 
@@ -232,17 +243,19 @@ export function cancelPermissionAsksForSession(
     if (row.sessionId !== sessionId) continue;
     cancelPermissionAsk(requestId, reason);
   }
+  const queued = queuedBySession.get(sessionId);
+  if (!queued) return;
+  for (const requestId of queued) {
+    if (cancelledRequests.size >= 128) cancelledRequests.clear();
+    cancelledRequests.add(requestId);
+  }
+  queued.clear();
+  queuedBySession.delete(sessionId);
 }
 
 /** 会话关闭 / 删除：本会话的「允许此类」不再保留。 */
 export function clearSessionPermissionAllows(sessionId: string): void {
   sessionAllows.delete(sessionId);
-}
-
-export function clearPendingPermissionAsks(reason = "permission asks cleared"): void {
-  for (const requestId of [...pendingAsks.keys()]) {
-    cancelPermissionAsk(requestId, reason);
-  }
 }
 
 export function registerPermissionsIpc(): void {

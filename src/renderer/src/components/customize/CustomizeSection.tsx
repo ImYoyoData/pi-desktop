@@ -547,7 +547,7 @@ export function CustomizeSection({
         try {
           if (kind === "skills" && item.filePath) {
             await window.api.skills.uninstall(item.filePath, workspace.root ?? undefined);
-            store.removeFileItem(item.id);
+            store.removeSkill(item.id);
             return;
           } else if (kind === "instructions" && item.filePath) {
             await window.api.customizations.removeItem(item.filePath, workspace.root ?? undefined);

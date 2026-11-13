@@ -22,7 +22,7 @@ import type { Plugin } from "vite";
  * `globalThis.__piDesktopOAuthFetch` early at startup.
  */
 const IMPORT_OAUTH_MODULE_RE =
-  /const importOAuthModule = \(specifier\) => \{[\s\S]*?return import\(__rewriteRelativeImportExtension\(runtimeSpecifier\)\);\r?\n\};/;
+  /const importOAuthModule = \(specifier\) => \{[\s\S]*?return import\(__rewriteRelativeImportExtension\([\s\S]*?\)\);\r?\n\};/;
 
 const STATIC_IMPORT_OAUTH_MODULE = `const importOAuthModule = (specifier) => {
   const key = String(specifier).replace(/\\.js$/, ".ts");
@@ -77,6 +77,10 @@ function rewriteCode(code: string): string | null {
   return next && next !== code ? next : null;
 }
 
+function isOAuthLoader(id: string): boolean {
+  return /auth\/oauth\/load\.(?:js|ts)$/.test(id);
+}
+
 export function piOAuthElectronPlugin(): Plugin {
   return {
     name: "pi-oauth-electron",
@@ -84,9 +88,14 @@ export function piOAuthElectronPlugin(): Plugin {
     transform(code, id) {
       const normalized = id.replace(/\\/g, "/");
       if (!normalized.includes("@earendil-works/pi-ai")) return null;
-      if (!normalized.includes("auth/oauth/")) return null;
+      if (!isOAuthLoader(normalized)) return null;
       const next = rewriteCode(code);
-      return next ? { code: next, map: null } : null;
+      if (!next) {
+        throw new Error(
+          "[pi-oauth-electron] OAuth loader layout changed; update the rewrite pattern",
+        );
+      }
+      return { code: next, map: null };
     },
   };
 }

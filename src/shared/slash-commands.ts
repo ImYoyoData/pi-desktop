@@ -30,10 +30,6 @@ export function findOmpSlashCommand(name: string): OmpSlashCommand | undefined {
   return OMP_COMMAND_BY_NAME.get(name);
 }
 
-export function isOmpSlashCommand(name: string): boolean {
-  return OMP_COMMAND_BY_NAME.has(name);
-}
-
 /** 生成自 pi SDK 的内建命令元数据（scripts/gen-pi-slash-commands.bun.mjs）。 */
 export type PiSlashCommand = {
   name: string;
@@ -82,12 +78,6 @@ export type SlashCatalog = {
 };
 
 export type SlashBuiltinId = "new" | "compact" | "model";
-
-export const SLASH_BUILTIN_IDS: readonly SlashBuiltinId[] = [
-  "new",
-  "compact",
-  "model",
-] as const;
 
 export function isSlashBuiltinId(v: string): v is SlashBuiltinId {
   return v === "new" || v === "compact" || v === "model";

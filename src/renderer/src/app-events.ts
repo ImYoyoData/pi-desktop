@@ -6,7 +6,7 @@
  * 「等待模型响应」。ChatPanel 会被 `v-if` 反复销毁重建（切到拉取请求视图即卸载），
  * 正是这个坑的触发点。
  *
- * 这里显式持有解绑链，不用 effectScope：解绑顺序与内容一目了然，也不依赖 Vue 的
+ * 这里显式持有解绑链，不用 effectScope：解绑顺序与内容一目了然，也不依赖框架的
  * 隐式 scope 行为。
  */
 import { useAgentRunsStore } from "./stores/agent-runs";

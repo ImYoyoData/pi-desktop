@@ -1,5 +1,7 @@
 /** Per-session extension widgets (todo / plan progress) for the chat chrome. */
 
+import { parseTodoPhaseItemBlob } from "../../../shared/todo-tool";
+
 export type SessionTodoItem = {
 	id: string;
 	text: string;
@@ -177,6 +179,27 @@ export function normalizeTodoRows(rows: unknown): SessionTodoItem[] {
 			t.durationMs >= 0
 				? t.durationMs
 				: undefined;
+		const blocker =
+			typeof t.blocker === "string" && t.blocker.trim()
+				? t.blocker.trim()
+				: undefined;
+		const blob = parseTodoPhaseItemBlob(text);
+		if (blob) {
+			// 模型把 init 的阶段条目误放进 items，JSON 兜底把每项串成了一行。
+			const blobActive = active || statusActive(t.status);
+			blob.items.forEach((nestedText, index) => {
+				items.push({
+					id: `${id}.${index + 1}`,
+					text: nestedText,
+					done,
+					...(blobActive && index === 0 ? { active: true } : {}),
+					...(unreported ? { unreported: true } : {}),
+					...(durationMs != null && index === 0 ? { durationMs } : {}),
+					...(blocker && index === 0 ? { blocker } : {}),
+				});
+			});
+			continue;
+		}
 		items.push({
 			id,
 			text,
@@ -184,9 +207,7 @@ export function normalizeTodoRows(rows: unknown): SessionTodoItem[] {
 			...(active ? { active: true } : {}),
 			...(unreported ? { unreported: true } : {}),
 			...(durationMs != null ? { durationMs } : {}),
-			...(typeof t.blocker === "string" && t.blocker.trim()
-				? { blocker: t.blocker.trim() }
-				: {}),
+			...(blocker ? { blocker } : {}),
 		});
 	}
 	return items;

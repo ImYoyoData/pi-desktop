@@ -31,30 +31,6 @@ export function AddOutline({
   );
 }
 
-export function ArchiveOutline({
-  size,
-  color,
-  className,
-  style,
-}: IoniconProps): ReactNode {
-  return (
-    <svg
-      xmlns={"http://www.w3.org/2000/svg"}
-      viewBox={"0 0 512 512"}
-      width={size ?? "1em"}
-      height={size ?? "1em"}
-      className={className}
-      style={color ? { color, ...style } : style}
-      aria-hidden="true"
-    >
-      <path d={"M80 152v256a40.12 40.12 0 0 0 40 40h272a40.12 40.12 0 0 0 40-40V152"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
-      <rect x={48} y={64} width={416} height={80} rx={28} ry={28} fill={"none"} stroke={"currentColor"} strokeLinejoin={"round"} strokeWidth={32} />
-      <path fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} d={"M320 304l-64 64l-64-64"} />
-      <path fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} d={"M256 345.89V224"} />
-    </svg>
-  );
-}
-
 export function ArrowBackOutline({
   size,
   color,
@@ -138,29 +114,6 @@ export function ArrowUndoOutline({
       aria-hidden="true"
     >
       <path d={"M240 424v-96c116.4 0 159.39 33.76 208 96c0-119.23-39.57-240-208-240V88L64 256z"} fill={"none"} stroke={"currentColor"} strokeLinejoin={"round"} strokeWidth={32} />
-    </svg>
-  );
-}
-
-export function ArrowUpCircleOutline({
-  size,
-  color,
-  className,
-  style,
-}: IoniconProps): ReactNode {
-  return (
-    <svg
-      xmlns={"http://www.w3.org/2000/svg"}
-      viewBox={"0 0 512 512"}
-      width={size ?? "1em"}
-      height={size ?? "1em"}
-      className={className}
-      style={color ? { color, ...style } : style}
-      aria-hidden="true"
-    >
-      <path fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} d={"M176 249.38L256 170l80 79.38"} />
-      <path fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} d={"M256 181.03V342"} />
-      <path d={"M448 256c0-106-86-192-192-192S64 150 64 256s86 192 192 192s192-86 192-192z"} fill={"none"} stroke={"currentColor"} strokeMiterlimit={10} strokeWidth={32} />
     </svg>
   );
 }
@@ -985,32 +938,6 @@ export function GitMerge({
   );
 }
 
-export function GitPullRequestOutline({
-  size,
-  color,
-  className,
-  style,
-}: IoniconProps): ReactNode {
-  return (
-    <svg
-      xmlns={"http://www.w3.org/2000/svg"}
-      viewBox={"0 0 512 512"}
-      width={size ?? "1em"}
-      height={size ?? "1em"}
-      className={className}
-      style={color ? { color, ...style } : style}
-      aria-hidden="true"
-    >
-      <circle cx={128} cy={416} r={48} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
-      <line x1={128} y1={144} x2={128} y2={368} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
-      <polyline points={"288 160 224 96 288 32"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
-      <circle cx={128} cy={96} r={48} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
-      <circle cx={384} cy={416} r={48} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
-      <path d={"M240,96h84a60,60,0,0,1,60,60V368"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
-    </svg>
-  );
-}
-
 export function GlobeOutline({
   size,
   color,
@@ -1071,79 +998,6 @@ export function HardwareChipOutline({
   );
 }
 
-export function HomeOutline({
-  size,
-  color,
-  className,
-  style,
-}: IoniconProps): ReactNode {
-  return (
-    <svg
-      xmlns={"http://www.w3.org/2000/svg"}
-      viewBox={"0 0 512 512"}
-      width={size ?? "1em"}
-      height={size ?? "1em"}
-      className={className}
-      style={color ? { color, ...style } : style}
-      aria-hidden="true"
-    >
-      <path fill={"none"} stroke={"currentColor"} strokeLinejoin={"round"} strokeWidth={32} d={"M32 264L256 40l224 224"} />
-      <path fill={"none"} stroke={"currentColor"} strokeLinejoin={"round"} strokeWidth={32} d={"M88 208V420a52 52 0 0052 52h232a52 52 0 0052-52V208"} />
-      <path fill={"none"} stroke={"currentColor"} strokeLinejoin={"round"} strokeWidth={32} d={"M212 472v-62a44 44 0 0188 0v62"} />
-    </svg>
-  );
-}
-
-export function InformationCircleOutline({
-  size,
-  color,
-  className,
-  style,
-}: IoniconProps): ReactNode {
-  return (
-    <svg
-      xmlns={"http://www.w3.org/2000/svg"}
-      viewBox={"0 0 512 512"}
-      width={size ?? "1em"}
-      height={size ?? "1em"}
-      className={className}
-      style={color ? { color, ...style } : style}
-      aria-hidden="true"
-    >
-      <path d={"M248 64C146.39 64 64 146.39 64 248s82.39 184 184 184s184-82.39 184-184S349.61 64 248 64z"} fill={"none"} stroke={"currentColor"} strokeMiterlimit={10} strokeWidth={32} />
-      <path fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} d={"M220 220h32v116"} />
-      <path fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeMiterlimit={10} strokeWidth={32} d={"M208 340h88"} />
-      <path d={"M248 130a26 26 0 1 0 26 26a26 26 0 0 0-26-26z"} fill={"currentColor"} />
-    </svg>
-  );
-}
-
-export function LibraryOutline({
-  size,
-  color,
-  className,
-  style,
-}: IoniconProps): ReactNode {
-  return (
-    <svg
-      xmlns={"http://www.w3.org/2000/svg"}
-      viewBox={"0 0 512 512"}
-      width={size ?? "1em"}
-      height={size ?? "1em"}
-      className={className}
-      style={color ? { color, ...style } : style}
-      aria-hidden="true"
-    >
-      <rect x={32} y={96} width={64} height={368} rx={16} ry={16} fill={"none"} stroke={"currentColor"} strokeLinejoin={"round"} strokeWidth={32} />
-      <line x1={112} y1={224} x2={240} y2={224} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
-      <line x1={112} y1={400} x2={240} y2={400} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
-      <rect x={112} y={160} width={128} height={304} rx={16} ry={16} fill={"none"} stroke={"currentColor"} strokeLinejoin={"round"} strokeWidth={32} />
-      <rect x={256} y={48} width={96} height={416} rx={16} ry={16} fill={"none"} stroke={"currentColor"} strokeLinejoin={"round"} strokeWidth={32} />
-      <path d={"M422.46,96.11l-40.4,4.25c-11.12,1.17-19.18,11.57-17.93,23.1l34.92,321.59c1.26,11.53,11.37,20,22.49,18.84l40.4-4.25c11.12-1.17,19.18-11.57,17.93-23.1L445,115C443.69,103.42,433.58,94.94,422.46,96.11Z"} fill={"none"} stroke={"currentColor"} strokeLinejoin={"round"} strokeWidth={32} />
-    </svg>
-  );
-}
-
 export function LinkOutline({
   size,
   color,
@@ -1189,27 +1043,6 @@ export function ListOutline({
       <circle cx={80} cy={144} r={16} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
       <circle cx={80} cy={256} r={16} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
       <circle cx={80} cy={368} r={16} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
-    </svg>
-  );
-}
-
-export function LogoGithub({
-  size,
-  color,
-  className,
-  style,
-}: IoniconProps): ReactNode {
-  return (
-    <svg
-      xmlns={"http://www.w3.org/2000/svg"}
-      viewBox={"0 0 512 512"}
-      width={size ?? "1em"}
-      height={size ?? "1em"}
-      className={className}
-      style={color ? { color, ...style } : style}
-      aria-hidden="true"
-    >
-      <path d={"M256 32C132.3 32 32 134.9 32 261.7c0 101.5 64.2 187.5 153.2 217.9a17.56 17.56 0 0 0 3.8.4c8.3 0 11.5-6.1 11.5-11.4c0-5.5-.2-19.9-.3-39.1a102.4 102.4 0 0 1-22.6 2.7c-43.1 0-52.9-33.5-52.9-33.5c-10.2-26.5-24.9-33.6-24.9-33.6c-19.5-13.7-.1-14.1 1.4-14.1h.1c22.5 2 34.3 23.8 34.3 23.8c11.2 19.6 26.2 25.1 39.6 25.1a63 63 0 0 0 25.6-6c2-14.8 7.8-24.9 14.2-30.7c-49.7-5.8-102-25.5-102-113.5c0-25.1 8.7-45.6 23-61.6c-2.3-5.8-10-29.2 2.2-60.8a18.64 18.64 0 0 1 5-.5c8.1 0 26.4 3.1 56.6 24.1a208.21 208.21 0 0 1 112.2 0c30.2-21 48.5-24.1 56.6-24.1a18.64 18.64 0 0 1 5 .5c12.2 31.6 4.5 55 2.2 60.8c14.3 16.1 23 36.6 23 61.6c0 88.2-52.4 107.6-102.3 113.3c8 7.1 15.2 21.1 15.2 42.5c0 30.7-.3 55.5-.3 63c0 5.4 3.1 11.5 11.4 11.5a19.35 19.35 0 0 0 4-.4C415.9 449.2 480 363.1 480 261.7C480 134.9 379.7 32 256 32z"} fill={"currentColor"} />
     </svg>
   );
 }
@@ -1527,27 +1360,6 @@ export function SearchOutline({
   );
 }
 
-export function SendOutline({
-  size,
-  color,
-  className,
-  style,
-}: IoniconProps): ReactNode {
-  return (
-    <svg
-      xmlns={"http://www.w3.org/2000/svg"}
-      viewBox={"0 0 512 512"}
-      width={size ?? "1em"}
-      height={size ?? "1em"}
-      className={className}
-      style={color ? { color, ...style } : style}
-      aria-hidden="true"
-    >
-      <path d={"M470.3 271.15L43.16 447.31a7.83 7.83 0 0 1-11.16-7V327a8 8 0 0 1 6.51-7.86l247.62-47c17.36-3.29 17.36-28.15 0-31.44l-247.63-47a8 8 0 0 1-6.5-7.85V72.59c0-5.74 5.88-10.26 11.16-8L470.3 241.76a16 16 0 0 1 0 29.39z"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
-    </svg>
-  );
-}
-
 export function SettingsOutline({
   size,
   color,
@@ -1592,48 +1404,6 @@ export function SparklesOutline({
   );
 }
 
-export function Star({
-  size,
-  color,
-  className,
-  style,
-}: IoniconProps): ReactNode {
-  return (
-    <svg
-      xmlns={"http://www.w3.org/2000/svg"}
-      viewBox={"0 0 512 512"}
-      width={size ?? "1em"}
-      height={size ?? "1em"}
-      className={className}
-      style={color ? { color, ...style } : style}
-      aria-hidden="true"
-    >
-      <path d={"M394 480a16 16 0 0 1-9.39-3L256 383.76L127.39 477a16 16 0 0 1-24.55-18.08L153 310.35L23 221.2a16 16 0 0 1 9-29.2h160.38l48.4-148.95a16 16 0 0 1 30.44 0l48.4 149H480a16 16 0 0 1 9.05 29.2L359 310.35l50.13 148.53A16 16 0 0 1 394 480z"} fill={"currentColor"} />
-    </svg>
-  );
-}
-
-export function StarOutline({
-  size,
-  color,
-  className,
-  style,
-}: IoniconProps): ReactNode {
-  return (
-    <svg
-      xmlns={"http://www.w3.org/2000/svg"}
-      viewBox={"0 0 512 512"}
-      width={size ?? "1em"}
-      height={size ?? "1em"}
-      className={className}
-      style={color ? { color, ...style } : style}
-      aria-hidden="true"
-    >
-      <path d={"M480 208H308L256 48l-52 160H32l140 96l-54 160l138-100l138 100l-54-160z"} fill={"none"} stroke={"currentColor"} strokeLinejoin={"round"} strokeWidth={32} />
-    </svg>
-  );
-}
-
 export function StopOutline({
   size,
   color,
@@ -1652,30 +1422,6 @@ export function StopOutline({
     >
       <circle cx={244.5} cy={279} r={148} fill={"none"} stroke={"currentColor"} strokeWidth={40} />
       <rect x={188.5} y={223} width={112} height={112} fill={"currentColor"} />
-    </svg>
-  );
-}
-
-export function SwapHorizontalOutline({
-  size,
-  color,
-  className,
-  style,
-}: IoniconProps): ReactNode {
-  return (
-    <svg
-      xmlns={"http://www.w3.org/2000/svg"}
-      viewBox={"0 0 512 512"}
-      width={size ?? "1em"}
-      height={size ?? "1em"}
-      className={className}
-      style={color ? { color, ...style } : style}
-      aria-hidden="true"
-    >
-      <path fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} d={"M304 48l112 112l-112 112"} />
-      <path fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} d={"M398.87 160H96"} />
-      <path fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} d={"M208 464L96 352l112-112"} />
-      <path fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} d={"M114 352h302"} />
     </svg>
   );
 }

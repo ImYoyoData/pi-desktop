@@ -10,16 +10,17 @@ files:
   - "!tests/*"
   - "!_ev-scaffold2/*"
   - "!.superpowers/*"
-  - "!docs/*"
+  - "!assets/**"
   - "!scripts/*"
   - "!release*/**"
   # 本地状态 / 临时目录 / 未构建的源（.pi-glla 是 GLLA 会话与 owner 数据，绝不能进包）
   - "!.pi/**"
   - "!.pi-glla/**"
+  - "!.vitest/**"
+  - "!.tmp-*/**"
   - "!scratch_*/**"
   - "!tmp-freeze/**"
   - "!vitest.config.ts"
-  - "!pnpm-workspace.yaml"
   # Dev scratch that used to be packaged as-is — promo-video alone added ~172 MB
   # to the installed payload, and the rest is graph/cache/log noise.
   - "!promo-video/**"
@@ -32,18 +33,22 @@ files:
   - "!**/*.log"
   - "!**/*.{md,map}"
   - "!electron.vite.config.{js,ts,mjs,cjs}"
-  - "!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md}"
+  - "!{.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md}"
   - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
   - "!{tsconfig.json,tsconfig.node.json,tsconfig.web.json,tsconfig.*.tsbuildinfo}"
   # Renderer-only packages are already bundled into out/ —
   # exclude to cut size hard
-  - "!node_modules/monaco-editor/**"
-  - "!node_modules/naive-ui/**"
-  - "!node_modules/@vicons/**"
-  - "!node_modules/vue/**"
-  - "!node_modules/pinia/**"
-  - "!node_modules/splitpanes/**"
   - "!node_modules/sortablejs/**"
+  # react / react-dom / virtua / diff+markdown renderers are bundled into
+  # out/renderer and never required by main (verified via out/main requires),
+  # so shipping them only inflates the asar.
+  - "!node_modules/react/**"
+  - "!node_modules/react-dom/**"
+  - "!node_modules/virtua/**"
+  - "!node_modules/@pierre/**"
+  - "!node_modules/stream-diffs/**"
+  - "!node_modules/stream-markdown-parser/**"
+  - "!node_modules/markstream-react/**"
   - "!node_modules/@types/**"
   - "!node_modules/@xterm/**"
   - "!node_modules/mermaid/**"
@@ -65,7 +70,6 @@ files:
   - "!node_modules/internmap/**"
   - "!node_modules/rw/**"
   - "!node_modules/katex/**"
-  - "!node_modules/marked-katex-extension/**"
   - "!node_modules/@viz-js/**"
   - "!node_modules/dayjs/**"
   - "!node_modules/cytoscape/**"
@@ -78,16 +82,6 @@ files:
   # Keep marked + highlight.js: Pi SDK (agent-worker) requires them at runtime.
   - "!node_modules/dompurify/**"
   - "!node_modules/csstype/**"
-  - "!node_modules/seemly/**"
-  - "!node_modules/vooks/**"
-  - "!node_modules/vueuc/**"
-  - "!node_modules/@juggle/**"
-  - "!node_modules/@css-render/**"
-  - "!node_modules/css-render/**"
-  - "!node_modules/evtd/**"
-  - "!node_modules/treemate/**"
-  - "!node_modules/date-fns-tz/**"
-  - "!node_modules/date-fns/**"
   # OMP 只以 resources/omp 下的独立二进制运行，主进程不 import @oh-my-pi；
   # 它携带的 ML/原生包在安装包里不可达，合计约 705 MB 未压缩 / 142 MB 压缩。
   - "!node_modules/@oh-my-pi/**"

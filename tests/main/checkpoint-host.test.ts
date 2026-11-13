@@ -7,6 +7,7 @@ import {
 	beginCheckpoint,
 	finishCheckpoint,
 	initCheckpointPersistence,
+	listReadyCheckpoints,
 	listSessionCheckpointSummaries,
 	noteCheckpointFsChange,
 	revertCheckpoint,
@@ -146,6 +147,17 @@ describe("checkpoint-host", () => {
 		const first = finishCheckpoint("s1", "u1");
 		// already finished by second begin
 		expect(first.status).toBe("ready");
+	});
+
+	it("caps retained live checkpoints per session", () => {
+		fs.writeFileSync(path.join(root, "a.txt"), "x", "utf8");
+		for (let i = 0; i < 55; i++) {
+			beginCheckpoint("s1", `u${i}`, root);
+			noteCheckpointFsChange(root, "a.txt", "change");
+			finishCheckpoint("s1", `u${i}`);
+		}
+		expect(listReadyCheckpoints("s1").length).toBeLessThanOrEqual(50);
+		expect(listSessionCheckpointSummaries("s1").length).toBeLessThanOrEqual(50);
 	});
 
 	it("persists finished summaries and restores them on reload", () => {

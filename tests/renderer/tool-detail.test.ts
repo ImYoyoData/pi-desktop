@@ -126,6 +126,26 @@ describe("detail tool cards", () => {
     expect(card.flags).toContain("timedOut");
   });
 
+  it("reads form-based ask answers", () => {
+    const card = detail(
+      "ask",
+      { html: "<form><input name=\"q1\" /></form>" },
+      {
+        content: [{ type: "text", text: "{\"q1\":\"A\"}" }],
+        details: {
+          answers: [{ name: "q1", question: "Pick one", answer: "A" }],
+          timedOut: true,
+        },
+      },
+    );
+    const items = card.sections.find((section) => section.kind === "items");
+    if (!items || items.kind !== "items") throw new Error("missing items");
+    expect(items.items[0]?.title).toBe("Pick one");
+    expect(items.items[0]?.subtitle).toBe("A");
+    expect(card.sections.some((section) => section.kind === "text")).toBe(false);
+    expect(card.flags).toContain("timedOut");
+  });
+
   it("keeps historical task output next to task args", () => {
     const card = detail(
       "task",

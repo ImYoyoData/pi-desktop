@@ -6,8 +6,8 @@ import {
 	readOmpSetting,
 	writeOmpSetting,
 } from "../../src/shared/omp-settings";
-import { saveOmpSettings } from "../../src/main/omp-settings-host";
-import { saveOmpModels } from "../../src/main/omp-models-config";
+import { readOmpSettings, saveOmpSettings } from "../../src/main/omp-settings-host";
+import { saveOmpModels, readOmpModels } from "../../src/main/omp-models-config";
 
 describe("omp settings 路径读写", () => {
 	let doc: Record<string, unknown>;
@@ -89,6 +89,7 @@ describe("omp models.yml 合并", () => {
 						contextWindow: null,
 						maxTokens: null,
 						reasoning: false,
+						thinkingEfforts: null,
 						vision: false,
 					},
 				],
@@ -102,6 +103,180 @@ describe("omp models.yml 合并", () => {
 		expect(readOmpModels().providers).toHaveLength(1);
 	});
 
+	it("按界面写入 thinking.efforts 并保留 mode 等字段", () => {
+		fs.writeFileSync(
+			path.join(dir, "models.yml"),
+			[
+				"providers:",
+				"  magpie:",
+				"    api: openai-completions",
+				"    models:",
+				"      - id: model-a",
+				"        reasoning: true",
+				"        thinking:",
+				"          mode: budget",
+				"          efforts: [low, medium]",
+				"          defaultLevel: low",
+				"",
+			].join("\n"),
+			"utf8",
+		);
+
+		expect(readOmpModels().providers[0]?.models[0]?.thinkingEfforts).toEqual([
+			"low",
+			"medium",
+		]);
+
+		const snapshot = saveOmpModels([
+			{
+				id: "magpie",
+				api: "openai-completions",
+				baseUrl: "",
+				apiKey: "",
+				models: [
+					{
+						id: "model-a",
+						name: "",
+						api: "",
+						contextWindow: null,
+						maxTokens: null,
+						reasoning: true,
+						thinkingEfforts: ["high", "max"],
+						vision: false,
+					},
+				],
+			},
+		]);
+
+		expect(snapshot.providers[0]?.models[0]?.thinkingEfforts).toEqual([
+			"high",
+			"max",
+		]);
+		const raw = fs.readFileSync(path.join(dir, "models.yml"), "utf8");
+		expect(raw).toContain("mode: budget");
+		expect(raw).toContain("defaultLevel: low");
+	});
+
+	it("读取旧版档位写法，空档位删除 thinking", () => {
+		fs.writeFileSync(
+			path.join(dir, "models.yml"),
+			[
+				"providers:",
+				"  magpie:",
+				"    models:",
+				"      - id: model-a",
+				"        reasoning: true",
+				"        thinking:",
+				"          mode: effort",
+				"          minLevel: low",
+				"          maxLevel: high",
+				"      - id: model-b",
+				"        reasoning: true",
+				"        thinking:",
+				"          mode: effort",
+				"          levels: [minimal, xhigh]",
+				"",
+			].join("\n"),
+			"utf8",
+		);
+
+		const models = readOmpModels().providers[0]?.models ?? [];
+		expect(models[0]?.thinkingEfforts).toEqual(["low", "medium", "high"]);
+		expect(models[1]?.thinkingEfforts).toEqual(["minimal", "xhigh"]);
+
+		saveOmpModels([
+			{
+				id: "magpie",
+				api: "",
+				baseUrl: "",
+				apiKey: "",
+				models: [
+					{
+						id: "model-a",
+						name: "",
+						api: "",
+						contextWindow: null,
+						maxTokens: null,
+						reasoning: true,
+						thinkingEfforts: [],
+						vision: false,
+					},
+					{
+						id: "model-b",
+						name: "",
+						api: "",
+						contextWindow: null,
+						maxTokens: null,
+						reasoning: true,
+						thinkingEfforts: null,
+						vision: false,
+					},
+				],
+			},
+		]);
+		const raw = fs.readFileSync(path.join(dir, "models.yml"), "utf8");
+		expect(raw).not.toContain("minLevel");
+		expect(raw).toContain("levels");
+	});
+
+	it("thinking 未声明档位时保存不删除 thinking", () => {
+		fs.writeFileSync(
+			path.join(dir, "models.yml"),
+			[
+				"providers:",
+				"  magpie:",
+				"    models:",
+				"      - id: model-a",
+				"        reasoning: true",
+				"        thinking:",
+				"          mode: budget",
+				"          defaultLevel: low",
+				"",
+			].join("\n"),
+			"utf8",
+		);
+
+		expect(readOmpModels().providers[0]?.models[0]?.thinkingEfforts).toBeNull();
+
+		const snapshot = readOmpModels();
+		saveOmpModels(
+			snapshot.providers.map((provider) => ({
+				...provider,
+				models: provider.models.map((model) => ({ ...model, vision: true })),
+			})),
+		);
+
+		const raw = fs.readFileSync(path.join(dir, "models.yml"), "utf8");
+		expect(raw).toContain("mode: budget");
+		expect(raw).toContain("defaultLevel: low");
+	});
+
+	it("thinking 档位全是 off 或未知值时保存不删除 thinking", () => {
+		fs.writeFileSync(
+			path.join(dir, "models.yml"),
+			[
+				"providers:",
+				"  magpie:",
+				"    models:",
+				"      - id: model-a",
+				"        reasoning: true",
+				"        thinking:",
+				"          mode: effort",
+				"          efforts: [off, custom]",
+				"",
+			].join("\n"),
+			"utf8",
+		);
+
+		expect(readOmpModels().providers[0]?.models[0]?.thinkingEfforts).toBeNull();
+
+		saveOmpModels(readOmpModels().providers);
+		const raw = fs.readFileSync(path.join(dir, "models.yml"), "utf8");
+		expect(raw).toContain("thinking:");
+		expect(raw).toContain("mode: effort");
+		expect(raw).toContain("custom");
+	});
+
 	it("拒绝空 id 与重复 id 且不改动文件", () => {
 		const file = path.join(dir, "models.yml");
 		const original = "providers: {}\n";
@@ -113,6 +288,7 @@ describe("omp models.yml 合并", () => {
 			contextWindow: null,
 			maxTokens: null,
 			reasoning: false,
+			thinkingEfforts: null,
 			vision: false,
 		};
 		const provider = (id: string, models = [model]) => ({
@@ -154,6 +330,56 @@ describe("omp config.yml 保存", () => {
 		fs.writeFileSync(file, "a: [1,\n", "utf8");
 		expect(() => saveOmpSettings({})).toThrow("invalid YAML");
 		expect(fs.readFileSync(file, "utf8")).toBe("a: [1,\n");
+	});
+});
+
+describe("omp config.yml 旧版重置设置", () => {
+	let dir: string;
+
+	beforeEach(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-desk-omp-legacy-"));
+		process.env.OMP_AGENT_DIR = dir;
+	});
+
+	afterEach(() => {
+		delete process.env.OMP_AGENT_DIR;
+		fs.rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("把单一 autoRedeem 换算成 5 小时与每周窗口", () => {
+		fs.writeFileSync(
+			path.join(dir, "config.yml"),
+			"codexResets:\n  autoRedeem: true\nclaudeResets:\n  autoRedeem: 'no'\n",
+			"utf8",
+		);
+		const { values } = readOmpSettings();
+		expect(values["codexResets.autoRedeem5h"]).toBe("yes");
+		expect(values["codexResets.autoRedeemWeekly"]).toBe("yes");
+		expect(values["claudeResets.autoRedeem5h"]).toBe("no");
+		expect(values["claudeResets.autoRedeemWeekly"]).toBe("no");
+		expect(values["claudeResets.autoRedeemFable"]).toBeUndefined();
+	});
+
+	it("已显式设置的新键优先于旧值", () => {
+		fs.writeFileSync(
+			path.join(dir, "config.yml"),
+			"codexResets:\n  autoRedeem: yes\n  autoRedeem5h: no\n",
+			"utf8",
+		);
+		const { values } = readOmpSettings();
+		expect(values["codexResets.autoRedeem5h"]).toBe("no");
+		expect(values["codexResets.autoRedeemWeekly"]).toBe("yes");
+	});
+
+	it("读取点分平铺写法的旧键", () => {
+		fs.writeFileSync(
+			path.join(dir, "config.yml"),
+			"\"claudeResets.autoRedeem\": false\n",
+			"utf8",
+		);
+		const { values } = readOmpSettings();
+		expect(values["claudeResets.autoRedeem5h"]).toBe("no");
+		expect(values["claudeResets.autoRedeemWeekly"]).toBe("no");
 	});
 });
 

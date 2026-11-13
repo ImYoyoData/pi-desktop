@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { writeFileAtomic } from "./atomic-write";
 
 /** omp 的 title slot：固定 256 字节（含换行）的首行，用于改会话标题。 */
 const TITLE_SLOT_BYTES = 256;
@@ -80,14 +81,5 @@ export async function renameOmpSessionFile(
 	const slot = Buffer.from(slotText, "utf8");
 	if (await overwriteTitleSlot(filePath, slot)) return;
 	const raw = await fs.promises.readFile(filePath);
-	const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-	try {
-		await fs.promises.writeFile(tempPath, Buffer.concat([slot, raw]), {
-			mode: 0o600,
-		});
-		await fs.promises.rename(tempPath, filePath);
-	} catch (err) {
-		await fs.promises.rm(tempPath, { force: true }).catch(() => undefined);
-		throw err;
-	}
+	await writeFileAtomic(filePath, Buffer.concat([slot, raw]), { mode: 0o600 });
 }

@@ -864,18 +864,6 @@
 				"description": "Disable an MCP server"
 			},
 			{
-				"name": "smithery-search",
-				"description": "Search Smithery registry and deploy an MCP server"
-			},
-			{
-				"name": "smithery-login",
-				"description": "Login to Smithery and cache API key"
-			},
-			{
-				"name": "smithery-logout",
-				"description": "Remove cached Smithery API key"
-			},
-			{
 				"name": "reconnect",
 				"description": "Reconnect to a specific MCP server"
 			},
@@ -1040,6 +1028,15 @@
 		"name": "pin",
 		"aliases": [],
 		"description": "Pin or unpin a session at the top of the resume list",
+		"hint": "[session id]",
+		"subcommands": [],
+		"handles": true,
+		"source": "builtin"
+	},
+	{
+		"name": "unpin",
+		"aliases": [],
+		"description": "Unpin a session from the top of the resume list",
 		"hint": "[session id]",
 		"subcommands": [],
 		"handles": true,
@@ -1241,7 +1238,7 @@
 	{
 		"name": "restart",
 		"aliases": [],
-		"description": "Restart omp with the same launch flags, resuming this session",
+		"description": "Restart omp with the same launch flags, resuming this session and its running subagents",
 		"hint": null,
 		"subcommands": [],
 		"handles": false,

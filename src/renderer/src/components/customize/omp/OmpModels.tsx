@@ -20,6 +20,10 @@ import {
 	type OmpModelsSnapshot,
 	type OmpProviderRow,
 } from "../../../../../shared/omp-models";
+import {
+	THINKING_LEVELS,
+	type ThinkingLevel,
+} from "../../../../../shared/thinking-level";
 import modelsStyles from "../CustomizeModels.module.css";
 import styles from "./OmpModels.module.css";
 
@@ -42,6 +46,9 @@ export function OmpModels(): ReactNode {
 	const [providers, setProviders] = useState<OmpProviderRow[]>([]);
 	const [selectedIndex, setSelectedIndex] = useState(0);
 	const [saving, setSaving] = useState(false);
+	/** 供应商行用稳定 key，新增/删除时不复用 DOM 节点。 */
+	const [providerKeys, setProviderKeys] = useState<string[]>([]);
+	const providerKeySeq = useRef(0);
 	/** 模型行用稳定 key，删除行时不串展开状态。 */
 	const [rowKeys, setRowKeys] = useState<string[]>([]);
 	const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
@@ -54,6 +61,7 @@ export function OmpModels(): ReactNode {
 				setSnapshot(next);
 				setProviders(next.providers);
 				resetRowKeys(next.providers[0]?.models.length ?? 0);
+				resetProviderKeys(next.providers.length);
 			} catch (err) {
 				message.error(err instanceof Error ? err.message : String(err));
 			}
@@ -72,6 +80,17 @@ export function OmpModels(): ReactNode {
 		const keys: string[] = [];
 		for (let i = 0; i < count; i += 1) keys.push(nextRowKey());
 		setRowKeys(keys);
+	}
+
+	function nextProviderKey(): string {
+		providerKeySeq.current += 1;
+		return `p-${providerKeySeq.current}`;
+	}
+
+	function resetProviderKeys(count: number): void {
+		const keys: string[] = [];
+		for (let i = 0; i < count; i += 1) keys.push(nextProviderKey());
+		setProviderKeys(keys);
 	}
 
 	function toggleRow(key: string): void {
@@ -113,6 +132,7 @@ export function OmpModels(): ReactNode {
 	function addProvider(): void {
 		const index = providers.length;
 		setProviders((prev) => [...prev, newOmpProvider()]);
+		setProviderKeys((prev) => [...prev, nextProviderKey()]);
 		setSelectedIndex(index);
 		resetRowKeys(0);
 	}
@@ -123,6 +143,7 @@ export function OmpModels(): ReactNode {
 			selectedIndex > 0 && selectedIndex >= index ? selectedIndex - 1 : selectedIndex;
 		const clamped = Math.min(Math.max(nextIndex, 0), Math.max(remaining.length - 1, 0));
 		setProviders(remaining);
+		setProviderKeys((prev) => prev.filter((_, i) => i !== index));
 		setSelectedIndex(clamped);
 		resetRowKeys(remaining[clamped]?.models.length ?? 0);
 	}
@@ -187,7 +208,7 @@ export function OmpModels(): ReactNode {
 						<div className={modelsStyles.providerList}>
 							{providers.map((provider, index) => (
 								<button
-									key={index}
+									key={providerKeys[index] ?? provider.id ?? index}
 									type="button"
 									className={
 										index === selectedIndex
@@ -401,6 +422,51 @@ export function OmpModels(): ReactNode {
 																	}
 																/>
 															</span>
+															<Select
+																className={modelsStyles.levelSelect}
+																mode="multiple"
+																size="small"
+																disabled={!model.reasoning}
+																showSearch={false}
+																defaultActiveFirstOption={false}
+																maxTagCount="responsive"
+																maxTagPlaceholder={(omitted) =>
+																	omitted.length ? `+${omitted.length}` : ""
+																}
+																classNames={{
+																	popup: { root: modelsStyles.levelPopup },
+																}}
+																title={t.modelsCustomThinkingLevels}
+																aria-label={t.modelsCustomThinkingLevels}
+																value={model.thinkingEfforts ?? []}
+																placeholder={t.modelsCustomThinkingLevels}
+																options={THINKING_LEVELS.filter(
+																	(level) => level.value !== "off",
+																).map((level) => ({
+																	label: level.label.toLowerCase(),
+																	value: level.value,
+																}))}
+																tagRender={(props) => (
+																	<span className={modelsStyles.levelTag}>
+																		{props.label}
+																	</span>
+																)}
+																onChange={(values: ThinkingLevel[]) =>
+																	patchModel(
+																		selectedIndex,
+																		modelIndex,
+																		{
+																			thinkingEfforts: THINKING_LEVELS.map(
+																				(level) => level.value,
+																			).filter(
+																				(value) =>
+																					value !== "off" &&
+																					values.includes(value),
+																			),
+																		},
+																	)
+																}
+															/>
 															<button
 																type="button"
 																className={`${modelsStyles.modelAction} ${modelsStyles.modelRemove}`}

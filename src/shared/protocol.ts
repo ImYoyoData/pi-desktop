@@ -70,7 +70,7 @@ export const IpcChannels = {
 		/** Renderer → main: 审批条的选择结果。 */
 		reply: "permissions:reply",
 	},
-	/** 共享状态统一通道：桌面端与浏览器预览页据此同步。 */
+	/** 共享状态统一通道：各窗口据此同步。 */
 	state: {
 		/** Main → renderer: 共享状态变化（按范围，见 shared/state-sync.ts）。 */
 		changed: "state:changed",
@@ -588,11 +588,10 @@ export function isRegionCitation(
 
 /** Deep plain clone for Electron IPC (Vue proxies cannot be structured-cloned). */
 export function toIpcPlain<T>(value: T): T {
-	const json = JSON.stringify(value);
 	try {
-		return JSON.parse(json) as T;
+		return JSON.parse(JSON.stringify(value)) as T;
 	} catch {
-		// stringify succeeded, so parse cannot realistically fail.
+		// 循环引用 / BigInt 等无法序列化时回退原值。
 		return value;
 	}
 }
@@ -718,6 +717,8 @@ export type SessionHistoryMessage =
 			text: string;
 			/** 上下文压缩摘要 / 分支摘要。 */
 			kind: "compaction" | "branch";
+			/** omp 实验性上下文轮换：summary 是系统提示词，不是模型摘要，界面不展示原文。 */
+			rollover?: boolean;
 			/** 压缩前的 token 数（compaction 才有）。 */
 			tokensBefore?: number;
 			/** 生成摘要消耗的输出 token（只能从落盘 usage 还原）。 */

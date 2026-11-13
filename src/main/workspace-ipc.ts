@@ -230,7 +230,12 @@ export function registerWorkspaceIpc(nextDeps: WorkspaceIpcDeps = {}): void {
 		IpcChannels.workspace.revealInFolder,
 		async (_event, root: string) => {
 			if (!root?.trim()) return;
-			await shell.openPath(root);
+			const kind = workspaceEntryKind(root);
+			if (kind === "dir") {
+				await shell.openPath(root);
+				return;
+			}
+			if (kind === "file") shell.showItemInFolder(path.resolve(root));
 		},
 	);
 

@@ -20,6 +20,7 @@ export function registerAgentRunsIpc(registry: {
 
 export function broadcastRunsEvent(event: AgentRunEvent): void {
   for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue;
     win.webContents.send(IpcChannels.runs.event, event);
   }
 }

@@ -1,5 +1,7 @@
 /** Discover models from OpenAI-compatible (and common local) endpoints. */
 
+import { asRecord } from "./objects";
+
 export type DiscoveredModel = {
   id: string;
   name?: string;
@@ -129,10 +131,6 @@ function discoverQuery(api: string, apiKey?: string): string {
   const key = apiKey?.trim();
   if (key) params.set("key", key);
   return `?${params.toString()}`;
-}
-
-function asRecord(v: unknown): Record<string, unknown> | null {
-  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 }
 
 function num(v: unknown): number | undefined {

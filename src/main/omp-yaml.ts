@@ -1,6 +1,6 @@
 import fs from "node:fs";
-import path from "node:path";
 import { load as loadYaml, dump as dumpYaml } from "js-yaml";
+import { writeFileAtomicSync } from "./atomic-write";
 
 /**
  * 读一个 YAML 配置文件为对象；文件不存在或语法错误返回 null。
@@ -39,25 +39,10 @@ export function writeYamlObject(
 	filePath: string,
 	doc: Record<string, unknown>,
 ): void {
-	fs.mkdirSync(path.dirname(filePath), { recursive: true });
 	try {
 		fs.copyFileSync(filePath, `${filePath}.bak`);
 	} catch {
 		// 首次创建没有原文件可备份。
 	}
-	const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-	try {
-		fs.writeFileSync(tempPath, dumpYaml(doc, { lineWidth: 120 }), {
-			encoding: "utf8",
-			mode: 0o600,
-		});
-		fs.renameSync(tempPath, filePath);
-	} catch (err) {
-		try {
-			fs.rmSync(tempPath, { force: true });
-		} catch {
-			// 临时文件清理失败不掩盖原始错误。
-		}
-		throw err;
-	}
+	writeFileAtomicSync(filePath, dumpYaml(doc, { lineWidth: 120 }), { mode: 0o600 });
 }

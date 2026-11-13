@@ -32,6 +32,7 @@ import { useLayoutStore } from "@renderer/stores/layout";
 import { useMediaStore } from "@renderer/stores/media";
 import { useMessage } from "@renderer/services/feedback";
 import { useI18n } from "@renderer/i18n/use-i18n";
+import { nextFrame } from "./next-frame";
 import styles from "./PreviewTab.module.css";
 
 export type MdViewMode = "edit" | "preview" | "split";
@@ -59,22 +60,6 @@ export type PreviewTabHandle = {
   getContent: () => string;
   setContent: (content: string) => void;
 };
-
-/** 等一帧让 DOM 落地；窗口隐藏时 rAF 不来，超时兑底，绝不能挂死加载。 */
-function nextFrame(): Promise<void> {
-  return new Promise<void>((resolve) => {
-    let settled = false;
-    let timer = 0;
-    const finish = (): void => {
-      if (settled) return;
-      settled = true;
-      window.clearTimeout(timer);
-      resolve();
-    };
-    timer = window.setTimeout(finish, 80);
-    requestAnimationFrame(finish);
-  });
-}
 
 /** 分栏联动：按可滚动比例对齐两侧，程序化写入产生的那次 scroll 需要吞掉，避免回环。 */
 function bindScrollSync(a: HTMLElement, b: HTMLElement): () => void {
@@ -591,7 +576,7 @@ export const PreviewTab = memo(forwardRef<PreviewTabHandle, Props>(function Prev
   }, [workspaceRoot]);
 
   useEffect(() => {
-    if (useLayoutStore.getState().rightCollapsed) stopMedia();
+    if (rightCollapsed) stopMedia();
   }, [rightCollapsed]);
 
   useEffect(() => {

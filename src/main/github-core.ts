@@ -50,9 +50,6 @@ const WRITE_UNAVAILABLE: GitHubFailure = {
 	message: "GitHub had trouble answering. The change may still have gone through — refresh to check.",
 };
 
-export const WRITE_TIMED_OUT_MESSAGE = WRITE_TIMED_OUT.message;
-export const WRITE_UNAVAILABLE_MESSAGE = WRITE_UNAVAILABLE.message;
-
 const execFileAsync = promisify(execFile);
 export type RunGh = (cwd: string, args: string[], timeoutMs?: number) => Promise<string>;
 
@@ -581,36 +578,6 @@ export function filterUnifiedDiff(patch: string, paths: string[]): string {
 			return sectionPath !== null && wanted.has(sectionPath);
 		})
 		.join("");
-}
-
-export type ParsedDiffFile = { path: string; previousPath: string | null; diff: string };
-
-export function splitUnifiedDiff(patch: string): ParsedDiffFile[] {
-	return patch
-		.split(/^(?=diff --git )/m)
-		.filter((section) => section.startsWith("diff --git "))
-		.map((section) => {
-			const header = section.split("\n")[0] ?? "";
-			const previous = diffSideHeaderPath(section.split("\n").find((line) => line.startsWith("--- ")) ?? "");
-			const current = diffSideHeaderPath(section.split("\n").find((line) => line.startsWith("+++ ")) ?? "");
-			return {
-				path: diffSectionPath(section) ?? diffGitHeaderPath(header) ?? "",
-				previousPath: previous && current && previous.path !== current.path ? previous.path : null,
-				diff: section,
-			};
-		});
-}
-
-export function parsePullRequestUrl(
-	text: string,
-): { url: string; host: string; owner: string; repo: string; number: number } | null {
-	const match = /https:\/\/([\w.-]+)\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)/i.exec(text);
-	if (!match) return null;
-	const [, host, owner, repo, digits] = match;
-	const number = Number(digits);
-	if (!host || !owner || !repo) return null;
-	if (!Number.isSafeInteger(number) || number <= 0) return null;
-	return { url: `https://${host}/${owner}/${repo}/pull/${number}`, host, owner, repo, number };
 }
 
 const GITHUB_IMAGE_HOSTS = new Set([

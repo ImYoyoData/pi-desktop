@@ -25,6 +25,7 @@ type WorkerReplyWithId = WorkerReply & { id?: number };
 type PendingJob = {
   resolve: (msg: WorkerReply) => void;
   reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
 };
 
 type PooledWorker = {
@@ -32,7 +33,9 @@ type PooledWorker = {
   pending: Map<number, PendingJob>;
 };
 
-function workerScriptPath(): string | null {
+let workerScriptCache: { dir: string; path: string | null } | null = null;
+
+function resolveWorkerScriptPath(): string | null {
   // Prefer sibling of this module (packaged / electron-vite out/main).
   // Vitest runs from src/ — fall back to the built out/main worker when present.
   const candidates = [
@@ -49,12 +52,23 @@ function workerScriptPath(): string | null {
   return null;
 }
 
+/** 历史分页是高频路径，按 __dirname 缓存探测结果。 */
+function workerScriptPath(): string | null {
+  if (workerScriptCache?.dir === __dirname) return workerScriptCache.path;
+  const found = resolveWorkerScriptPath();
+  workerScriptCache = { dir: __dirname, path: found };
+  return found;
+}
+
 function workerUnavailable(): Error {
+  // dev 下可能先调用后构建，失效一次后允许下次重新探测。
+  workerScriptCache = null;
   return new Error("session-history worker not built (run electron-vite build)");
 }
 
 const MAX_POOL_SIZE = 2;
 const IDLE_TERMINATE_MS = 30_000;
+const JOB_TIMEOUT_MS = 120_000;
 const pool: PooledWorker[] = [];
 let nextJobId = 1;
 let idleTimer: NodeJS.Timeout | null = null;
@@ -94,6 +108,7 @@ function spawnPooledWorker(scriptPath: string): PooledWorker {
       }
     }
     if (!job) return;
+    clearTimeout(job.timer);
     if (!msg || typeof msg !== "object") {
       job.reject(new Error("history worker: invalid reply"));
     } else if (!msg.ok) {
@@ -104,7 +119,10 @@ function spawnPooledWorker(scriptPath: string): PooledWorker {
     armIdleTimer();
   });
   const failAll = (err: Error): void => {
-    for (const job of entry.pending.values()) job.reject(err);
+    for (const job of entry.pending.values()) {
+      clearTimeout(job.timer);
+      job.reject(err);
+    }
     entry.pending.clear();
     const idx = pool.indexOf(entry);
     if (idx >= 0) pool.splice(idx, 1);
@@ -149,10 +167,25 @@ function runHistoryWorker(job: {
   if (!scriptPath) return Promise.reject(workerUnavailable());
   const entry = acquireWorker(scriptPath);
   const id = nextJobId++;
-  return new Promise((resolve, reject) => {
-    entry.pending.set(id, { resolve, reject });
+  const { promise, resolve, reject } = Promise.withResolvers<WorkerReply>();
+  const timer = setTimeout(() => {
+    if (!entry.pending.delete(id)) return;
+    reject(new Error("history worker timed out"));
+    if (entry.pending.size === 0) {
+      const idx = pool.indexOf(entry);
+      if (idx >= 0) pool.splice(idx, 1);
+      void entry.worker.terminate();
+    }
+  }, JOB_TIMEOUT_MS);
+  entry.pending.set(id, { resolve, reject, timer });
+  try {
     entry.worker.postMessage({ ...job, id });
-  });
+  } catch (error) {
+    clearTimeout(timer);
+    entry.pending.delete(id);
+    reject(error instanceof Error ? error : new Error(String(error)));
+  }
+  return promise;
 }
 
 /** Session dir scan + summary parse off the Electron main process. */

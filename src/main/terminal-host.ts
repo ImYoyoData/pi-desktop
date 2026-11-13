@@ -49,7 +49,10 @@ function flushTerminalData(): void {
     return;
   }
   const windows = BrowserWindow.getAllWindows();
-  if (!windows.length) return;
+  if (!windows.length) {
+  	flushTimer = setTimeout(flushTerminalData, HIDDEN_RETRY_MS);
+  	return;
+  }
   let budget = FLUSH_BUDGET;
   for (const [id, raw] of [...pendingData.entries()]) {
     if (budget <= 0) break;
@@ -67,6 +70,7 @@ function flushTerminalData(): void {
       data = data.slice(MAX_CHUNK);
       const payload = { id, data: chunk };
       for (const win of windows) {
+        if (win.isDestroyed()) continue;
         win.webContents.send(IpcChannels.terminal.data, payload);
       }
     }

@@ -13,6 +13,7 @@ import ThinkingBlock from "@renderer/components/ThinkingBlock";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import { toolStatus, type ToolMessage } from "@renderer/utils/message-metrics";
 import { toolCardFor } from "@renderer/utils/tool-diff";
+import { toolDisplayName } from "@renderer/utils/tool-xdev";
 import { currentBackend } from "@renderer/utils/current-backend";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
@@ -31,6 +32,8 @@ type Props = {
   agentId: string;
   /** 子代理仍在运行：展开后持续刷新。 */
   active: boolean;
+  /** page：右栏子代理页全高形态，无折叠头，始终展开。 */
+  variant?: "card" | "page";
 };
 
 type ToolEntry = Extract<AgentTranscriptEntry, { kind: "tool" }>;
@@ -73,10 +76,10 @@ function toolMessageOf(entry: ToolEntry, agentId: string, key: string): ToolMess
     result:
       !pending && (entry.text != null || entry.resultDetails !== undefined)
         ? {
-            content: entry.text ? [{ type: "text", text: entry.text }] : [],
-            details: entry.resultDetails,
-            isError: entry.isError === true,
-          }
+          content: entry.text ? [{ type: "text", text: entry.text }] : [],
+          details: entry.resultDetails,
+          isError: entry.isError === true,
+        }
         : undefined,
     isError: entry.isError,
     ...(pending ? { streaming: true } : {}),
@@ -98,6 +101,7 @@ function ToolEntryView({
     () => toolMessageOf(entry, agentId, key),
     [agentId, entry, key],
   );
+  const args = useMemo(() => argsOf(entry), [entry]);
   const status = toolStatus(message);
   const pending = entry.pending === true;
   return (
@@ -105,7 +109,7 @@ function ToolEntryView({
       <Suspense fallback={null}>
         <ToolCallCard
           card={toolCardFor(message)}
-          toolName={entry.toolName}
+          toolName={toolDisplayName(entry.toolName, args, message.result)}
           statusLabel={status.label}
           statusType={status.type}
           streaming={pending}
@@ -120,7 +124,9 @@ function ToolEntryView({
 export const SubagentTranscript = memo(function SubagentTranscript({
   agentId,
   active,
+  variant = "card",
 }: Props): ReactNode {
+  const page = variant === "page";
   const t = useI18n();
   const sessionId = useSessionsStore((state) => state.activeId);
   const filePath = useSessionsStore(
@@ -129,7 +135,7 @@ export const SubagentTranscript = memo(function SubagentTranscript({
   );
   const previewStore = usePreviewStore();
   const rightTabs = useRightTabsStore();
-  const [open, setOpen] = useState(active);
+  const [open, setOpen] = useState(active || page);
   const [transcript, setTranscript] = useState<AgentTranscript | null>(null);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -216,27 +222,29 @@ export const SubagentTranscript = memo(function SubagentTranscript({
   }
 
   return (
-    <div className={styles.card}>
-      <button
-        type="button"
-        className={styles.toggle}
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <ChevronForwardOutline
-          size={11}
-          className={`${styles.chev}${open ? ` ${styles.chevOpen}` : ""}`}
-        />
-        <span>{open ? t.agentTranscriptHide : t.agentTranscriptShow}</span>
-        {transcript ? (
-          <span className={styles.count}>
-            {t.agentTranscriptCount(transcript.messages.length)}
-          </span>
-        ) : null}
-      </button>
+    <div className={page ? styles.pageRoot : styles.card}>
+      {page ? null : (
+        <button
+          type="button"
+          className={styles.toggle}
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <ChevronForwardOutline
+            size={11}
+            className={`${styles.chev}${open ? ` ${styles.chevOpen}` : ""}`}
+          />
+          <span>{open ? t.agentTranscriptHide : t.agentTranscriptShow}</span>
+          {transcript ? (
+            <span className={styles.count}>
+              {t.agentTranscriptCount(transcript.messages.length)}
+            </span>
+          ) : null}
+        </button>
+      )}
       {open ? (
         <div
-          className={styles.body}
+          className={page ? styles.pageBody : styles.body}
           ref={bodyRef}
           data-inner-scroll=""
           onScroll={(event) => {
@@ -264,46 +272,46 @@ export const SubagentTranscript = memo(function SubagentTranscript({
           ) : null}
           {transcript && transcript.messages.length > 0
             ? transcript.messages.map((entry, index) => {
-                const key = entryKey(entry, index);
-                if (entry.kind === "tool") {
-                  return (
-                    <ToolEntryView
-                      key={key}
-                      entry={entry}
-                      agentId={agentId}
-                      entryKey={key}
-                      onOpen={openPreview}
-                    />
-                  );
-                }
-                if (entry.role === "user") {
-                  return (
-                    <div key={key} className={styles.userRow}>
-                      <div className={styles.userBubble}>{entry.text}</div>
-                    </div>
-                  );
-                }
+              const key = entryKey(entry, index);
+              if (entry.kind === "tool") {
                 return (
-                  <div key={key} className={styles.assistantRow}>
-                    {entry.thinking ? (
-                      <ThinkingBlock
-                        thinking={entry.thinking}
-                        autoCollapse
-                        leadingIcon={<BrainOutline size={13} aria-hidden="true" />}
-                      />
-                    ) : null}
-                    {entry.text ? (
-                      <Suspense fallback={<pre className={styles.plain}>{entry.text}</pre>}>
-                        <MarkdownView
-                          content={entry.text}
-                          variant="chat"
-                          className="assistant-md"
-                        />
-                      </Suspense>
-                    ) : null}
+                  <ToolEntryView
+                    key={key}
+                    entry={entry}
+                    agentId={agentId}
+                    entryKey={key}
+                    onOpen={openPreview}
+                  />
+                );
+              }
+              if (entry.role === "user") {
+                return (
+                  <div key={key} className={styles.userRow}>
+                    <div className={styles.userBubble}>{entry.text}</div>
                   </div>
                 );
-              })
+              }
+              return (
+                <div key={key} className={styles.assistantRow}>
+                  {entry.thinking ? (
+                    <ThinkingBlock
+                      thinking={entry.thinking}
+                      autoCollapse
+                      leadingIcon={<BrainOutline size={13} aria-hidden="true" />}
+                    />
+                  ) : null}
+                  {entry.text ? (
+                    <Suspense fallback={<pre className={styles.plain}>{entry.text}</pre>}>
+                      <MarkdownView
+                        content={entry.text}
+                        variant="chat"
+                        className="assistant-md"
+                      />
+                    </Suspense>
+                  ) : null}
+                </div>
+              );
+            })
             : null}
           {!failed && !loading && transcript && transcript.messages.length === 0 ? (
             <div className={styles.empty}>{t.agentTranscriptEmpty}</div>

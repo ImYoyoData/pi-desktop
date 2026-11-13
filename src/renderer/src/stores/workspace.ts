@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { useRightTabsStore } from "@renderer/stores/right-tabs";
+import { tabsPersistSignature, useRightTabsStore } from "@renderer/stores/right-tabs";
 import { agentBackendOf, type AgentBackend } from "../../../shared/agent-backend";
 
 /**
@@ -228,6 +228,6 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
 });
 
 useRightTabsStore.subscribe((state, prev) => {
-	if (state.tabs === prev.tabs && state.activeId === prev.activeId) return;
+	if (tabsPersistSignature(state) === tabsPersistSignature(prev)) return;
 	useRightTabsStore.getState().persistTabs(useWorkspaceStore.getState().root);
 });

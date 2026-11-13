@@ -1,6 +1,6 @@
-import fs from "node:fs";
 import path from "node:path";
 import { agentDir } from "./agent-dir";
+import { writeJsonAtomicSync } from "./atomic-write";
 import { readJsonText } from "./json-text";
 import { COMMON_API_KEY_PROVIDERS } from "../shared/models-settings";
 
@@ -50,16 +50,8 @@ export function resolveModelsConfigPaths(agentDirOverride?: string): ModelsConfi
   };
 }
 
-function ensureParent(filePath: string): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-}
-
 function writeJsonAtomic(filePath: string, data: unknown): void {
-  ensureParent(filePath);
-  const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  const body = `${JSON.stringify(data, null, 2)}\n`;
-  fs.writeFileSync(tmp, body, { encoding: "utf8", mode: 0o600 });
-  fs.renameSync(tmp, filePath);
+  writeJsonAtomicSync(filePath, data, { mode: 0o600 });
 }
 
 function readJsonFile<T>(filePath: string, fallback: T): T {

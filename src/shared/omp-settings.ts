@@ -115,6 +115,31 @@ export function writeOmpSetting(
 	cursor[leaf] = value;
 }
 
+const LEGACY_RESET_GROUPS = ["codexResets", "claudeResets"] as const;
+
+/**
+ * omp 把旧版单一 `autoRedeem` 迁到 5 小时/每周两个窗口键；桌面读到的是原始
+ * config.yml，按同样规则换算后，设置页才不会把已生效的选择显示成默认的 unset。
+ */
+export function ompLegacySettingValues(
+	root: Record<string, unknown>,
+): Record<string, unknown> {
+	const values: Record<string, unknown> = {};
+	for (const group of LEGACY_RESET_GROUPS) {
+		const legacy =
+			readOmpSetting(root, `${group}.autoRedeem`) ?? root[`${group}.autoRedeem`];
+		if (legacy === undefined) continue;
+		const mode = typeof legacy === "boolean" ? (legacy ? "yes" : "no") : legacy;
+		for (const key of ["autoRedeem5h", "autoRedeemWeekly"] as const) {
+			const configured =
+				readOmpSetting(root, `${group}.${key}`) !== undefined ||
+				root[`${group}.${key}`] !== undefined;
+			if (!configured) values[`${group}.${key}`] = mode;
+		}
+	}
+	return values;
+}
+
 /** 设置的实际生效值：已设置的值优先，否则取 schema 里的默认值。 */
 export function ompEffectiveValue(
 	entry: OmpSettingEntry,

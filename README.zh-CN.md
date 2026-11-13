@@ -29,7 +29,7 @@
   <img alt="language" src="https://img.shields.io/badge/language-TypeScript-3178C6?style=for-the-badge&labelColor=1a1a1a&logo=typescript&logoColor=white" />
 </a>
 <a href="https://www.electronjs.org/">
-  <img alt="electron" src="https://img.shields.io/badge/Electron-44-47848F?style=for-the-badge&labelColor=1a1a1a&logo=electron&logoColor=white" />
+  <img alt="electron" src="https://img.shields.io/badge/Electron-45-47848F?style=for-the-badge&labelColor=1a1a1a&logo=electron&logoColor=white" />
 </a>
 <a href="https://react.dev/">
   <img alt="react" src="https://img.shields.io/badge/React-19-087EA4?style=for-the-badge&labelColor=1a1a1a&logo=react&logoColor=61DAFB" />
@@ -55,7 +55,7 @@
 <h2 align="center">截图</h2>
 
 <p align="center">
-  <img src="docs/screenshots/new-session.png" alt="Pi Desktop 新会话" width="760" />
+  <img src="assets/screenshots/new-session.png" alt="Pi Desktop 新会话" width="760" />
 </p>
 
 ---
@@ -87,10 +87,17 @@
 
 ```bash
 npm install        # 安装依赖
+npm run typecheck  # 类型检查（主进程 + 渲染层）
+npm run dugite:git # 下载内嵌 Git 二进制（可选；Git 面板需要）
 npm run dev        # 开发运行
 npm run build      # 构建
 npm run dist       # 构建当前平台安装包
 ```
+
+依赖安装阶段的下载（Electron 二进制、electron-builder 二进制）仍由 `.npmrc` 里的镜像键驱动；
+npm 13 起不再读取这些键，需改用环境变量 `ELECTRON_MIRROR`、`ELECTRON_CUSTOM_DIR`、
+`ELECTRON_BUILDER_BINARIES_MIRROR`。仓库自身的 `postinstall` 已先从 `.npmrc` 取值再调用
+Electron 安装脚本，因此仓库内重装不受 npm 版本影响。
 
 ## 界面语言
 

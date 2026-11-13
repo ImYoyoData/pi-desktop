@@ -1,4 +1,5 @@
 import { useDeferredValue, useMemo, type ReactNode } from "react";
+import { useI18n } from "@renderer/i18n/use-i18n";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useChatStore } from "@renderer/stores/chat";
 import { useSessionStatsStore } from "@renderer/stores/session-stats";
@@ -34,12 +35,13 @@ const EMPTY_STATS: SessionStatItem[] = [];
  * 会话统计条：铺在主区底部，不跟随输入框的列宽。
  */
 export function SessionStatsBar({ stats }: { stats: SessionStatItem[] }): ReactNode {
+  const t = useI18n();
   if (!stats.length) return null;
   return (
     <div
       className={`pi-session-stats ${styles.bar}`}
       role="status"
-      aria-label="session statistics"
+      aria-label={t.sessionStatsLabel}
     >
       {stats.map((item) => (
         <span key={item.key} className={styles.item} title={item.title}>

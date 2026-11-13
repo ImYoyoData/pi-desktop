@@ -29,7 +29,7 @@
   <img alt="language" src="https://img.shields.io/badge/language-TypeScript-3178C6?style=for-the-badge&labelColor=1a1a1a&logo=typescript&logoColor=white" />
 </a>
 <a href="https://www.electronjs.org/">
-  <img alt="electron" src="https://img.shields.io/badge/Electron-44-47848F?style=for-the-badge&labelColor=1a1a1a&logo=electron&logoColor=white" />
+  <img alt="electron" src="https://img.shields.io/badge/Electron-45-47848F?style=for-the-badge&labelColor=1a1a1a&logo=electron&logoColor=white" />
 </a>
 <a href="https://react.dev/">
   <img alt="react" src="https://img.shields.io/badge/React-19-087EA4?style=for-the-badge&labelColor=1a1a1a&logo=react&logoColor=61DAFB" />
@@ -55,7 +55,7 @@
 <h2 align="center">Screenshots</h2>
 
 <p align="center">
-  <img src="docs/screenshots/new-session.png" alt="Pi Desktop new session" width="760" />
+  <img src="assets/screenshots/new-session.png" alt="Pi Desktop new session" width="760" />
 </p>
 
 ---
@@ -87,10 +87,17 @@ Requires Node.js 24+.
 
 ```bash
 npm install        # install dependencies
+npm run typecheck  # typecheck main + renderer
+npm run dugite:git # fetch the embedded Git binary (optional; Git panel needs it)
 npm run dev        # run in development
 npm run build      # build
 npm run dist       # package for the current platform
 ```
+
+Dependency installs (Electron binary and electron-builder binaries) are still driven by the
+keys in `.npmrc`; npm 13 stops reading those keys, so on npm 13+ set `ELECTRON_MIRROR`,
+`ELECTRON_CUSTOM_DIR` and `ELECTRON_BUILDER_BINARIES_MIRROR` as environment variables instead.
+The repo's own `postinstall` already sets them from `.npmrc` before running Electron's installer.
 
 ## Interface languages
 

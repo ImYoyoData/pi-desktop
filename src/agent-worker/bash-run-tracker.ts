@@ -19,7 +19,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-export type TrackedRunStart = {
+type TrackedRunStart = {
 	id: string;
 	sessionId: string;
 	workspaceRoot: string;
@@ -29,7 +29,7 @@ export type TrackedRunStart = {
 	pid?: number;
 };
 
-export type BashRunTrackerHooks = {
+type BashRunTrackerHooks = {
 	sessionId: string;
 	workspaceRoot: string;
 	/**

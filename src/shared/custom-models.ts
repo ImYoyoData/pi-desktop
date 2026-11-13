@@ -1,6 +1,7 @@
 /** Helpers for GUI editing of ~/.pi/agent/models.json custom providers (Pi-aligned). */
 
 import { normalizeProviderBaseUrl } from "./model-discover";
+import { asRecord } from "./objects";
 import {
   DEFAULT_MAX_TOKENS,
   inferModelCapabilities,
@@ -75,10 +76,6 @@ export type ModelsConfigDoc = {
   /** Preserved top-level keys (e.g. modelOverrides). */
   rest: Record<string, unknown>;
 };
-
-function asRecord(v: unknown): Record<string, unknown> | null {
-  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
-}
 
 export function emptyCustomProvider(partial?: Partial<CustomProviderDraft>): CustomProviderDraft {
   return {

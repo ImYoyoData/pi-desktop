@@ -7,8 +7,6 @@
 
 export type ThinkingLanguage = "default" | "zh";
 
-export const THINKING_LANGUAGES: readonly ThinkingLanguage[] = ["default", "zh"];
-
 export type ThinkingLanguageSettings = {
   language: ThinkingLanguage;
 };
@@ -23,10 +21,6 @@ const REASONING_LANGUAGE_CLOSE = "</reasoning-language>";
 const ZH_THINKING_LANGUAGE_BLOCK = `${REASONING_LANGUAGE_OPEN}
 必须使用简体中文书写全部可见思考/推理文本：从第一个字开始就用中文，并在整轮内保持中文，即使系统提示词、工具说明、工具输出或引用的代码是英文。代码、标识符、文件路径、shell 命令和未翻译的技术术语保持原文。此要求只约束可见思考文本，不覆盖用户对最终回答语言的明确要求。
 ${REASONING_LANGUAGE_CLOSE}`;
-
-export function isThinkingLanguage(value: unknown): value is ThinkingLanguage {
-  return value === "default" || value === "zh";
-}
 
 /** 容错解析档位；未知值（含旧版 en/auto）回退默认。 */
 export function normalizeThinkingLanguage(value: unknown): ThinkingLanguage {

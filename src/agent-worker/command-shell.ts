@@ -19,6 +19,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, win32 } from "node:path";
+import { PI_DESKTOP_BASH_SHELL_ENV } from "../shared/pi-subagent-env";
 
 /** `~` / `~/…` / `~\…` 展开为主目录（与 pi 的 normalizePath 一致）。 */
 function expandTilde(value: string): string {
@@ -159,7 +160,7 @@ export function detectRealBashShell(
 ): string | null {
   if (platform !== "win32") return null;
 
-  const fromEnv = String(env.PI_DESKTOP_BASH_SHELL ?? "").trim();
+  const fromEnv = String(env[PI_DESKTOP_BASH_SHELL_ENV] ?? "").trim();
   if (fromEnv && !isWslBashPath(fromEnv) && exists(fromEnv)) return fromEnv;
 
   const candidates = [
@@ -205,9 +206,8 @@ function bashCandidatesFromGitOnPath(
 /**
  * Resolve the shell in a worker process.
  *
- * Order: pi 的 `shellPath` 设置 → `PI_DESKTOP_SHELL_ID` (the main process already
- * picks a shell for the terminal with the same precedence) → a real bash found on
- * disk → PowerShell.
+ * Order: pi 的 `shellPath` 设置 → a real bash found on disk (main resolves one
+ * first and passes it as `PI_DESKTOP_BASH_SHELL`) → PowerShell.
  */
 export function detectCommandShell(
   env: NodeJS.ProcessEnv = process.env,

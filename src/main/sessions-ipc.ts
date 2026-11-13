@@ -5,6 +5,7 @@ import type { ChatMessageTag } from "../shared/chat-meta";
 import type { AgentBackend } from "../shared/agent-backend";
 import { agentBackendOf } from "../shared/agent-backend";
 import { IpcChannels } from "../shared/protocol";
+import { clearSessionCheckpoints } from "./checkpoint-host";
 import type { SessionBroker } from "./session-broker";
 import { readAgentTranscriptFromDisk } from "./agent-transcript";
 import { readSessionHistoryPage } from "./session-history";
@@ -38,7 +39,7 @@ function broadcastEvent(event: unknown): void {
 }
 
 /**
- * 当前打开的会话：桌面端与浏览器预览页跟随最后一次显式切换。
+ * 当前打开的会话：各窗口跟随最后一次显式切换。
  * 启动后的首次打开只是恢复现场，不广播——否则另一侧会被拽到刚恢复的会话上。
  */
 let activeSession: { sessionId: string; cwd: string } | null = null;
@@ -57,7 +58,7 @@ function notifyActiveSession(sessionId: string, cwd: string): void {
  * and the worker cannot cancel the ones whose RPCs carry no abort
  * signal — without this the turn stays "running" until the ask times out.
  */
-function cancelSessionUiAsks(sessionId: string): void {
+export function cancelSessionUiAsks(sessionId: string): void {
   cancelAskUserAsksForSession(sessionId);
   cancelExtensionUiAsksForSession(sessionId);
   cancelPermissionAsksForSession(sessionId);
@@ -103,13 +104,15 @@ export function registerSessionsIpc(broker: SessionBroker): void {
     broker.trySend(sessionId, command),
   );
 
-  ipcMain.handle(IpcChannels.sessions.killWorker, (_event, sessionId: string) =>
-    broker.killWorker(sessionId),
-  );
+  ipcMain.handle(IpcChannels.sessions.killWorker, (_event, sessionId: string) => {
+    cancelSessionUiAsks(String(sessionId ?? ""));
+    return broker.killWorker(sessionId);
+  });
 
-  ipcMain.handle(IpcChannels.sessions.restartWorker, (_event, sessionId: string) =>
-    broker.restartWorker(sessionId),
-  );
+  ipcMain.handle(IpcChannels.sessions.restartWorker, (_event, sessionId: string) => {
+    cancelSessionUiAsks(String(sessionId ?? ""));
+    return broker.restartWorker(sessionId);
+  });
 
   ipcMain.handle(
     IpcChannels.sessions.status,
@@ -145,6 +148,7 @@ export function registerSessionsIpc(broker: SessionBroker): void {
       const id = String(sessionId ?? "");
       cancelSessionUiAsks(id);
       clearSessionPermissionAllows(id);
+      clearSessionCheckpoints(id);
       return broker.deleteSession(id, cwd, agentBackendOf(backend));
     },
   );

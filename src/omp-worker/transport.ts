@@ -7,7 +7,7 @@ process.stdout.on("error", (err: NodeJS.ErrnoException) => {
 	if (err.code === "EPIPE") process.exit(0);
 });
 
-export function post(msg: OmpWorkerOutbound): void {
+export function post(msg: OmpWorkerOutbound, cb?: () => void): void {
 	let line: string;
 	try {
 		line = JSON.stringify(msg);
@@ -15,5 +15,5 @@ export function post(msg: OmpWorkerOutbound): void {
 		// 事件里带不可序列化字段时不能拖垮通道，降级成一条空事件。
 		line = JSON.stringify({ kind: "event", event: { type: "unserializable" } });
 	}
-	write(`${line}\n`);
+	write(`${line}\n`, cb);
 }

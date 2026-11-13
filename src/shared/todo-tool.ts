@@ -61,6 +61,35 @@ export type TodoToolDetails = {
 
 const DEFAULT_INIT_PHASE = "Tasks";
 
+/**
+ * 模型常把 init 的阶段条目误放进 `items`，参数校验的容器→字符串兜底会把每项
+ * 串成 `{"phase":"…","items":["…"]}`。识别这种形状，交出可还原的阶段。
+ */
+export function parseTodoPhaseItemBlob(
+	value: unknown,
+): { phase: string; items: string[] } | null {
+	if (typeof value === "string") {
+		const trimmed = value.trim();
+		if (!trimmed.startsWith("{")) return null;
+		try {
+			return parseTodoPhaseItemBlob(JSON.parse(trimmed));
+		} catch {
+			return null;
+		}
+	}
+	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+	const record = value as { phase?: unknown; items?: unknown };
+	if (typeof record.phase !== "string" || !Array.isArray(record.items)) {
+		return null;
+	}
+	if (!record.items.every((item): item is string => typeof item === "string")) {
+		return null;
+	}
+	const phase = record.phase.trim();
+	const items = record.items.map((item) => item.trim()).filter(Boolean);
+	return phase && items.length ? { phase, items } : null;
+}
+
 const TODO_ITEM_STATUSES: Readonly<Record<string, true>> = {
 	pending: true,
 	in_progress: true,
@@ -69,11 +98,7 @@ const TODO_ITEM_STATUSES: Readonly<Record<string, true>> = {
 	blocked: true,
 };
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-	return value && typeof value === "object" && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: null;
-}
+import { asRecord } from "./objects";
 
 /** 校验持久化载荷里的 phases 结构（会话历史恢复用）。 */
 export function isTodoPhaseList(value: unknown): value is TodoPhase[] {
@@ -199,11 +224,19 @@ function initPhases(
 	params: TodoToolParams,
 	errors: string[],
 ): TodoPhase[] {
-	const flat =
-		params.items && params.items.length > 0
-			? [{ phase: params.phase ?? DEFAULT_INIT_PHASE, items: params.items }]
+	const flatItems = params.items && params.items.length > 0 ? params.items : undefined;
+	const repaired = flatItems
+		?.map((item) => parseTodoPhaseItemBlob(item))
+		.filter((entry): entry is TodoInitEntry => entry != null);
+	const repairedPhases =
+		flatItems && repaired?.length === flatItems.length
+			? repaired.map((entry) => ({ phase: entry.phase, items: entry.items }))
 			: undefined;
-	const list = params.list?.length ? params.list : (flat ?? params.list);
+	const flat =
+		flatItems && !repairedPhases
+			? [{ phase: params.phase ?? DEFAULT_INIT_PHASE, items: flatItems }]
+			: undefined;
+	const list = params.list?.length ? params.list : (repairedPhases ?? flat ?? params.list);
 	if (!list) {
 		errors.push("Missing list for init operation");
 		return [];

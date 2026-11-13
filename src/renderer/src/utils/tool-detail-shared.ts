@@ -93,7 +93,7 @@ export function buildCard(
     chips?: DetailChip[];
     flags?: DetailFlag[];
     sections?: Array<DetailSection | null>;
-    transcripts?: Array<{ agentId: string; label: string }>;
+    transcripts?: DetailToolCard["transcripts"];
   },
 ): DetailToolCard {
   const flags = [...(init.flags ?? [])];

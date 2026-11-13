@@ -2,6 +2,7 @@ import {
 	createAgentSession,
 	getAgentDir,
 	SessionManager,
+	SessionModelRestoreError,
 	type AgentSession,
 } from "@oh-my-pi/pi-coding-agent";
 import { getBlobsDir } from "@oh-my-pi/pi-utils";
@@ -189,6 +190,25 @@ async function initSession(
 	}
 }
 
+async function createOmpSession(
+	cwd: string,
+	agentDir: string,
+	sessionManager: SessionManager,
+) {
+	const options = {
+		cwd,
+		agentDir,
+		sessionManager,
+		customTools: [createOmpAskUserTool()],
+	};
+	try {
+		return await createAgentSession(options);
+	} catch (err) {
+		if (!(err instanceof SessionModelRestoreError)) throw err;
+		return createAgentSession({ ...options, hasUI: true });
+	}
+}
+
 async function startSession(
 	cwd: string,
 	filePath?: string,
@@ -199,12 +219,7 @@ async function startSession(
 	setRpcWorkspaceRoot(cwd);
 	const sessionManager = await openSessionManager(cwd, agentDir, filePath);
 	const { session: created, modelFallbackMessage, setToolUIContext } =
-		await createAgentSession({
-			cwd,
-			agentDir,
-			sessionManager,
-			customTools: [createOmpAskUserTool()],
-		});
+		await createOmpSession(cwd, agentDir, sessionManager);
 	// 扩展与工具审批的对话都走桌面卡片。
 	const uiContext = createOmpDesktopExtensionUIContext();
 	setToolUIContext(uiContext, true);
@@ -227,6 +242,16 @@ async function startSession(
 		}
 	});
 	session = created;
+	const activeModel = created.model;
+	if (modelFallbackMessage) {
+		const target = activeModel ? `${activeModel.provider}/${activeModel.id}` : "";
+		created.emitNotice(
+			"warning",
+			target && !modelFallbackMessage.includes(target)
+				? `${modelFallbackMessage}. Using ${target}`
+				: modelFallbackMessage,
+		);
+	}
 	restoreDesktopModes(created);
 	await activateExtensionUI(created, uiContext);
 	post({

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { DownloadOutline } from "@renderer/components/icons/ionicons";
 import {
+  AgentsViewIcon,
   BrowserViewIcon,
   ChangesViewIcon,
   FolderIcon,
@@ -68,7 +69,7 @@ export function TitleBar(): ReactNode {
   const dockView = useRightDockStore((s) => s.view);
 
   /** 按钮：切到对应页面；已经是当前页时再点收起右栏。 */
-  function toggleDockView(view: "files" | "changes" | "browser"): void {
+  function toggleDockView(view: "files" | "changes" | "browser" | "agents"): void {
     const dock = useRightDockStore.getState();
     const layoutState = useLayoutStore.getState();
     if (dock.view === view && !layoutState.rightCollapsed) {
@@ -265,6 +266,16 @@ export function TitleBar(): ReactNode {
               onClick={() => toggleDockView("browser")}
             >
               <BrowserViewIcon size={16} />
+            </button>
+            <button
+              type="button"
+              className={`${styles.layoutBtn} ${dockView === "agents" && !layout.rightCollapsed ? styles.checked : ""}`}
+              title={t.agentsTab}
+              aria-label={t.agentsTab}
+              aria-pressed={dockView === "agents" && !layout.rightCollapsed}
+              onClick={() => toggleDockView("agents")}
+            >
+              <AgentsViewIcon size={16} />
             </button>
             <button
               type="button"

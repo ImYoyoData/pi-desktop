@@ -94,7 +94,6 @@ export const useNotifyStore = create<NotifyState>()((set, get) => {
 
   const initial = readPrefs();
 
-
   return {
     soundEnabled: initial.soundEnabled,
     notifyEnabled: initial.notifyEnabled,

@@ -1,10 +1,11 @@
 import {
-  isBashTool,
-  isFileMutationTool,
-  isGrepTool,
-  isReadTool,
+ isBashTool,
+ isFileMutationTool,
+ isGrepTool,
+ isReadTool,
 } from "./tool-diff";
 import { toolCommandFromArgs, toolPathFromArgs } from "./tool-args";
+import { toolDisplayName } from "./tool-xdev";
 import { isTodoToolName } from "./session-todos";
 
 /**
@@ -15,33 +16,33 @@ import { isTodoToolName } from "./session-todos";
  * stays a standalone row (single-item sections are unwrapped).
  */
 export type WorkSectionRow = {
-  id: string;
-  role: string;
-  /** "" for non-tool rows. */
-  toolName: string;
-  /** Assistant rows: visible answer text. */
-  hasText: boolean;
-  /** Assistant rows: thinking content. */
-  hasThinking: boolean;
+ id: string;
+ role: string;
+ /** "" for non-tool rows. */
+ toolName: string;
+ /** Assistant rows: visible answer text. */
+ hasText: boolean;
+ /** Assistant rows: thinking content. */
+ hasThinking: boolean;
 };
 
 export type WorkSectionSpan = {
-  /** Stable id for the section (lead row id). */
-  groupId: string;
-  /** Inclusive start index in the message list. */
-  start: number;
-  /** Exclusive end index. */
-  end: number;
-  /** Message ids in this section (tools + thinking rows, in order). */
-  ids: string[];
+ /** Stable id for the section (lead row id). */
+ groupId: string;
+ /** Inclusive start index in the message list. */
+ start: number;
+ /** Exclusive end index. */
+ end: number;
+ /** Message ids in this section (tools + thinking rows, in order). */
+ ids: string[];
 };
 
 function isProcessRow(
-  row: WorkSectionRow,
-  isStandaloneTool: (row: WorkSectionRow) => boolean,
+ row: WorkSectionRow,
+ isStandaloneTool: (row: WorkSectionRow) => boolean,
 ): boolean {
-  if (row.role === "tool") return !isStandaloneTool(row);
-  return row.role === "assistant" && row.hasThinking && !row.hasText;
+ if (row.role === "tool") return !isStandaloneTool(row);
+ return row.role === "assistant" && row.hasThinking && !row.hasText;
 }
 
 /**
@@ -50,34 +51,34 @@ function isProcessRow(
  * answer text break the streak.
  */
 export function buildWorkSectionSpans(
-  rows: WorkSectionRow[],
-  isStandaloneTool: (row: WorkSectionRow) => boolean,
+ rows: WorkSectionRow[],
+ isStandaloneTool: (row: WorkSectionRow) => boolean,
 ): WorkSectionSpan[] {
-  const spans: WorkSectionSpan[] = [];
-  let i = 0;
-  while (i < rows.length) {
-    if (!isProcessRow(rows[i]!, isStandaloneTool)) {
-      i += 1;
-      continue;
-    }
-    const start = i;
-    const ids: string[] = [];
-    let tools = 0;
-    while (i < rows.length && isProcessRow(rows[i]!, isStandaloneTool)) {
-      if (rows[i]!.role === "tool") tools += 1;
-      ids.push(rows[i]!.id);
-      i += 1;
-    }
-    if (tools >= 1 && ids.length >= 2) {
-      spans.push({
-        groupId: `ws:${ids[0]}`,
-        start,
-        end: i,
-        ids,
-      });
-    }
+ const spans: WorkSectionSpan[] = [];
+ let i = 0;
+ while (i < rows.length) {
+  if (!isProcessRow(rows[i]!, isStandaloneTool)) {
+   i += 1;
+   continue;
   }
-  return spans;
+  const start = i;
+  const ids: string[] = [];
+  let tools = 0;
+  while (i < rows.length && isProcessRow(rows[i]!, isStandaloneTool)) {
+   if (rows[i]!.role === "tool") tools += 1;
+   ids.push(rows[i]!.id);
+   i += 1;
+  }
+  if (tools >= 1 && ids.length >= 2) {
+   spans.push({
+    groupId: `ws:${ids[0]}`,
+    start,
+    end: i,
+    ids,
+   });
+  }
+ }
+ return spans;
 }
 
 /**
@@ -92,91 +93,92 @@ export function buildWorkSectionSpans(
  * row; the actions belong to the round's closing answer only.
  */
 export function finalAnswerRowIds(rows: WorkSectionRow[]): Set<string> {
-  const out = new Set<string>();
-  let lastTextId: string | null = null;
-  for (const row of rows) {
-    if (row.role === "user") {
-      if (lastTextId != null) out.add(lastTextId);
-      lastTextId = null;
-    } else if (row.role === "assistant" && row.hasText) {
-      lastTextId = row.id;
-    }
+ const out = new Set<string>();
+ let lastTextId: string | null = null;
+ for (const row of rows) {
+  if (row.role === "user") {
+   if (lastTextId != null) out.add(lastTextId);
+   lastTextId = null;
+  } else if (row.role === "assistant" && row.hasText) {
+   lastTextId = row.id;
   }
-  if (lastTextId != null) out.add(lastTextId);
-  return out;
+ }
+ if (lastTextId != null) out.add(lastTextId);
+ return out;
 }
 
 export type WorkSectionToolKind = "edit" | "read" | "bash" | "todo" | "grep" | "tool";
 
 export type WorkSectionTool = {
-  kind: WorkSectionToolKind;
-  /** File basename / command / tool name used for label building. */
-  target: string;
+ kind: WorkSectionToolKind;
+ /** File basename / command / tool name used for label building. */
+ target: string;
 };
 
 function basename(p: string): string {
-  const parts = p.split(/[/\\]/);
-  return parts[parts.length - 1] || p;
+ const parts = p.split(/[/\\]/);
+ return parts[parts.length - 1] || p;
 }
 
 function truncate(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+ return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
 /** grep 的搜索模式：section 标题里要说清楚搜了什么。 */
 function patternFromArgs(args: unknown): string | null {
-  if (!args || typeof args !== "object") return null;
-  const value = (args as Record<string, unknown>).pattern;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
+ if (!args || typeof args !== "object") return null;
+ const value = (args as Record<string, unknown>).pattern;
+ return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 /** Classify one tool call for section titles (Copilot icon/label families). */
 export function categorizeToolCall(
-  toolName: string,
-  args: unknown,
+ toolName: string,
+ args: unknown,
 ): WorkSectionTool {
-  if (isFileMutationTool(toolName)) {
-    const path = toolPathFromArgs(args);
-    return { kind: "edit", target: path ? basename(path) : toolName };
-  }
-  if (isReadTool(toolName)) {
-    const path = toolPathFromArgs(args);
-    return { kind: "read", target: path ? basename(path) : toolName };
-  }
-  if (isBashTool(toolName)) {
-    const command = toolCommandFromArgs(args);
-    return { kind: "bash", target: command ? truncate(command, 48) : toolName };
-  }
-  if (isGrepTool(toolName)) {
-    const pattern = patternFromArgs(args);
-    return { kind: "grep", target: pattern ? truncate(pattern, 32) : "" };
-  }
-  if (isTodoToolName(toolName)) {
-    return { kind: "todo", target: "" };
-  }
-  return { kind: "tool", target: toolName };
+ const name = toolDisplayName(toolName, args);
+ if (isFileMutationTool(name)) {
+  const path = toolPathFromArgs(args);
+  return { kind: "edit", target: path ? basename(path) : name };
+ }
+ if (isReadTool(name)) {
+  const path = toolPathFromArgs(args);
+  return { kind: "read", target: path ? basename(path) : name };
+ }
+ if (isBashTool(name)) {
+  const command = toolCommandFromArgs(args);
+  return { kind: "bash", target: command ? truncate(command, 48) : name };
+ }
+ if (isGrepTool(name)) {
+  const pattern = patternFromArgs(args);
+  return { kind: "grep", target: pattern ? truncate(pattern, 32) : "" };
+ }
+ if (isTodoToolName(name)) {
+  return { kind: "todo", target: "" };
+ }
+ return { kind: "tool", target: name };
 }
 
 /** i18n strings for the finalized (past-tense) section title. */
 export type WorkSectionSummaryStrings = {
-  editOne: (file: string) => string;
-  editMany: (count: number) => string;
-  readOne: (file: string) => string;
-  readMany: (count: number) => string;
-  /** Same file read and edited, e.g. "Reviewed and updated foo.ts". */
-  readAndEdited: (file: string) => string;
-  steps: (count: number) => string;
-  /** Thinking events in the section, e.g. "思考 2 次". */
-  thinkingCount: (count: number) => string;
-  /** Per-category counts, shown in the collapsed header (e.g. "更新了 3 个文件"). */
-  editCount: (count: number) => string;
-  readCount: (count: number) => string;
-  bashCount: (count: number) => string;
-  todoCount: (count: number) => string;
-  grepCount: (count: number) => string;
-  toolCount: (count: number) => string;
-  /** 段间分隔符（中文用逗号，英文用 ", "）。 */
-  separator: string;
+ editOne: (file: string) => string;
+ editMany: (count: number) => string;
+ readOne: (file: string) => string;
+ readMany: (count: number) => string;
+ /** Same file read and edited, e.g. "Reviewed and updated foo.ts". */
+ readAndEdited: (file: string) => string;
+ steps: (count: number) => string;
+ /** Thinking events in the section, e.g. "思考 2 次". */
+ thinkingCount: (count: number) => string;
+ /** Per-category counts, shown in the collapsed header (e.g. "更新了 3 个文件"). */
+ editCount: (count: number) => string;
+ readCount: (count: number) => string;
+ bashCount: (count: number) => string;
+ todoCount: (count: number) => string;
+ grepCount: (count: number) => string;
+ toolCount: (count: number) => string;
+ /** 段间分隔符（中文用逗号，英文用 ", "）。 */
+ separator: string;
 };
 
 /**
@@ -188,26 +190,26 @@ export type WorkSectionSummaryStrings = {
  *   "Finished with N steps" (Copilot's setFallbackTitle).
  */
 export function summarizeWorkSection(
-  tools: WorkSectionTool[],
-  thinkingCount: number,
-  s: WorkSectionSummaryStrings,
+ tools: WorkSectionTool[],
+ thinkingCount: number,
+ s: WorkSectionSummaryStrings,
 ): string {
-  const edits = new Set<string>();
-  const reads = new Set<string>();
-  for (const tool of tools) {
-    if (tool.kind === "edit") edits.add(tool.target);
-    else if (tool.kind === "read") reads.add(tool.target);
-  }
-  const overlap = [...reads].filter((f) => edits.has(f));
-  if (edits.size === 1 && reads.size === 1 && overlap.length === 1) {
-    return s.readAndEdited(overlap[0]!);
-  }
-  if (edits.size === 1) return s.editOne([...edits][0]!);
-  if (edits.size > 1) return s.editMany(edits.size);
-  for (const f of overlap) reads.delete(f);
-  if (reads.size === 1) return s.readOne([...reads][0]!);
-  if (reads.size > 1) return s.readMany(reads.size);
-  return s.steps(tools.length + thinkingCount);
+ const edits = new Set<string>();
+ const reads = new Set<string>();
+ for (const tool of tools) {
+  if (tool.kind === "edit") edits.add(tool.target);
+  else if (tool.kind === "read") reads.add(tool.target);
+ }
+ const overlap = [...reads].filter((f) => edits.has(f));
+ if (edits.size === 1 && reads.size === 1 && overlap.length === 1) {
+  return s.readAndEdited(overlap[0]!);
+ }
+ if (edits.size === 1) return s.editOne([...edits][0]!);
+ if (edits.size > 1) return s.editMany(edits.size);
+ for (const f of overlap) reads.delete(f);
+ if (reads.size === 1) return s.readOne([...reads][0]!);
+ if (reads.size > 1) return s.readMany(reads.size);
+ return s.steps(tools.length + thinkingCount);
 }
 
 /**
@@ -219,29 +221,29 @@ export function summarizeWorkSection(
  * `steps(thinkingCount)` so an empty header never renders.
  */
 export function workSectionCountSummary(
-  tools: WorkSectionTool[],
-  thinkingCount: number,
-  s: WorkSectionSummaryStrings,
+ tools: WorkSectionTool[],
+ thinkingCount: number,
+ s: WorkSectionSummaryStrings,
 ): string {
-  const counts = { edit: 0, read: 0, bash: 0, todo: 0, grep: 0, tool: 0 };
-  for (const tool of tools) counts[tool.kind] += 1;
+ const counts = { edit: 0, read: 0, bash: 0, todo: 0, grep: 0, tool: 0 };
+ for (const tool of tools) counts[tool.kind] += 1;
 
-  const parts: string[] = [];
-  if (counts.edit) parts.push(s.editCount(counts.edit));
-  if (thinkingCount) parts.push(s.thinkingCount(thinkingCount));
-  if (counts.read) parts.push(s.readCount(counts.read));
-  if (counts.grep) parts.push(s.grepCount(counts.grep));
-  if (counts.bash) parts.push(s.bashCount(counts.bash));
-  if (counts.todo) parts.push(s.todoCount(counts.todo));
-  if (counts.tool) parts.push(s.toolCount(counts.tool));
+ const parts: string[] = [];
+ if (counts.edit) parts.push(s.editCount(counts.edit));
+ if (thinkingCount) parts.push(s.thinkingCount(thinkingCount));
+ if (counts.read) parts.push(s.readCount(counts.read));
+ if (counts.grep) parts.push(s.grepCount(counts.grep));
+ if (counts.bash) parts.push(s.bashCount(counts.bash));
+ if (counts.todo) parts.push(s.todoCount(counts.todo));
+ if (counts.tool) parts.push(s.toolCount(counts.tool));
 
-  if (!parts.length) return s.steps(thinkingCount);
-  return parts.join(s.separator);
+ if (!parts.length) return s.steps(thinkingCount);
+ return parts.join(s.separator);
 }
 
 /** i18n strings for the live (present-tense) section title while streaming. */
 /** 进行中标题的一个分段：工具原名 + 目标（文件 / 命令），不翻译动词。 */
 export function workSectionLiveTitle(name: string, tool: WorkSectionTool): string {
-  if (!tool.target || tool.target === name) return name;
-  return `${name} ${tool.target}`;
+ if (!tool.target || tool.target === name) return name;
+ return `${name} ${tool.target}`;
 }

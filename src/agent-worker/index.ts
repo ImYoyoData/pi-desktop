@@ -1,9 +1,11 @@
+import { registerLazyBedrockProvider } from "@earendil-works/pi-ai/lazy-bedrock-provider";
 import type { WorkerInbound } from "../shared/agent-worker-messages";
 import { applyPiSubagentSpawnFix } from "./pi-subagent-spawn-fix";
 import { handleWorkerMessage } from "./runtime";
 
 // Must run before extensions load / subagent spawn resolution.
 applyPiSubagentSpawnFix();
+registerLazyBedrockProvider();
 
 process.parentPort.on("message", (event: { data: WorkerInbound }) => {
   const data = event.data;

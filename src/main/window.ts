@@ -1,6 +1,7 @@
 import { BrowserWindow, nativeImage, shell } from "electron";
-import { join } from "path";
+import { join, resolve, sep } from "path";
 import { existsSync } from "fs";
+import { fileURLToPath } from "url";
 import { is } from "@electron-toolkit/utils";
 import { IpcChannels } from "../shared/protocol";
 import type { EditContextMenuPayload } from "../shared/context-menu";
@@ -35,7 +36,8 @@ function installEditContextMenu(win: BrowserWindow): void {
   });
 }
 
-function resolveWindowIcon(): string | undefined {
+/** 打包/开发两种目录布局下找应用图标；index.ts 的 dock 图标也用同一份。 */
+export function resolveAppIcon(): string | undefined {
   const candidates = [
     join(process.resourcesPath, "resources", "icon.png"),
     join(process.resourcesPath, "icon.png"),
@@ -54,6 +56,13 @@ let allowClose = false;
 /** 程序化退出（更新安装）时不再向渲染层询问，直接放行关闭。 */
 let forceClosing = false;
 
+/**
+ * The renderer cannot answer `window:closeRequest` after a crash (or while it is
+ * hung). Without this the close handler would keep preventDefault()-ing and the
+ * window becomes impossible to close; allow the OS close button through instead.
+ */
+let rendererUnavailable = false;
+
 export function allowWindowClose(): void {
   allowClose = true;
 }
@@ -62,11 +71,49 @@ export function allowForceClose(): void {
   forceClosing = true;
 }
 
+function isWebUrl(raw: string): boolean {
+  try {
+    const protocol = new URL(raw).protocol;
+    return protocol === "https:" || protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+function isExternalUrl(raw: string): boolean {
+  try {
+    const protocol = new URL(raw).protocol;
+    return protocol === "https:" || protocol === "http:" || protocol === "mailto:";
+  } catch {
+    return false;
+  }
+}
+
+function openExternalSafely(raw: string): void {
+  if (!isExternalUrl(raw)) return;
+  void shell.openExternal(raw);
+}
+
+/** 主框架只能停留在应用自己的文档上，其余导航交给系统浏览器。 */
+function isAppDocumentUrl(raw: string): boolean {
+  const devUrl = process.env["ELECTRON_RENDERER_URL"];
+  try {
+    const target = new URL(raw);
+    if (devUrl) return target.origin === new URL(devUrl).origin;
+    if (target.protocol !== "file:") return false;
+    const rendererDir = `${resolve(__dirname, "../renderer")}${sep}`;
+    return resolve(fileURLToPath(target)).startsWith(rendererDir);
+  } catch {
+    return false;
+  }
+}
+
 export function createMainWindow(): BrowserWindow {
   allowClose = false;
   forceClosing = false;
+  rendererUnavailable = false;
   const isMac = process.platform === "darwin";
-  const iconPath = resolveWindowIcon();
+  const iconPath = resolveAppIcon();
   // 记住窗口大小开着就用上次的大小，否则用默认尺寸 1500×950（逻辑像素）。
   const { width: initialWidth, height: initialHeight } = resolveWindowSize();
 
@@ -84,7 +131,11 @@ export function createMainWindow(): BrowserWindow {
     ...(isMac ? { trafficLightPosition: { x: 14, y: 11 } } : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
-      sandbox: false,
+      // The renderer only talks to main through the preload bridge (`window.api`);
+      // the preload bundle itself only requires "electron", so it runs sandboxed.
+      // Keep this on — it is the costliest thing to lose if the renderer is ever
+      // compromised (no Node/fs reachable from page JS).
+      sandbox: true,
       contextIsolation: true,
       webviewTag: true,
       spellcheck: process.env.PI_DESKTOP_NO_SPELLCHECK !== "1",
@@ -116,18 +167,73 @@ export function createMainWindow(): BrowserWindow {
   });
 
   mainWindow.on("close", (event) => {
-    if (allowClose || forceClosing) return;
+    if (allowClose || forceClosing || rendererUnavailable) return;
     event.preventDefault();
     if (!mainWindow.isDestroyed()) {
       mainWindow.webContents.send(IpcChannels.window.closeRequest);
     }
   });
 
+  // A crashed renderer can never answer closeRequest; allow one automatic
+  // recovery (state is rebuilt from disk + main-process snapshots), then let the
+  // window close normally if it crashes again.
+  let reloadAttempted = false;
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    rendererUnavailable = true;
+    console.error(
+      `[window] renderer gone: ${details.reason} (exit ${details.exitCode})`,
+    );
+    if (details.reason === "clean-exit" || reloadAttempted) return;
+    reloadAttempted = true;
+    try {
+      mainWindow.reload();
+    } catch {
+      // window already torn down
+    }
+  });
+  mainWindow.on("unresponsive", () => {
+    rendererUnavailable = true;
+  });
+  mainWindow.on("responsive", () => {
+    rendererUnavailable = false;
+  });
+  mainWindow.webContents.on("did-finish-load", () => {
+    // A successful (re)load means the renderer can answer closeRequest again.
+    rendererUnavailable = false;
+  });
+
   mainWindow.on("closed", () => closeUpdateToast());
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    void shell.openExternal(details.url);
+    openExternalSafely(details.url);
     return { action: "deny" };
+  });
+
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (isAppDocumentUrl(url)) return;
+    event.preventDefault();
+    openExternalSafely(url);
+  });
+
+  mainWindow.webContents.on("will-attach-webview", (event, webPreferences, params) => {
+    delete webPreferences.preload;
+    webPreferences.nodeIntegration = false;
+    webPreferences.nodeIntegrationInSubFrames = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = true;
+    webPreferences.webSecurity = true;
+    webPreferences.allowRunningInsecureContent = false;
+    const src = params.src ?? "";
+    if (src && src !== "about:blank" && !isWebUrl(src)) {
+      event.preventDefault();
+    }
+  });
+
+  mainWindow.webContents.on("did-attach-webview", (_event, guest) => {
+    guest.setWindowOpenHandler((details) => {
+      openExternalSafely(details.url);
+      return { action: "deny" };
+    });
   });
 
   installEditContextMenu(mainWindow);

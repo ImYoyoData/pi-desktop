@@ -117,7 +117,7 @@ export function PiCliSetup(): ReactNode {
       title={t.piCliMissingTitle}
       className="pi-settings-modal"
       width="min(480px, 92vw)"
-      maskClosable={!installing}
+      mask={{ closable: !installing }}
       closable={!installing}
       onCancel={() => {
         if (!installing) void onSkip();

@@ -25,54 +25,77 @@ function waitForReady(
   child: Electron.UtilityProcess,
   timeoutMs = 45_000,
 ): Promise<{ id: string; filePath: string; cwd: string }> {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const timer = setTimeout(() => {
+  const { promise, resolve, reject } = Promise.withResolvers<{
+    id: string;
+    filePath: string;
+    cwd: string;
+  }>();
+  let settled = false;
+  const cleanup = (): void => {
+    clearTimeout(timer);
+    child.off("message", onMessage);
+    child.off("exit", onExit);
+  };
+  const fail = (error: Error): void => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    reject(error);
+  };
+  const timer = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    try {
+      child.kill();
+    } catch {
+      // ignore
+    }
+    reject(new Error(`agent worker ready timed out after ${timeoutMs}ms`));
+  }, timeoutMs);
+
+  const onExit = (code: number): void => {
+    fail(new Error(`agent worker exited during init (${code})`));
+  };
+
+  const onMessage = (raw: WorkerOutbound) => {
+    if (raw.kind === "ready") {
       if (settled) return;
       settled = true;
-      child.off("message", onMessage);
+      cleanup();
+      if (raw.resources) {
+        const r = raw.resources;
+        recordWorkerToolRuntime(raw.cwd, raw.id, r);
+        console.info(
+          `[pi-desktop] worker ready: ${r.extensionCount} extension(s), ${r.skillCount} skill(s), ${r.agentsFileCount ?? 0} agents file(s), ${r.activeTools.length} tool(s)`,
+        );
+        if (r.agentsFilePaths?.length) {
+          console.info(
+            `[pi-desktop] agents files: ${r.agentsFilePaths.join(" | ")}`,
+          );
+        }
+        for (const line of r.diagnostics) {
+          console.warn(`[pi-desktop] worker resource: ${line}`);
+        }
+      }
+      resolve({ id: raw.id, filePath: raw.filePath, cwd: raw.cwd });
+      return;
+    }
+    if (raw.kind === "fatal") {
+      if (settled) return;
+      settled = true;
+      cleanup();
       try {
         child.kill();
       } catch {
         // ignore
       }
-      reject(new Error(`agent worker ready timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-
-    const onMessage = (raw: WorkerOutbound) => {
-      if (raw.kind === "ready") {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        child.off("message", onMessage);
-        if (raw.resources) {
-          const r = raw.resources;
-          recordWorkerToolRuntime(raw.cwd, raw.id, r);
-          console.info(
-            `[pi-desktop] worker ready: ${r.extensionCount} extension(s), ${r.skillCount} skill(s), ${r.agentsFileCount ?? 0} agents file(s), ${r.activeTools.length} tool(s)`,
-          );
-          if (r.agentsFilePaths?.length) {
-            console.info(
-              `[pi-desktop] agents files: ${r.agentsFilePaths.join(" | ")}`,
-            );
-          }
-          for (const line of r.diagnostics) {
-            console.warn(`[pi-desktop] worker resource: ${line}`);
-          }
-        }
-        resolve({ id: raw.id, filePath: raw.filePath, cwd: raw.cwd });
-        return;
-      }
-      if (raw.kind === "fatal") {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        child.off("message", onMessage);
-        reject(new Error(raw.error ?? "worker fatal during init"));
-      }
-    };
-    child.on("message", onMessage);
-  });
+      reject(new Error(raw.error ?? "worker fatal during init"));
+    }
+  };
+  child.on("message", onMessage);
+  child.on("exit", onExit);
+  return promise;
 }
 
 export function createUtilityProcessSpawnWorker(): SpawnWorker {
@@ -137,6 +160,7 @@ export function createUtilityProcessSpawnWorker(): SpawnWorker {
     const messageListeners = new Set<(msg: WorkerOutbound) => void>();
     /** Set when we call kill() — exit is expected (idle destroy / session close). */
     let expectExit = false;
+    let exited = false;
 
     child.on("message", (raw: WorkerOutbound) => {
       for (const cb of messageListeners) {
@@ -145,6 +169,7 @@ export function createUtilityProcessSpawnWorker(): SpawnWorker {
     });
 
     child.on("exit", (code) => {
+      exited = true;
       // Clean shutdown (code 0) or intentional kill must not surface as a chat error.
       if (expectExit || code === 0) {
         return;
@@ -157,7 +182,10 @@ export function createUtilityProcessSpawnWorker(): SpawnWorker {
     const handle: WorkerHandle = {
       send: (msg: WorkerInbound) => {
         child.postMessage(msg);
-        return Promise.resolve(null);
+        if (msg.kind !== "shutdown" || exited) return Promise.resolve(null);
+        return new Promise((resolve) => {
+          child.once("exit", () => resolve(null));
+        });
       },
       kill: () => {
         expectExit = true;

@@ -182,7 +182,12 @@ export function createAgentRunRegistry(deps: {
     for (const [id, run] of [...runs.entries()]) {
       if (run.sessionId !== sessionId) continue;
       runs.delete(id);
+      pendingOutput.delete(id);
       deps.onEvent({ type: "ended", runId: id });
+    }
+    if (pendingOutput.size === 0 && outputFlushTimer != null) {
+      clearTimeout(outputFlushTimer);
+      outputFlushTimer = null;
     }
   }
 

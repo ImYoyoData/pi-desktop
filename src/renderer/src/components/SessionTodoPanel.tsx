@@ -36,7 +36,7 @@ type DurationItem = {
 
 const EXPAND_ANIM_MS = 140;
 
-function formatDuration(ms: number | undefined): string {
+function formatTodoDuration(ms: number | undefined): string {
   if (ms == null || !Number.isFinite(ms) || ms < 0) return "";
   const totalSec = Math.round(ms / 1000);
   if (totalSec < 60) return `${totalSec}s`;
@@ -49,9 +49,9 @@ function formatDuration(ms: number | undefined): string {
 }
 
 function itemDuration(item: DurationItem, nowMs: number): string {
-  if (item.durationMs != null) return formatDuration(item.durationMs);
+  if (item.durationMs != null) return formatTodoDuration(item.durationMs);
   if (!item.done && item.startedAt != null) {
-    return formatDuration(nowMs - item.startedAt);
+    return formatTodoDuration(nowMs - item.startedAt);
   }
   return "";
 }
@@ -78,12 +78,9 @@ export function SessionTodoPanel(): ReactNode {
   /** A "fresh" round: nothing completed and nothing currently in-progress. */
   const freshRound =
     list != null && doneCount === 0 && !firstInProgress && !paused;
-  /** Copilot auto-collapse — re-expands fresh rounds unless user overrode. */
-  const collapsed = paused
-    ? false
-    : userExpanded !== null
-      ? !userExpanded
-      : !freshRound;
+  /** Copilot 自动折叠 — 暂停与全新回合默认展开，手动开关优先。 */
+  const collapsed =
+    userExpanded !== null ? !userExpanded : !(paused || freshRound);
 
   const [phase, setPhase] = useState<BodyPhase>(() =>
     collapsed ? "hidden" : "shown",
@@ -140,6 +137,11 @@ export function SessionTodoPanel(): ReactNode {
   useEffect(() => {
     if (freshRound) setUserExpanded(null);
   }, [listKey]);
+
+  /** 停止后先展开，露出继续/删除；之后仍可手动折叠。 */
+  useEffect(() => {
+    if (paused) setUserExpanded(null);
+  }, [paused]);
 
   const rows = useMemo(
     () => items.map((item) => ({ item, duration: itemDuration(item, nowMs) })),

@@ -35,12 +35,6 @@ function readEntry(target: McpAuthTarget): Record<string, unknown> | null {
 	return readMcpEntry(target.name, target.scope, target.workspace);
 }
 
-/** 服务器是否使用 OAuth（HTTP url 型）。 */
-export function mcpUsesOAuth(target: McpAuthTarget): boolean {
-	const entry = readEntry(target);
-	return entry ? mcpOAuthUrl(entry) !== null : false;
-}
-
 /** 读取已存 OAuth 凭据状态；未登录或非 OAuth 服务器均为未认证。 */
 export async function readMcpAuthState(target: McpAuthTarget): Promise<McpAuthState> {
 	const entry = readEntry(target);

@@ -16,7 +16,6 @@ import {
 import { electronApp, is } from "@electron-toolkit/utils";
 import { homedir } from "node:os";
 import { join } from "path";
-import { existsSync } from "fs";
 import { IpcChannels } from "../shared/protocol";
 import { createUtilityProcessSpawnWorker } from "./agent-worker-host";
 import { createAgentBackends } from "./agent-backends";
@@ -28,8 +27,9 @@ import { registerOmpModelsIpc } from "./omp-models-ipc";
 import { registerOmpSettingsIpc } from "./omp-settings-ipc";
 import { registerSlashCommandsIpc } from "./slash-commands-ipc";
 import { registerOmpResourcesIpc } from "./omp-resources-ipc";
-import { registerSessionsIpc } from "./sessions-ipc";
-import { allowForceClose, createMainWindow } from "./window";
+import { registerSessionsIpc, cancelSessionUiAsks } from "./sessions-ipc";
+import { disposeAllOmpWorkers } from "./omp-worker-host";
+import { allowForceClose, createMainWindow, resolveAppIcon } from "./window";
 import { cleanupUpdateTempDir } from "./update-temp";
 import { registerBrowserIpc } from "./browser-host";
 import type { WorkerOutbound } from "../shared/agent-worker-messages";
@@ -79,7 +79,6 @@ import { initProxy, registerProxyIpc, restoreStartupProxyEnv } from "./proxy-hos
 import { installApplicationMenu } from "./app-menu";
 import { enableHardwareAcceleration } from "./gpu-flags";
 import { enableRemoteDebugging } from "./remote-debugging";
-import { installDevBridge } from "./dev-bridge";
 import {
 	installLocalFileProtocol,
 	registerLocalFileScheme,
@@ -97,9 +96,6 @@ if (process.platform === "win32") process.env.HOME = homedir();
 /** GPU raster / compositing before ready (no-op if only software GL). */
 enableHardwareAcceleration();
 enableRemoteDebugging();
-// 只有 electron-vite dev（渲染层由 Vite 开发服务器提供）才开预览桥；
-// preview / 打包版都没有桥脚本，开了也只是白占端口。
-if (process.env.NODE_ENV_ELECTRON_VITE === "development") installDevBridge();
 markStartup("main:module-loaded");
 installIpcTiming();
 registerLocalFileScheme();
@@ -194,6 +190,13 @@ process.on("uncaughtException", (err) => {
 	}
 });
 
+// 未处理拒绝只记日志：单次后台任务失败不应终止主进程。
+process.on("unhandledRejection", (reason) => {
+	const message =
+		reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
+	console.error("[main] unhandledRejection:", message);
+});
+
 void acquireSingleInstanceLock().then((gotSingleInstanceLock) => {
 	if (!gotSingleInstanceLock) {
 		app.quit();
@@ -273,8 +276,10 @@ function boot(): void {
 				}
 			})();
 		},
-		onSessionWorkerGone: (sessionId) =>
-			registryHolder.current?.endSessionRuns(sessionId),
+		onSessionWorkerGone: (sessionId) => {
+			cancelSessionUiAsks(sessionId);
+			registryHolder.current?.endSessionRuns(sessionId);
+		},
 		hasActiveRuns: (sessionId) =>
 			Boolean(registryHolder.current?.hasActiveRuns(sessionId)),
 	});
@@ -338,19 +343,6 @@ function boot(): void {
 		});
 	}
 
-	function resolveAppIcon(): string | undefined {
-		const candidates = [
-			join(process.resourcesPath, "resources", "icon.png"),
-			join(process.resourcesPath, "icon.png"),
-			join(__dirname, "../../build/icon.png"),
-			join(__dirname, "../../resources/icon.png"),
-		];
-		for (const p of candidates) {
-			if (existsSync(p)) return p;
-		}
-		return undefined;
-	}
-
 	app.whenReady().then(() => {
 		markStartup("main:ready");
 		installLocalFileProtocol();
@@ -396,7 +388,11 @@ function boot(): void {
 		markStartup("main:ipc-critical-done");
 
 		// Allow mic/camera for the embedded browser (macOS TCC still gates via askForMediaAccess).
-		const allowPermissions = new Set([
+		/**
+		 * 应用自身文档（主窗口 / 悬浮窗）可用的权限：渲染层需要剪贴板、通知、
+		 * 媒体、全屏与外部打开。
+		 */
+		const appPermissions = new Set([
 			"media",
 			"mediaKeySystem",
 			"display-capture",
@@ -407,6 +403,23 @@ function boot(): void {
 			"pointerLock",
 			"openExternal",
 		]);
+		/**
+		 * 内置浏览器的网页（webview guest）只保留预览类权限。
+		 * 之前对所有来源放行，等于任何站点都能静默读取系统剪贴板、弹通知、
+		 * 申请屏幕捕获；这里按来源收窄，剪贴板/通知/屏幕捕获一律拒绝。
+		 */
+		const guestPermissions = new Set(["media", "fullscreen", "pointerLock"]);
+
+		function permissionsFor(contents: Electron.WebContents | null): Set<string> {
+			if (!contents) return appPermissions;
+			let type: string;
+			try {
+				type = contents.getType();
+			} catch {
+				return guestPermissions;
+			}
+			return type === "webview" ? guestPermissions : appPermissions;
+		}
 
 		async function ensureDarwinMediaAccess(
 			mediaTypes: Array<"audio" | "video"> | undefined,
@@ -431,9 +444,9 @@ function boot(): void {
 		}
 
 		session.defaultSession.setPermissionRequestHandler(
-			(_wc, permission, callback, details) => {
+			(wc, permission, callback, details) => {
 				void (async () => {
-					if (!allowPermissions.has(permission)) {
+					if (!permissionsFor(wc).has(permission)) {
 						callback(false);
 						return;
 					}
@@ -448,8 +461,8 @@ function boot(): void {
 				})();
 			},
 		);
-		session.defaultSession.setPermissionCheckHandler((_wc, permission) => {
-			return allowPermissions.has(permission);
+		session.defaultSession.setPermissionCheckHandler((wc, permission) => {
+			return permissionsFor(wc).has(permission);
 		});
 
 		const icon = resolveAppIcon();
@@ -503,6 +516,13 @@ function boot(): void {
 				BrowserWindow.getAllWindows()[0]?.show();
 			}
 		});
+	}).catch((error) => {
+		console.error("[main] initialization failed:", error);
+		dialog.showErrorBox(
+			"Pi Desktop failed to start",
+			error instanceof Error && error.stack ? error.stack : String(error),
+		);
+		app.quit();
 	});
 
 	app.on("window-all-closed", () => {
@@ -515,5 +535,6 @@ function boot(): void {
 		// 程序化退出（如更新安装）不再等渲染层确认，直接放行关闭
 		allowForceClose();
 		disposeAllTerminals();
+		disposeAllOmpWorkers();
 	});
 }

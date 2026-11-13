@@ -1042,7 +1042,7 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
         className="pi-settings-modal"
         width="min(420px, 92vw)"
         title={t.unsavedChangesTitle}
-        maskClosable={false}
+        mask={{ closable: false }}
         onCancel={cancelLeave}
         footer={
           <Space size={8} style={{ justifyContent: "flex-end" }}>

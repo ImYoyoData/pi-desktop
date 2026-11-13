@@ -44,7 +44,3 @@ export function workspaceStat(abs: string): fs.Stats | null {
 export function workspaceExists(abs: string): boolean {
 	return withoutAsar(() => fs.existsSync(abs));
 }
-
-export function workspaceReadFile(abs: string): Buffer {
-	return withoutAsar(() => fs.readFileSync(abs));
-}

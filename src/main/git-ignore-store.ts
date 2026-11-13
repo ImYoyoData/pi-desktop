@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { matchesGitIgnorePatterns } from "../shared/git-ignore";
 
@@ -39,16 +39,25 @@ function readFile(filePath: string): string | null {
 
 /**
  * Parse the managed rules out of a .gitignore body. Returns { rules, rest }
- * where `rest` is the file with our block removed (newlines preserved).
+ * where `rest` keeps every user line byte-for-byte (line endings included).
  */
 function splitManagedBlock(body: string): { rules: string[]; rest: string } {
-  const lines = (body ?? "").split(/\r?\n/);
+  const parts = body.split(/(\r?\n)/);
   let inBlock = false;
   const rules: string[] = [];
   const kept: string[] = [];
-  for (const raw of lines) {
+  for (let i = 0; i < parts.length; i += 2) {
+    const raw = parts[i] ?? "";
+    const ending = parts[i + 1] ?? "";
     const line = raw.trim();
     if (line === BLOCK_START) {
+      // 托管块前的那一个换行由写入方补上，删除时一并回收，正文可原样还原。
+      const last = kept[kept.length - 1];
+      if (last !== undefined) {
+        if (last === "\n" || last === "\r\n") kept.pop();
+        else if (last.endsWith("\r\n")) kept[kept.length - 1] = last.slice(0, -2);
+        else if (last.endsWith("\n")) kept[kept.length - 1] = last.slice(0, -1);
+      }
       inBlock = true;
       continue;
     }
@@ -60,28 +69,20 @@ function splitManagedBlock(body: string): { rules: string[]; rest: string } {
       if (line && !line.startsWith("#")) rules.push(line);
       continue;
     }
-    kept.push(raw);
+    kept.push(raw + ending);
   }
-  return { rules, rest: kept.join("\n") };
+  return { rules, rest: kept.join("") };
 }
 
 function writeGitignore(filePath: string, rest: string, rules: string[]): void {
   if (rules.length === 0) {
-    // Nothing managed left — write back the untouched body (minus our block).
-    const trimmed = rest.replace(/\n{3,}/g, "\n\n").trim();
-    if (trimmed) writeFileSync(filePath, `${trimmed}\n`, "utf8");
-    else {
-      try {
-        rmSync(filePath, { force: true });
-      } catch {
-        // ignore
-      }
-    }
+    // 只删托管块，其余内容原样写回（不 trim、不折叠空行、不删文件）。
+    writeFileSync(filePath, rest, "utf8");
     return;
   }
   const block = [BLOCK_START, ...rules, BLOCK_END].join("\n");
-  const body = [rest.trim(), block].filter(Boolean).join("\n\n");
-  writeFileSync(filePath, `${body}\n`, "utf8");
+  const prefix = rest ? `${rest}\n` : "";
+  writeFileSync(filePath, `${prefix}${block}\n`, "utf8");
 }
 
 export function listGitIgnored(workspace: string): string[] {

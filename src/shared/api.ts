@@ -12,7 +12,7 @@ import type {
 	SessionSummary,
 	TerminalShellOption,
 } from "./protocol";
-import { IpcChannels } from "./protocol";
+import { IpcChannels, toIpcPlain } from "./protocol";
 import type { AgentBackend } from "./agent-backend";
 import type { OmpCliStatus } from "./omp-cli";
 import type {
@@ -131,7 +131,7 @@ export type {
 function plainArgs<T>(value: T): T {
 	if (value === undefined || value === null) return value;
 	try {
-		return JSON.parse(JSON.stringify(value)) as T;
+		return toIpcPlain(value);
 	} catch {
 		return value;
 	}
@@ -142,7 +142,7 @@ export type ApiListener<T extends unknown[] = unknown[]> = (
 	...args: T
 ) => void;
 
-/** 渲染层到主进程的调用通道：Electron 走 ipcRenderer，浏览器预览走 WebSocket 桥。 */
+/** 渲染层到主进程的调用通道（preload 里由 ipcRenderer 实现）。 */
 export type ApiIpc = {
 	invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
 	on: <T extends unknown[]>(channel: string, listener: ApiListener<T>) => void;
@@ -158,6 +158,7 @@ export type ApiWebUtils = {
 export function createApi(
 	ipcRenderer: ApiIpc,
 	webUtils: ApiWebUtils,
+	platform: string = "",
 ) {
 	return {
 	clipboard: {
@@ -215,6 +216,7 @@ export function createApi(
 		},
 	},
 	window: {
+		platformSync: platform,
 		platform: () =>
 			ipcRenderer.invoke(IpcChannels.window.platform) as Promise<NodeJS.Platform>,
 		systemInfo: () =>

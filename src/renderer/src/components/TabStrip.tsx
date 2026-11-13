@@ -351,7 +351,6 @@ export function TabStrip({ tabs, activeId, onAdd, addTitle }: Props): ReactNode 
         open={renameOpen}
         title={t.renameTab}
         width={360}
-        maskClosable
         okText={t.confirm}
         cancelText={t.cancel}
         onOk={submitRename}

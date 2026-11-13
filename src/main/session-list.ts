@@ -110,7 +110,8 @@ let ompWorkspacesCache: {
   workspaces: string[];
 } | null = null;
 
-/** Signature of the .jsonl files in one session dir (sizes + mtimes, no content). */async function dirJsonlSignature(dir: string): Promise<string | null> {
+/** Signature of the .jsonl files in one session dir (sizes + mtimes, no content). */
+async function dirJsonlSignature(dir: string): Promise<string | null> {
   let entries;
   try {
     entries = await fs.promises.readdir(dir, { withFileTypes: true });

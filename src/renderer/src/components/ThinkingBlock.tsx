@@ -17,6 +17,9 @@ import styles from "./ThinkingBlock.module.css";
 
 const MarkdownView = lazy(() => import("@renderer/components/MarkdownView"));
 
+/** 流式长思考只挂载尾部窗口，防止整段文本常驻 DOM、每 tick 全量布局。 */
+const THINK_LIVE_MAX_CHARS = 64_000;
+
 type Props = {
   thinking: string;
   /** True while the model is still producing thinking (before answer text). */
@@ -93,10 +96,9 @@ export function ThinkingBlock({
   }, [elapsedMs, t, thinkingChars]);
 
   /** 流式长思考只挂载尾部窗口，防止整段文本常驻 DOM、每 tick 全量布局。 */
-  const THINK_LIVE_MAX_CHARS = 16_000;
   const displayThinking = useMemo(() => {
     if (!streaming || thinking.length <= THINK_LIVE_MAX_CHARS) return thinking;
-    const tail = thinking.slice(-THINK_LIVE_MAX_CHARS);
+    const tail = thinking.slice(-(THINK_LIVE_MAX_CHARS - 2));
     // 截断点落在块中间（尤其是代码围栏里）会让 markdown 解析出未闭合结构，
     // 流式时看起来就是内容卡住不显示：先退到最近的块边界，再丢掉半截围栏。
     const boundary = tail.indexOf("\n\n");
@@ -230,6 +232,7 @@ export function ThinkingBlock({
                 content={displayThinking}
                 variant="chat"
                 streaming={streaming}
+                maxChars={streaming ? THINK_LIVE_MAX_CHARS : undefined}
                 className={styles.markdown}
               />
             </Suspense>

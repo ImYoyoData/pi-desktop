@@ -90,6 +90,17 @@ export function setStallEmitMs(ms: number): void {
  */
 export const ABORT_FORCE_KILL_MS = 8_000;
 const SHUTDOWN_GRACE_MS = 800;
+/** worker 进程已退出/通道断开：属「不存活」，与真实 IPC 故障区分。 */
+function isWorkerGoneError(error: unknown): boolean {
+	const code = (error as NodeJS.ErrnoException | null)?.code;
+	if (code === "ERR_IPC_CHANNEL_CLOSED" || code === "ERR_IPC_DISCONNECTED") {
+		return true;
+	}
+	const message = error instanceof Error ? error.message : String(error);
+	return /channel closed|channel is already disconnected|not connected|disconnected/i.test(
+		message,
+	);
+}
 const CONTEXT_SEGMENT_IDS = new Set<ContextUsageSegmentId>([
   "system",
   "tools",
@@ -527,10 +538,6 @@ export function createSessionBroker(deps: {
   }
 
   /**
-   * Start the Pi agent worker in the background so the first prompt after
-   * switching to a session is fast (no cold-start stall on send).
-   */
-  /**
    * Destroy the oldest idle workers once more than MAX_IDLE_WORKERS are alive,
    * so prewarming many sessions cannot balloon the process count.
    */
@@ -540,6 +547,10 @@ export function createSessionBroker(deps: {
       if (!rec.worker || rec.summary.status !== "idle" || rec.workerPromise)
         continue;
       if (rec.desktopModesActive) continue;
+      // An in-flight command (list_models / get_state / settings) would be
+      // stranded: kill() is an *expected* exit, so no fatal message is emitted
+      // and its promise never settles. Let the idle timer reap it later.
+      if (rec.pendingCommands.size > 0) continue;
       if (deps.hasActiveRuns?.(id)) continue;
       idle.push({ sessionId: id, spawnedAt: rec.spawnedAt });
     }
@@ -549,7 +560,12 @@ export function createSessionBroker(deps: {
     for (let i = 0; i < excess; i++) {
       const target = idle[i]!;
       const rec = sessions.get(target.sessionId);
-      if (rec?.worker && rec.summary.status === "idle" && !rec.workerPromise) {
+      if (
+        rec?.worker &&
+        rec.summary.status === "idle" &&
+        !rec.workerPromise &&
+        rec.pendingCommands.size === 0
+      ) {
         stopHeartbeat(rec);
         clearIdleDestroyTimer(rec);
         rec.worker.kill();
@@ -560,6 +576,10 @@ export function createSessionBroker(deps: {
     }
   }
 
+  /**
+   * Start the Pi agent worker in the background so the first prompt after
+   * switching to a session is fast (no cold-start stall on send).
+   */
   function prewarmWorker(sessionId: string): void {
     trimIdleWorkers();
     const rec = sessions.get(sessionId);
@@ -728,6 +748,10 @@ export function createSessionBroker(deps: {
       }
 
       if (msg.kind === "fatal") {
+        // 主动断开或已被新 worker 取代时，旧进程的退出不能算当前会话的错误。
+        if (rec.worker !== worker) {
+          return;
+        }
         // Idle-destroy / clean process exit must not spam the chat as an error.
         const errText = msg.error ?? "worker fatal";
         clearIdleDestroyTimer(rec);
@@ -1128,8 +1152,13 @@ export function createSessionBroker(deps: {
     if (!worker) {
       return false;
     }
-    await worker.send(msg);
-    return true;
+    try {
+      await worker.send(msg);
+      return rec?.worker === worker;
+    } catch (error) {
+      if (rec?.worker !== worker || isWorkerGoneError(error)) return false;
+      throw error;
+    }
   }
 
   async function send(
@@ -1161,6 +1190,11 @@ export function createSessionBroker(deps: {
     } else if (command.type === "prompt") {
       await rec!.settingsGate;
     }
+    if (!rec || sessions.get(sessionId) !== rec || rec.worker !== worker) {
+      gate.release?.();
+      if (!coldStart) return undefined;
+      throw new Error(`session worker unavailable: ${sessionId}`);
+    }
     if (command.type === "prompt" || command.type === "hang") {
       setStatus(sessionId, "running");
     }
@@ -1186,8 +1220,11 @@ export function createSessionBroker(deps: {
     const outbound = { kind: "command" as const, id: cmdId, command };
 
     if (!awaitsResult) {
-      await worker.send(outbound);
-      gate.release?.();
+      try {
+        await worker.send(outbound);
+      } finally {
+        gate.release?.();
+      }
       return undefined;
     }
 
@@ -1231,21 +1268,38 @@ export function createSessionBroker(deps: {
           resolve({ ok: true, forced: true });
         }, ABORT_FORCE_KILL_MS);
       }
-      void worker.send(outbound).then((direct) => {
-        if (direct?.kind === "result") {
-          const pending = rec!.pendingCommands.get(cmdId);
-          if (!pending) {
-            return;
-          }
-          rec!.pendingCommands.delete(cmdId);
-          clearForce();
-          if (direct.error) {
-            reject(new Error(direct.error));
-          } else {
-            resolve(direct.data);
-          }
+      const failSend = (error: unknown): void => {
+        rec!.pendingCommands.delete(cmdId);
+        clearForce();
+        // A prompt/hang marks the session "running" before the send; when the
+        // send itself fails the turn never starts, so leaving it running would
+        // keep the Stop button and wait indicator alive forever.
+        if (
+          (command.type === "prompt" || command.type === "hang") &&
+          sessions.get(sessionId) === rec
+        ) {
+          setStatus(sessionId, "idle");
         }
-      });
+        reject(error instanceof Error ? error : new Error(String(error)));
+      };
+      try {
+        void worker.send(outbound)
+          .then((direct) => {
+            if (direct?.kind !== "result") return;
+            const pending = rec!.pendingCommands.get(cmdId);
+            if (!pending) return;
+            rec!.pendingCommands.delete(cmdId);
+            clearForce();
+            if (direct.error) {
+              reject(new Error(direct.error));
+            } else {
+              resolve(direct.data);
+            }
+          })
+          .catch(failSend);
+      } catch (error) {
+        failSend(error);
+      }
     });
     void settled.then(
       () => gate.release?.(),
@@ -1459,14 +1513,15 @@ export function createSessionBroker(deps: {
       ([, rec]) =>
         rec.worker !== null && (backend === undefined || rec.backend === backend),
     );
-    for (const [id, rec] of targets) {
-      // AuthStorage 缓存 auth.json，pi 需要重建进程；omp 的 worker 支持热刷新。
-      if (rec.backend === "omp") {
-        await sendRawIfAlive(id, { kind: "reload_models" });
-      } else {
-        await restartWorkerWhenIdle(id);
-      }
-    }
+    await Promise.all(
+      [...targets].map(([id, rec]) => {
+        // AuthStorage 缓存 auth.json，pi 需要重建进程；omp 的 worker 支持热刷新。
+        if (rec.backend === "omp") {
+          return sendRawIfAlive(id, { kind: "reload_models" });
+        }
+        return restartWorkerWhenIdle(id);
+      }),
+    );
   }
 
   async function notifyWorkersReloadStreamRender(
@@ -1475,9 +1530,9 @@ export function createSessionBroker(deps: {
     const ids = [...sessions.entries()]
       .filter(([, rec]) => rec.worker !== null)
       .map(([id]) => id);
-    for (const id of ids) {
-      await sendRawIfAlive(id, { kind: "reload_stream_render", streamRender });
-    }
+    await Promise.all(
+      ids.map((id) => sendRawIfAlive(id, { kind: "reload_stream_render", streamRender })),
+    );
   }
 
   /** 界面语言变化时热更新存活 worker 的后台截断提示文案。 */
@@ -1485,14 +1540,15 @@ export function createSessionBroker(deps: {
     const ids = [...sessions.entries()]
       .filter(([, rec]) => rec.worker !== null)
       .map(([id]) => id);
-    for (const id of ids) {
-      await sendRawIfAlive(id, { kind: "reload_locale", locale });
-    }
+    await Promise.all(
+      ids.map((id) => sendRawIfAlive(id, { kind: "reload_locale", locale })),
+    );
   }
 
   /** 空闲 worker 在进程内重载资源（扩展/MCP 配置），忙碌的等空闲后销毁重建。 */
   async function notifyWorkersReloadResources(cwd?: string): Promise<void> {
     const resolved = cwd ? path.resolve(cwd) : null;
+    const pending: Promise<unknown>[] = [];
     for (const [id, rec] of sessions.entries()) {
       if (!rec.worker) continue;
       if (resolved && path.resolve(rec.cwd) !== resolved) continue;
@@ -1500,8 +1556,9 @@ export function createSessionBroker(deps: {
         rec.restartOnIdle = true;
         continue;
       }
-      await sendRawIfAlive(id, { kind: "reload_resources" });
+      pending.push(sendRawIfAlive(id, { kind: "reload_resources" }));
     }
+    await Promise.all(pending);
   }
 
   return {

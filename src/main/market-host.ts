@@ -219,7 +219,7 @@ export async function installPiPackage(
 	packageName: string,
 ): Promise<PiPackageInstallResult> {
 	const name = packageName.trim();
-	if (!name || /[\s;|&<>]/.test(name)) {
+	if (!/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*(?:@[a-z0-9^~<>=.*+|-]+)?$/i.test(name)) {
 		return { ok: false, command: "", log: "", error: "Invalid package name" };
 	}
 	const command = piInstallCommand(name);

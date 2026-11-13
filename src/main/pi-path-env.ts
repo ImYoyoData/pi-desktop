@@ -4,9 +4,11 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { CODEMODE_MAX_WORKERS_PREF } from "../shared/customizations";
 import { prefsPath, readPrefs } from "./prefs-store";
+import { findRealBashPath } from "./terminal-shell";
 import {
   PI_DESKTOP_NODE_PATH_ENV,
   PI_DESKTOP_PI_CLI_PATH_ENV,
+  PI_DESKTOP_BASH_SHELL_ENV,
   PI_PACKAGE_DIR_ENV,
   PI_SUBAGENT_PI_BINARY_ENV,
   PI_SUBAGENTS_PI_CODING_AGENT_PACKAGE_ROOT_ENV,
@@ -15,6 +17,7 @@ import {
 export {
   PI_DESKTOP_NODE_PATH_ENV,
   PI_DESKTOP_PI_CLI_PATH_ENV,
+  PI_DESKTOP_BASH_SHELL_ENV,
   PI_SUBAGENT_PI_BINARY_ENV,
   PI_SUBAGENTS_PI_CODING_AGENT_PACKAGE_ROOT_ENV,
   PI_PACKAGE_DIR_ENV,
@@ -63,8 +66,12 @@ export function augmentPathForPiCli(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     );
   }
   const parts = current.split(sep).filter(Boolean);
+  const seen = new Set(parts);
   for (const e of extras) {
-    if (e && !parts.includes(e)) parts.push(e);
+    if (e && !seen.has(e)) {
+      seen.add(e);
+      parts.push(e);
+    }
   }
   const next = { ...env, PATH: parts.join(sep) };
   if (process.platform === "win32") next["Path"] = next.PATH;
@@ -121,11 +128,6 @@ export function resolveSystemNodeExecutable(
   const resolved = resolveSystemNodeExecutableUncached(env);
   cachedSystemNode = { key: cacheKey, value: resolved };
   return resolved;
-}
-
-/** Test helper — clear process-lifetime node resolution cache. */
-export function clearSystemNodeExecutableCache(): void {
-  cachedSystemNode = null;
 }
 
 function resolveSystemNodeExecutableUncached(
@@ -430,6 +432,12 @@ export function buildAgentWorkerEnv(
   if (binary && cliPath && /\.(cmd|bat)$/i.test(binary)) {
     delete next[PI_SUBAGENT_PI_BINARY_ENV];
   }
+
+  // The worker cannot import this module, so its bash detection reads the
+  // resolved path from the env first (see agent-worker/command-shell.ts).
+  const bashShell = findRealBashPath();
+  if (bashShell) next[PI_DESKTOP_BASH_SHELL_ENV] = bashShell;
+  else delete next[PI_DESKTOP_BASH_SHELL_ENV];
 
   // Extended prompt-cache retention: Anthropic 1h / OpenAI 24h instead of the
   // default short TTL (5m / in-memory). Keeps the prompt prefix cacheable across

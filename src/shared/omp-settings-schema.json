@@ -1,6 +1,6 @@
 {
 	"schemaVersion": 3,
-	"ompVersion": "18.16.0",
+	"ompVersion": "18.18.9",
 	"tabs": [
 		{
 			"id": "model",
@@ -373,12 +373,28 @@
 			"env": null
 		},
 		{
+			"id": "update.auto",
+			"tab": "interaction",
+			"group": "Startup & Updates",
+			"type": "boolean",
+			"label": "Auto Update",
+			"description": "Install omp updates in the background on startup; the next launch runs the new version",
+			"warning": null,
+			"condition": null,
+			"secret": false,
+			"credential": false,
+			"default": false,
+			"values": null,
+			"options": null,
+			"env": null
+		},
+		{
 			"id": "magicKeywords.enabled",
 			"tab": "interaction",
 			"group": "Magic Keywords",
 			"type": "boolean",
 			"label": "Magic Keywords",
-			"description": "Enable hidden notices for standalone ultrathink, orchestrate, workflowz, jevify keywords",
+			"description": "Enable hidden notices for standalone ultrathink, chillax, orchestrate, workflowz, jevify keywords",
 			"warning": null,
 			"condition": null,
 			"secret": false,
@@ -395,6 +411,22 @@
 			"type": "boolean",
 			"label": "Ultrathink Keyword",
 			"description": "Let standalone ultrathink request maximum automatic thinking and append its hidden notice",
+			"warning": null,
+			"condition": null,
+			"secret": false,
+			"credential": false,
+			"default": true,
+			"values": null,
+			"options": null,
+			"env": null
+		},
+		{
+			"id": "magicKeywords.chillax",
+			"tab": "interaction",
+			"group": "Magic Keywords",
+			"type": "boolean",
+			"label": "Chillax Keyword",
+			"description": "Let standalone chillax drop thinking to the model's lowest effort (models with per-message effort, even mid-turn) and append its hidden notice",
 			"warning": null,
 			"condition": null,
 			"secret": false,
@@ -1346,7 +1378,7 @@
 			"condition": null,
 			"secret": false,
 			"credential": false,
-			"default": "medium",
+			"default": "low",
 			"values": [
 				"low",
 				"medium",
@@ -1356,12 +1388,12 @@
 				{
 					"value": "low",
 					"label": "Low",
-					"description": "Prefer concise responses"
+					"description": "Prefer concise responses (default)"
 				},
 				{
 					"value": "medium",
 					"label": "Medium",
-					"description": "Balance brevity and detail (default)"
+					"description": "Balance brevity and detail"
 				},
 				{
 					"value": "high",
@@ -2352,8 +2384,8 @@
 			"tab": "providers",
 			"group": "Protocol",
 			"type": "enum",
-			"label": "OpenAI WebSockets",
-			"description": "Websocket policy for OpenAI Codex models (auto uses model defaults, on forces, off disables)",
+			"label": "OpenAI Codex WebSockets",
+			"description": "WebSocket policy for OpenAI Codex models only",
 			"warning": null,
 			"condition": null,
 			"secret": false,
@@ -2368,12 +2400,12 @@
 				{
 					"value": "auto",
 					"label": "Auto",
-					"description": "Use model/provider default websocket behavior"
+					"description": "Use Codex model defaults"
 				},
 				{
 					"value": "off",
 					"label": "Off",
-					"description": "Disable websockets for OpenAI Codex models"
+					"description": "Disable WebSockets for OpenAI Codex models"
 				},
 				{
 					"value": "on",
@@ -2381,6 +2413,22 @@
 					"description": "Force websockets for OpenAI Codex models"
 				}
 			],
+			"env": null
+		},
+		{
+			"id": "providers.openaiResponsesWebsockets",
+			"tab": "providers",
+			"group": "Protocol",
+			"type": "boolean",
+			"label": "OpenAI Responses WebSockets",
+			"description": "Opt in for catalog-supported standard Responses models; model or request false disables it",
+			"warning": null,
+			"condition": null,
+			"secret": false,
+			"credential": false,
+			"default": false,
+			"values": null,
+			"options": null,
 			"env": null
 		},
 		{
@@ -2702,12 +2750,12 @@
 			"env": null
 		},
 		{
-			"id": "codexResets.autoRedeem",
+			"id": "codexResets.autoRedeem5h",
 			"tab": "providers",
 			"group": "Services",
 			"type": "enum",
-			"label": "Codex Auto-Redeem Saved Resets",
-			"description": "Spend saved Codex rate-limit resets automatically: restore an account blocked by an exhausted 5h or weekly window when a turn is stuck and no other account can take over, and salvage credits that are about to expire. unset asks before the first spend (with no prompt UI, it spends only a reset expiring within 5 minutes), yes spends without prompting, and no disables both checks.",
+			"label": "Codex Auto-Redeem Saved Resets (5h)",
+			"description": "Spend saved Codex resets on 5-hour-only blocks and on expiring credits whose fullest chat window is 5h. unset asks before spending and never spends without a prompt; yes spends without asking; no never spends.",
 			"warning": null,
 			"condition": null,
 			"secret": false,
@@ -2722,17 +2770,53 @@
 				{
 					"value": "unset",
 					"label": "Unset",
-					"description": "Check eligibility, then ask before spending the first saved reset. With no prompt UI, spend only a reset expiring within 5 minutes."
+					"description": "Ask before spending; never spend without a prompt."
 				},
 				{
 					"value": "yes",
 					"label": "Yes",
-					"description": "Spend eligible saved resets without prompting."
+					"description": "Spend eligible saved resets without asking."
 				},
 				{
 					"value": "no",
 					"label": "No",
-					"description": "Do not run the saved-reset auto-redeem check."
+					"description": "Never spend saved resets for this window."
+				}
+			],
+			"env": null
+		},
+		{
+			"id": "codexResets.autoRedeemWeekly",
+			"tab": "providers",
+			"group": "Services",
+			"type": "enum",
+			"label": "Codex Auto-Redeem Saved Resets (Weekly)",
+			"description": "Spend saved Codex resets on weekly blocks and on expiring credits whose fullest chat window is weekly. A block known only from a short 429 wait needs both Codex windows. unset asks before spending and never spends without a prompt; yes spends without asking; no never spends.",
+			"warning": null,
+			"condition": null,
+			"secret": false,
+			"credential": false,
+			"default": "unset",
+			"values": [
+				"unset",
+				"yes",
+				"no"
+			],
+			"options": [
+				{
+					"value": "unset",
+					"label": "Unset",
+					"description": "Ask before spending; never spend without a prompt."
+				},
+				{
+					"value": "yes",
+					"label": "Yes",
+					"description": "Spend eligible saved resets without asking."
+				},
+				{
+					"value": "no",
+					"label": "No",
+					"description": "Never spend saved resets for this window."
 				}
 			],
 			"env": null
@@ -2786,12 +2870,12 @@
 			"env": null
 		},
 		{
-			"id": "claudeResets.autoRedeem",
+			"id": "claudeResets.autoRedeem5h",
 			"tab": "providers",
 			"group": "Services",
 			"type": "enum",
-			"label": "Claude Auto-Redeem Resets",
-			"description": "Spend eligible Claude Cedar or Juniper resets automatically. Cedar is spent only for covered limits; Juniper can only recover a sole 5-hour block. unset asks before the first spend (with no prompt UI, it spends only a reset expiring within 5 minutes), yes spends without prompting, and no disables blocked recovery and expiry salvage.",
+			"label": "Claude Auto-Redeem Saved Resets (5h)",
+			"description": "Spend Claude Cedar or Juniper resets on 5-hour-only blocks and on expiring grants whose fullest covered limit is 5h. unset asks before spending and never spends without a prompt; yes spends without asking; no never spends.",
 			"warning": null,
 			"condition": null,
 			"secret": false,
@@ -2806,17 +2890,89 @@
 				{
 					"value": "unset",
 					"label": "Unset",
-					"description": "Check live eligibility, then ask before spending the first Claude reset. With no prompt UI, spend only a reset expiring within 5 minutes."
+					"description": "Ask before spending; never spend without a prompt."
 				},
 				{
 					"value": "yes",
 					"label": "Yes",
-					"description": "Spend eligible Claude resets without prompting."
+					"description": "Spend eligible saved resets without asking."
 				},
 				{
 					"value": "no",
 					"label": "No",
-					"description": "Do not run Claude reset auto-redeem checks."
+					"description": "Never spend saved resets for this window."
+				}
+			],
+			"env": null
+		},
+		{
+			"id": "claudeResets.autoRedeemWeekly",
+			"tab": "providers",
+			"group": "Services",
+			"type": "enum",
+			"label": "Claude Auto-Redeem Saved Resets (Weekly)",
+			"description": "Spend Claude Cedar resets on weekly or model-scoped blocks and on expiring grants whose fullest covered limit is weekly. unset asks before spending and never spends without a prompt; yes spends without asking; no never spends.",
+			"warning": null,
+			"condition": null,
+			"secret": false,
+			"credential": false,
+			"default": "unset",
+			"values": [
+				"unset",
+				"yes",
+				"no"
+			],
+			"options": [
+				{
+					"value": "unset",
+					"label": "Unset",
+					"description": "Ask before spending; never spend without a prompt."
+				},
+				{
+					"value": "yes",
+					"label": "Yes",
+					"description": "Spend eligible saved resets without asking."
+				},
+				{
+					"value": "no",
+					"label": "No",
+					"description": "Never spend saved resets for this window."
+				}
+			],
+			"env": null
+		},
+		{
+			"id": "claudeResets.autoRedeemFable",
+			"tab": "providers",
+			"group": "Services",
+			"type": "enum",
+			"label": "Claude Auto-Redeem Fable Resets",
+			"description": "Spend Claude Fable launch resets, which restore Fable weekly usage plus the 5h window. Only this setting governs them. unset asks before spending and never spends without a prompt; yes spends without asking; no never spends.",
+			"warning": null,
+			"condition": null,
+			"secret": false,
+			"credential": false,
+			"default": "unset",
+			"values": [
+				"unset",
+				"yes",
+				"no"
+			],
+			"options": [
+				{
+					"value": "unset",
+					"label": "Unset",
+					"description": "Ask before spending; never spend without a prompt."
+				},
+				{
+					"value": "yes",
+					"label": "Yes",
+					"description": "Spend eligible saved resets without asking."
+				},
+				{
+					"value": "no",
+					"label": "No",
+					"description": "Never spend saved resets for this window."
 				}
 			],
 			"env": null
@@ -4062,7 +4218,7 @@
 			"group": "Mnemopi",
 			"type": "string",
 			"label": "Mnemopi DB Path",
-			"description": "Optional SQLite DB path. Defaults to the agent memories directory.",
+			"description": "Optional SQLite DB path; a leading ~ is the home directory. Defaults to the agent memories directory.",
 			"warning": null,
 			"condition": "mnemopiActive",
 			"secret": false,
@@ -4788,7 +4944,7 @@
 			"group": "Editing",
 			"type": "enum",
 			"label": "Edit Mode",
-			"description": "Select the edit tool variant (replace, patch, hashline, or apply_patch)",
+			"description": "Select the edit tool variant (replace, patch, hashline, or apply_patch); none removes the edit tool and keeps bash enabled",
 			"warning": null,
 			"condition": null,
 			"secret": false,
@@ -4799,7 +4955,8 @@
 				"hashline",
 				"patch",
 				"replace",
-				"sloppy"
+				"sloppy",
+				"none"
 			],
 			"options": null,
 			"env": "PI_EDIT_VARIANT"
@@ -6600,7 +6757,7 @@
 			"group": "LSP",
 			"type": "boolean",
 			"label": "LSP",
-			"description": "Enable the lsp tool for code intelligence (definitions, references, diagnostics, rename)",
+			"description": "Language-server integration: the lsp tool, diagnostics on write/edit, and format on write (--no-lsp disables for the run)",
 			"warning": null,
 			"condition": null,
 			"secret": false,
@@ -7093,7 +7250,7 @@
 				{
 					"value": "auto",
 					"label": "Auto",
-					"description": "Let the PAL pick the best available backend"
+					"description": "Isolated subagents use ovnfs checkouts when ovnfs is found; otherwise (and for worktrees) the PAL picks the best available backend"
 				},
 				{
 					"value": "apfs",
@@ -7259,6 +7416,22 @@
 			"env": null
 		},
 		{
+			"id": "ovnfs.path",
+			"tab": "tasks",
+			"group": "Isolation",
+			"type": "string",
+			"label": "ovnfs Binary",
+			"description": "ovnfs executable; unset looks for `ovnfs` on PATH. When it is found, ovnfs checkouts (copy-on-write views of a folder, ready in about a second at any size) serve every separate copy: the system prompt tells agents to open checkouts instead of git worktrees or copies, and isolated subagents (when allowed, with `isolation.backend` on auto) run in checkouts instead of native clones",
+			"warning": null,
+			"condition": null,
+			"secret": false,
+			"credential": false,
+			"default": null,
+			"values": null,
+			"options": null,
+			"env": null
+		},
+		{
 			"id": "task.isolation.merge",
 			"tab": "tasks",
 			"group": "Isolation",
@@ -7340,7 +7513,7 @@
 			"group": "Subagents",
 			"type": "enum",
 			"label": "Prefer Task Delegation",
-			"description": "How strongly to push delegating work to subagents",
+			"description": "How strongly to push the main agent to delegate work; subagents keep the model's own policy",
 			"warning": null,
 			"condition": null,
 			"secret": false,
@@ -7554,6 +7727,48 @@
 				{
 					"value": "64",
 					"label": "64 tasks",
+					"description": null
+				}
+			],
+			"env": null
+		},
+		{
+			"id": "task.workerThreads",
+			"tab": "tasks",
+			"group": "Subagents",
+			"type": "number",
+			"label": "Subagent Worker Threads",
+			"description": "Maximum worker threads for subagents. Up to 8 concurrent subagents run on the main thread; at 9 one worker joins, and one more each time the count doubles (18, 36, 72). Workers stop a minute after no subagent is live in them; 0 keeps every subagent on the main thread",
+			"warning": null,
+			"condition": null,
+			"secret": false,
+			"credential": false,
+			"default": 4,
+			"values": null,
+			"options": [
+				{
+					"value": "0",
+					"label": "Main thread only",
+					"description": null
+				},
+				{
+					"value": "1",
+					"label": "Up to 1 worker",
+					"description": null
+				},
+				{
+					"value": "2",
+					"label": "Up to 2 workers",
+					"description": null
+				},
+				{
+					"value": "4",
+					"label": "Up to 4 workers",
+					"description": "Default"
+				},
+				{
+					"value": "8",
+					"label": "Up to 8 workers",
 					"description": null
 				}
 			],
@@ -8122,6 +8337,22 @@
 			"secret": false,
 			"credential": false,
 			"default": true,
+			"values": null,
+			"options": null,
+			"env": null
+		},
+		{
+			"id": "extensionRenderers.transcriptPresenters",
+			"tab": "tools",
+			"group": "Extensions",
+			"type": "boolean",
+			"label": "Extension Transcript Presenters",
+			"description": "Let extensions draw transcript blocks such as tool calls in full, as one compact row, or hidden; the session, exports and model context are unchanged",
+			"warning": null,
+			"condition": null,
+			"secret": false,
+			"credential": false,
+			"default": false,
 			"values": null,
 			"options": null,
 			"env": null
@@ -8956,6 +9187,22 @@
 			"values": null,
 			"options": null,
 			"env": null
+		},
+		{
+			"id": "spotlight.experiment.enabled",
+			"tab": "tools",
+			"group": "Developer",
+			"type": "boolean",
+			"label": "Spotlight Experiment",
+			"description": "Shape tool output and rank find results with Stencil Spotlight, and log each shaped result to the session",
+			"warning": null,
+			"condition": null,
+			"secret": false,
+			"credential": false,
+			"default": false,
+			"values": null,
+			"options": null,
+			"env": "PI_SPOTLIGHT_EXPERIMENT"
 		}
 	]
 }

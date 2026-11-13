@@ -93,6 +93,8 @@ export type ChatMessage =
 			text: string;
 			/** 上下文压缩摘要 / 分支摘要。 */
 			kind: "compaction" | "branch";
+			/** omp 实验性上下文轮换：text 是系统提示词，界面展示本地化说明。 */
+			rollover?: boolean;
 			/** 压缩前的 token 数。 */
 			tokensBefore?: number;
 			/** 压缩耗时（compaction_start → compaction_end）。 */
@@ -867,6 +869,7 @@ function imagesFromMessage(
 function assistantFromPartial(
 	msg: Record<string, unknown>,
 	prev: ChatMessage | null,
+	snapshots?: { text: string; thinking: string },
 ): Extract<ChatMessage, { role: "assistant" }> {
 	const id =
 		typeof msg.id === "string" && msg.id.length > 0
@@ -874,8 +877,8 @@ function assistantFromPartial(
 			: prev?.role === "assistant"
 				? prev.id
 				: localId("assistant");
-	const snapshot = textFromMessage(msg);
-	const thinkingSnap = thinkingFromMessage(msg);
+	const snapshot = snapshots?.text ?? textFromMessage(msg);
+	const thinkingSnap = snapshots?.thinking ?? thinkingFromMessage(msg);
 	const prevText = prev?.role === "assistant" ? prev.text : "";
 	const prevThinking = prev?.role === "assistant" ? (prev.thinking ?? "") : "";
 	const prevStarted =
@@ -1008,6 +1011,14 @@ function errorVariant(
 	return "error";
 }
 
+/** 自动重试会取代刚失败的尝试：撤掉它留下的错误条，只保留最终结果。 */
+function dropSupersededRetryErrors(state: ChatState): ChatState {
+	let end = state.messages.length;
+	while (end > 0 && state.messages[end - 1]?.role === "error") end--;
+	if (end === state.messages.length) return state;
+	return { ...state, messages: state.messages.slice(0, end) };
+}
+
 function appendError(
 	state: ChatState,
 	text: string,
@@ -1117,7 +1128,7 @@ function reduceAgentPayload(
 				? payload.errorMessage.trim()
 				: "";
 		return {
-			...state,
+			...dropSupersededRetryErrors(state),
 			running: true,
 			retryHint: {
 				attempt,
@@ -1236,13 +1247,17 @@ function reduceAgentPayload(
 			return { ...state, running: true, messages };
 		}
 
-		let nextStream = assistantFromPartial(msg, state.streamingMessage);
+		const snapshot = textFromMessage(msg);
+		const thinkingSnap = thinkingFromMessage(msg);
+		let nextStream = assistantFromPartial(msg, state.streamingMessage, {
+			text: snapshot,
+			thinking: thinkingSnap,
+		});
 
 		const assistantEvent = payload.assistantMessageEvent;
 		if (assistantEvent && typeof assistantEvent === "object") {
 			const ev = assistantEvent as Record<string, unknown>;
 			if (ev.type === "text_delta" && typeof ev.delta === "string") {
-				const snapshot = textFromMessage(msg);
 				if (!snapshot) {
 					nextStream = stampThinkingClock({
 						...nextStream,
@@ -1251,7 +1266,7 @@ function reduceAgentPayload(
 				}
 			}
 			if (ev.type === "thinking_delta" && typeof ev.delta === "string") {
-				const snap = thinkingFromMessage(msg);
+				const snap = thinkingSnap;
 				const current = nextStream.thinking ?? "";
 				// Prefer growing snapshot; only append delta when snapshot is empty/stale.
 				if (snap && snap.length >= current.length) {
@@ -1700,7 +1715,9 @@ function reduceAgentPayload(
 		};
 	}
 	if (type === "agent_end") {
-		if (payload.willRetry === true) {
+		// omp 用 yielded 标记「还会自己继续」（重试/续跑）；这不是终态，
+		// 不能在这里重复追加错误或清掉重试提示。
+		if (payload.willRetry === true || payload.yielded === false) {
 			return state;
 		}
 		// Prefer explicit error from last assistant message if UI missed message_end

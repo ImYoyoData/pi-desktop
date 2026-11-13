@@ -11,6 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { agentDir } from "./agent-dir";
+import { writeJsonAtomicSync } from "./atomic-write";
 
 const DESKTOP_PREFS_FILENAME = "desktop-prefs.json";
 
@@ -34,13 +35,7 @@ export function readPrefs(filePath: string): Record<string, string> {
 }
 
 function writeJsonAtomic(filePath: string, data: Record<string, string>): void {
-	fs.mkdirSync(path.dirname(filePath), { recursive: true });
-	const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-	fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, {
-		encoding: "utf8",
-		mode: 0o600,
-	});
-	fs.renameSync(tmp, filePath);
+	writeJsonAtomicSync(filePath, data, { mode: 0o600 });
 }
 
 const changeListeners = new Set<(keys: string[]) => void>();

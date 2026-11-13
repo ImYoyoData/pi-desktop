@@ -1,5 +1,5 @@
 /**
- * 共享状态同步：桌面端与浏览器预览页的唯一同步入口。
+ * 共享状态同步：桌面端各窗口的唯一同步入口。
  *
  * 机制：任何一端改了共享状态 → 主进程广播一条 state:changed → 这里统一收到，
  * 先刷新本地偏好缓存，再让各域「重新读取并应用」。
@@ -114,7 +114,10 @@ export function startStateSync(): void {
 			const sessions = useSessionsStore.getState();
 			if (sessions.activeId === active.sessionId) return;
 			if (sessions.draftRoot) return;
-			void useSessionsStore.getState().selectSession(active.sessionId, active.cwd);
+			void useSessionsStore
+				.getState()
+				.selectSession(active.sessionId, active.cwd)
+				.catch((error) => console.warn("[state-sync] session switch failed", error));
 		} else if (change.scope === "models") {
 			window.dispatchEvent(new CustomEvent("pi-models-changed"));
 		} else if (change.scope === "streamRender") {

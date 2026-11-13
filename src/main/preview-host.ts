@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { PreviewResult } from "../shared/preview-types";
-import { localMediaSrc } from "./local-file-protocol";
+import { allowLocalMediaPath, localMediaSrc } from "./local-file-protocol";
 import { withoutAsar } from "./workspace-fs";
 
 export type { PreviewResult };
@@ -18,7 +18,7 @@ const IMAGE_EXTENSIONS = new Set([
   ".ico",
   ".avif",
 ]);
-const VIDEO_EXTENSIONS = new Set([".mp4", ".webm", ".ogg", ".mov", ".m4v"]);
+const VIDEO_EXTENSIONS = new Set([".mp4", ".webm", ".ogv", ".mov", ".m4v"]);
 const AUDIO_EXTENSIONS = new Set([".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac", ".opus"]);
 const TEXT_EXTENSIONS = new Set([
   ".ts",
@@ -185,6 +185,8 @@ function tryAsTextFile(absolute: string, relPath: string): PreviewResult {
 
 /** 读取已解析的绝对路径（调用方已做路径允许校验）。 */
 export function readPreviewAt(workspaceRoot: string, absolute: string): PreviewResult {
+  // 预览过的目录允许 pi-local 读取其媒体资源（工作区外文档的图片/视频）。
+  allowLocalMediaPath(absolute);
   return withoutAsar(() => {
     const relPath = displayPath(path.resolve(workspaceRoot), absolute);
 

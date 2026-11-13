@@ -1,8 +1,42 @@
 # Changelog
 
+## v0.3.8-rc.3 (2026-11-13)
+
+本版把内置 omp / Pi SDK 与桌面依赖更新到最新，并对主进程、worker 生命周期与渲染层状态做了一轮完整审计：修掉会话挂起、窗口无法关闭、权限越界等一批缺陷，同时清掉死代码、收紧安装包体积。
+
+### 变更 Changes
+
+- **升级内置 SDK 与依赖**：omp `18.18.9`（`pi-coding-agent` / `pi-tui` / `pi-utils`）、Pi `1.5.2`，electron `45.3.1`（Chromium 156）；设置 schema 与斜杠命令清单按新版本重新生成。
+- **性能与资源**：页签持久化改为按内容签名去抖，优化 Composer 与 Markdown 渲染、流式解析上限提到 64k；空闲 worker 最多保留 4 个，且回收前会等待在途命令结束。
+- **安装包体积**：排除 7 个纯渲染层依赖（react / react-dom / virtua / @pierre 等，约 26MB），删除未使用的 `pnpm-workspace.yaml`。
+
+### 修复 Fixes
+
+- **会话不再无声卡死**：空闲裁剪不会再杀掉仍有在途命令的 worker（`list_models` / `get_state` 曾会永久挂起）；prompt 投递失败后状态复位，停止按钮不再卡住；渲染进程崩溃或卡死时窗口可以正常关闭并自动重载一次。
+- **收紧安全边界**：渲染层开启 sandbox；内置浏览器的网页不再静默获得剪贴板 / 通知 / 屏幕捕获权限；`pi-local` 协议限定为工作区、agent 目录与主进程预览过的目录；检查点回滚与文件移动 / 重命名统一走工作区沙箱校验。
+- **状态一致性**：切回运行中的会话不再重复整轮消息，上下文轮换条目独立展示，OMP 自动重试不再残留旧错误条。
+- **工程清理**：移除 dev-bridge、18 个零引用导出与 3 个死代码模块，补齐 `PI_DESKTOP_BASH_SHELL` 环境变量契约。
+
+### Changes (English)
+
+- **Upgraded bundled SDKs and dependencies**: omp `18.18.9` (`pi-coding-agent` / `pi-tui` / `pi-utils`) and Pi `1.5.2`, with electron `45.3.1` (Chromium 156); the settings schema and slash-command catalog were regenerated.
+- **Performance and resources**: tab persistence is debounced by content signature, Composer/Markdown rendering and the streaming parser (64k cap) were optimized, and at most 4 idle workers stay alive — none are reclaimed while a command is still in flight.
+- **Installer size**: seven renderer-only packages (react, react-dom, virtua, @pierre and friends, ~26 MB) are no longer packed, and the unused `pnpm-workspace.yaml` is gone.
+
+### Fixes
+
+- **Sessions no longer hang silently**: idle trimming skips workers with an in-flight command (`list_models` / `get_state` used to wait forever), a failed prompt send resets the session to idle instead of leaving Stop stuck, and a crashed or unresponsive renderer can be closed after one automatic reload attempt.
+- **Tighter security boundaries**: the renderer runs sandboxed, pages in the embedded browser no longer get clipboard / notification / display-capture permissions silently, `pi-local` is limited to the workspace, the agent dir and directories the main process actually previewed, and checkpoint revert plus file move/rename now run through the workspace sandbox check.
+- **Consistent state**: switching back to a running session no longer duplicates the whole turn, context-rollover entries render as their own card, and OMP auto-retry no longer leaves a stale error row.
+- **Cleanup**: dev-bridge, 18 unreferenced exports and three dead modules were removed, and the `PI_DESKTOP_BASH_SHELL` contract is now actually honored.
+
 ## v0.3.8-rc.2 (2026-11-07)
 
 修复切到 OMP 引擎后首条消息报 `Model not found` 的问题：模型菜单此前永远读 Pi 的 `models.json` 目录，把 Pi 的 `provider/id` 发给 OMP worker 的 `set_model` 必然失败；重新开会话能恢复，是因为新草稿的菜单回落到了 OMP 自己的列表。
+
+### 变更 Changes
+
+- **升级 omp SDK 到 18.18.9 与桌面依赖**：`@oh-my-pi/pi-coding-agent` / `pi-tui` / `pi-utils` 从 18.18.7 升到 18.18.9，桌面直接 import 的 SDK 子路径与设置 schema 均无变化（重新生成后仅 `ompVersion` 变动），斜杠命令清单同步移除上游已下线的 `/mcp smithery-search|login|logout`；electron 升至 45.3.1（Chromium 156.0.8078.96）、vite 8.3.8、`@vitejs/plugin-react` 6.3.0、marked 18.2.0、markstream-react 2.0.25（`markstream-core` 同步）。
 
 ### 修复 Fixes
 
@@ -10,6 +44,12 @@
 - **会话级的模型/思考偏好按引擎隔离**：偏好键改为 `pi\u0000<sessionId>` / `omp\u0000<sessionId>`，同一个会话 id 在 Pi 与 OMP 下各存一份。此前共用一条键，切引擎后不但沿用另一侧的模型 id，菜单还会把不存在的模型标成“已选中”。升级时旧的裸会话 id 会一次性迁移到 Pi 前缀下，已有选择不会丢；OMP 侧则重新选择（把 Pi 的模型 id 搬过去只会重现同一个错误）。
 - **修复切换引擎后菜单不刷新**：切换引擎现在当作一次全新的会话绑定处理：清空已应用的模型标记、旧引擎的选中值与整个菜单，再按新引擎重新拉取，避免旧列表仍可点、点下去就是一次注定失败的 `set_model`。
 - **保存 OMP 模型配置后立即生效**：OMP 设置页保存 `models.yml` 后广播一次模型变更，输入框菜单马上重新读取，不必等到下次切会话。
+- **上下文轮换不再把系统提示词显示成摘要**：omp 的笔记式上下文轮换（`compaction.experimentalContextManagement`）把 `<context-window-rollover>` 提示词原样写进 compaction entry 的 `summary`，桌面按普通压缩摘要渲染，展开后是一整段英文内部提示。历史解析现在识别 `details.kind`，这类条目显示为「已切换上下文窗口」并标注 `N tokens → 新窗口`，展开是本地化说明；真实摘要不受影响。
+- **修复运行中切回会话时整轮消息重复**：切回运行中的会话时，磁盘历史要和内存里的 live 尾部拼接，拼接锚点是最后一条提问；图片消息发送时 `agentText` 是空格占位，落盘后却是空文本，两边按原文比较永远对不上，于是磁盘上那一轮（用户图片 + 整段过程）原样保留，后面又接了一份 live 副本。现在比较前先剥离注入块并去掉空白，且只把磁盘最后一条提问认作当前轮；提问还没落盘时仍按原逻辑接在磁盘历史后面，新消息不会丢。拼接时也会保留用户已经翻出来的更早分页，不再被刷新后的尾部一页截掉。
+
+### Changes (English)
+
+- **Upgraded the omp SDK to 18.18.9 and refreshed desktop dependencies**: `@oh-my-pi/pi-coding-agent`, `pi-tui` and `pi-utils` moved from 18.18.7 to 18.18.9; the SDK subpaths the desktop imports and the settings schema are unchanged (regeneration only bumps `ompVersion`), and the slash catalog drops the retired `/mcp smithery-search|login|logout` subcommands. Electron is now 45.3.1 (Chromium 156.0.8078.96), alongside vite 8.3.8, `@vitejs/plugin-react` 6.3.0, marked 18.2.0 and markstream-react 2.0.25 (`markstream-core` follows).
 
 ### Fixes
 
@@ -17,6 +57,8 @@
 - **Per-engine isolation of session model/thinking prefs**: pref keys are now `pi\u0000<sessionId>` / `omp\u0000<sessionId>`, so one session id keeps a separate choice per engine. They used to share a single key, which meant a switch carried the other engine's model id over and even marked a non-existent model as selected. Upgrading migrates the old bare ids to the Pi prefix once, so existing choices survive; OMP starts fresh because copying Pi's model ids there would just reproduce the same error.
 - **Fixed the menu not refreshing after an engine switch**: an engine switch is now treated as a fresh session binding — the applied-model marker, the previous engine's selection and the whole menu are cleared and refetched for the new engine, so a stale entry can no longer be clicked into a guaranteed-failing `set_model`.
 - **Saving the OMP model config takes effect immediately**: saving `models.yml` in OMP settings now broadcasts a models change, so the composer menu re-reads it right away instead of waiting for the next session switch.
+- **Context rollover no longer renders its system prompt as a summary**: omp's notes-backed context rollover (`compaction.experimentalContextManagement`) writes the `<context-window-rollover>` prompt verbatim into the compaction entry's `summary`, and the desktop rendered it as an ordinary compaction summary, so expanding the card showed internal English instructions. History parsing now reads `details.kind`; such entries display as "Context window rolled over" with `N tokens → new window` and a localized explanation when expanded. Real summaries are unchanged.
+- **Fixed a running session rendering its turn twice after switching back**: hydrating while a turn is live merges the disk history with the in-memory tail, anchoring on the last user prompt; image-only prompts are sent with `agentText` `" "` but land on disk as empty text, so the comparison never matched — the disk copy of the turn (user image plus every step) stayed and the live copy was appended after it. The comparison now strips injected blocks and whitespace, and only the disk's last prompt can anchor the current turn; when the prompt has not reached disk yet the live tail is still appended, so nothing new is lost. Older pages the user had already loaded are also kept instead of being truncated by the refreshed tail page.
 
 ## v0.3.8-rc.1 (2026-11-03)
 

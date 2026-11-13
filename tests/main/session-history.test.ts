@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearSessionConversation, readSessionHistoryMessages, readSessionHistoryPage } from "../../src/main/session-history";
 
 function writeJsonl(filePath: string, lines: unknown[]): void {
@@ -13,10 +13,18 @@ describe("session-history", () => {
   let tempRoot: string;
 
   beforeEach(() => {
+    // 测试环境没有构建 worker 产物，回退日志是预期噪声，别淹没真实错误。
+    const original = console.error;
+    vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+      const text = args.map((arg) => String(arg)).join(" ");
+      if (text.includes("history worker failed")) return;
+      original(...args);
+    });
     tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-desktop-history-"));
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     fs.rmSync(tempRoot, { recursive: true, force: true });
   });
 

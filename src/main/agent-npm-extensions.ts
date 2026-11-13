@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { agentDir } from "./agent-dir";
 
@@ -55,6 +55,7 @@ export function addAgentNpmExtension(name: string, version = "*"): void {
   }
   if (!pkg.dependencies) pkg.dependencies = {};
   pkg.dependencies[name] = version;
+  mkdirSync(path.dirname(pkgPath), { recursive: true });
   writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`, "utf8");
 }
 
@@ -78,22 +79,20 @@ export function removeAgentNpmExtension(name: string): boolean {
   delete deps[name];
   pkg.dependencies = deps;
   writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`, "utf8");
-  const targets = [agentNpmExtensionDir(name)];
-  for (const target of targets) {
-    try {
-      rmSync(target, { recursive: true, force: true });
-    } catch {
-      // ignore
+  const target = agentNpmExtensionDir(name);
+  try {
+    rmSync(target, { recursive: true, force: true });
+  } catch {
+    // ignore
+  }
+  // Prune now-empty scoped parents (@scope) so no empty dirs linger.
+  try {
+    const parent = path.dirname(target);
+    if (path.basename(parent).startsWith("@") && readdirSync(parent).length === 0) {
+      rmSync(parent, { recursive: true, force: true });
     }
-    // Prune now-empty scoped parents (@scope) so no empty dirs linger.
-    try {
-      const parent = path.dirname(target);
-      if (path.basename(parent).startsWith("@") && readdirSync(parent).length === 0) {
-        rmSync(parent, { recursive: true, force: true });
-      }
-    } catch {
-      // ignore
-    }
+  } catch {
+    // ignore
   }
   return true;
 }

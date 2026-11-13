@@ -5,10 +5,10 @@ const DOCK_VIEW_KEY = "pi-desktop:right-dock-view:v1";
 
 export const DOCK_PREF_KEYS = [DOCK_VIEW_KEY];
 
-/** 右侧栏三个独立页面，同一时刻只显示一个。 */
-export type RightDockView = "files" | "changes" | "browser";
+/** 右侧栏四个独立页面，同一时刻只显示一个。 */
+export type RightDockView = "files" | "changes" | "browser" | "agents";
 
-const VIEWS: RightDockView[] = ["files", "changes", "browser"];
+const VIEWS: RightDockView[] = ["files", "changes", "browser", "agents"];
 
 function isView(value: string | null): value is RightDockView {
   return value !== null && (VIEWS as string[]).includes(value);

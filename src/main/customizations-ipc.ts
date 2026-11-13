@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { BrowserWindow, app, ipcMain, shell, type WebContents } from "electron";
+import { writeFileAtomicSync } from "./atomic-write";
 import { IpcChannels } from "../shared/protocol";
 import { emptyCustomizations, type CustomizationCreateKind, type CustomizationsSnapshot, type McpAuthEvent, type McpAuthEventPayload, type McpAuthPromptReply, type McpAuthState, type McpAuthTarget, type McpTestResult, type McpTestTarget } from "../shared/customizations";
 import { getWorkspace, listRecentDesktop } from "./workspace-ipc";
@@ -76,9 +77,7 @@ function writeCachedSnapshot(snapshot: CustomizationsSnapshot): void {
 			root: cacheRoot,
 			snapshot,
 		};
-		const tmp = `${file}.tmp`;
-		fs.writeFileSync(tmp, JSON.stringify(payload), "utf8");
-		fs.renameSync(tmp, file);
+		writeFileAtomicSync(file, JSON.stringify(payload));
 	} catch {
 		// 缓存写入失败不影响功能
 	}

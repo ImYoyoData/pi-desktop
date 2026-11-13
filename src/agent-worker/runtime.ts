@@ -876,8 +876,12 @@ export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
 	if (msg.kind === "shutdown") {
 		runTracker?.endAllRuns();
 		persistTimingToDisk(timingTracker.snapshot());
+		try {
+			await session?.modelRuntime.settleCredentialWrites();
+		} catch {
+			// 凭证落盘失败不阻塞退出，broker 会在宽限期后强制结束 worker。
+		}
 		process.exit(0);
-		return;
 	}
 	if (msg.kind === "reload_models") {
 		if (session) {

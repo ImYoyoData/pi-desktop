@@ -25,6 +25,7 @@ const pendingDialogs = new Map<string, PendingDialog>();
 
 function broadcast(event: ExtensionUiEvent): void {
   for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue;
     win.webContents.send(IpcChannels.sessions.extensionUi, event);
   }
 }
@@ -143,16 +144,6 @@ export function registerExtensionUiIpc(): void {
       return { ok: true };
     },
   );
-}
-
-export function clearPendingExtensionUiAsks(reason = "extension UI cleared"): void {
-  for (const [id, row] of pendingDialogs) {
-    clearTimeout(row.timer);
-    broadcastCancelled(row.sessionId, id);
-    row.resolve({ requestId: id, cancelled: true });
-    pendingDialogs.delete(id);
-  }
-  void reason;
 }
 
 /** Cancel every outstanding dialog for one session (renderer Stop / turn abort). */

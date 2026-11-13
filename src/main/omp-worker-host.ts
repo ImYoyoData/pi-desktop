@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { app } from "electron";
 import path from "node:path";
 import type {
@@ -91,6 +91,19 @@ function toOmpInbound(msg: WorkerInbound): OmpWorkerInbound | null {
 	}
 }
 
+const ompWorkers = new Set<ChildProcess>();
+
+export function disposeAllOmpWorkers(): void {
+	for (const child of ompWorkers) {
+		try {
+			child.kill();
+		} catch {
+			// ignore
+		}
+	}
+	ompWorkers.clear();
+}
+
 export function createOmpSpawnWorker(): SpawnWorker {
 	return async (cwd, filePath) => {
 		await refreshSystemProxy();
@@ -101,22 +114,41 @@ export function createOmpSpawnWorker(): SpawnWorker {
 			stdio: ["pipe", "pipe", "pipe"],
 			windowsHide: true,
 		});
+		ompWorkers.add(child);
+		child.once("close", () => ompWorkers.delete(child));
 
 		const listeners = new Set<(msg: WorkerOutbound) => void>();
 		let expectExit = false;
+		let exited = false;
+		let stderrTail = "";
+		let fatalSent = false;
+
+		const emitFatal = (error: string): void => {
+			if (fatalSent) return;
+			fatalSent = true;
+			for (const cb of listeners) cb({ kind: "fatal", error });
+		};
 
 		child.stderr?.setEncoding("utf8");
 		child.stderr?.on("data", (chunk: string) => {
+			stderrTail = (stderrTail + chunk).slice(-4000);
 			process.stderr.write(`[omp-worker] ${chunk}`);
 		});
-		child.on("error", (err) => {
-			for (const cb of listeners) cb({ kind: "fatal", error: err.message });
+		child.stdin?.on("error", (err) => {
+			process.stderr.write(`[omp-worker] stdin error: ${err.message}\n`);
 		});
-		child.on("exit", (code) => {
+		child.on("error", (err) => {
+			emitFatal(err.message);
+		});
+		child.on("exit", () => {
+			exited = true;
+		});
+		child.on("close", (code) => {
+			exited = true;
 			if (expectExit || code === 0) return;
-			for (const cb of listeners) {
-				cb({ kind: "fatal", error: `omp worker exited (${code ?? "null"})` });
-			}
+			const tail = stderrTail.trim().replace(/\s+/g, " ").slice(-1200);
+			const error = `omp worker exited (${code ?? "null"})${tail ? `: ${tail}` : ""}`;
+			emitFatal(error);
 		});
 
 		let buffered = "";
@@ -130,6 +162,7 @@ export function createOmpSpawnWorker(): SpawnWorker {
 				if (line) {
 					try {
 						const msg = toBrokerMessage(JSON.parse(line) as OmpWorkerOutbound);
+						if (msg.kind === "fatal") fatalSent = true;
 						for (const cb of listeners) cb(msg);
 					} catch {
 						process.stderr.write(`[omp-worker] bad frame: ${line.slice(0, 200)}\n`);
@@ -142,8 +175,15 @@ export function createOmpSpawnWorker(): SpawnWorker {
 		const handle: WorkerHandle = {
 			send: (msg: WorkerInbound) => {
 				const outbound = toOmpInbound(msg);
-				if (outbound) child.stdin?.write(`${JSON.stringify(outbound)}\n`);
-				return Promise.resolve(null);
+				if (outbound) {
+					const stdin = child.stdin;
+					if (!stdin || stdin.destroyed || !stdin.writable) return Promise.resolve(null);
+					stdin.write(`${JSON.stringify(outbound)}\n`);
+				}
+				if (msg.kind !== "shutdown" || exited) return Promise.resolve(null);
+				const { promise, resolve } = Promise.withResolvers<WorkerOutbound | null>();
+				child.once("exit", () => resolve(null));
+				return promise;
 			},
 			kill: () => {
 				expectExit = true;
